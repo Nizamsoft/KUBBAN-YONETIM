@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.07";
+} from "./local-backend.js?v=2026.08";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.07";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.08";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -256,8 +256,14 @@ $("#user-chip").addEventListener("click", () => {
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.07";
+const APP_VERSION = "2026.08";
 const CHANGELOG = [
+  { version: "2026.08", date: "2026-08-04", items: [
+    "Cari hesaplar (320 Tedarikçi / 120 Müşteri) için ayrı hareket defteri",
+    "Cari kolonları: İşlem No · Cari No · Tarih · Şahıs · Açıklama · Borç · Alacak · Güncel Bakiye · Fatura Türü · Fatura No",
+    "Cari No hesap bazında sıralı (kaçıncı kayıt); İşlem No global",
+    "Güncel bakiye Borç − Alacak ile yürüyor; Borç/Alacak bakiye göstergesi",
+  ]},
   { version: "2026.07", date: "2026-08-04", items: [
     "Hesap iç yapısı: hesaba tıklayınca Hareket Defteri açılıyor (Kasa dahil tüm hesaplar)",
     "Hareket kolonları: İşlem No · Tarih · İşlem Adı · Şahıs · Açıklama · Rapor · Giren · Çıkan · Güncel Bakiye",
@@ -1232,6 +1238,10 @@ function hashQuery(key) {
   return new URLSearchParams(q).get(key);
 }
 
+// Cari hesap mı? (320 Tedarikçi / 120 Müşteri) → Borç/Alacak + Fatura defteri
+function isCari(type) { return type === "musteri" || type === "tedarikci"; }
+const FATURA_TURU = ["", "Satış Faturası", "Alış Faturası", "İade Faturası", "Proforma", "İrsaliye", "Diğer"];
+
 async function viewAccountLedger(c) {
   const id = hashQuery("id");
   const [accounts, entries] = await Promise.all([
@@ -1243,79 +1253,152 @@ async function viewAccountLedger(c) {
     c.innerHTML = `<div class="notice warn">Hesap bulunamadı. <a href="#/hesaplar">← Hesaplara dön</a></div>`;
     return;
   }
+  const cari = isCari(acc.type);
   const list = entries.filter((e) => e.accountId === id)
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.islemNo || 0) - (b.islemNo || 0));
   const opening = acc.openingBalance ?? acc.balance ?? 0;
   let run = opening;
-  const rows = list.map((e) => { run += parseNum(e.giren) - parseNum(e.cikan); return { e, bakiye: run }; });
-  const totGiren = list.reduce((s, e) => s + parseNum(e.giren), 0);
-  const totCikan = list.reduce((s, e) => s + parseNum(e.cikan), 0);
+  const rows = list.map((e) => {
+    run += cari ? (parseNum(e.borc) - parseNum(e.alacak)) : (parseNum(e.giren) - parseNum(e.cikan));
+    return { e, bakiye: run };
+  });
   const nextNo = entries.reduce((m, e) => Math.max(m, e.islemNo || 0), 0) + 1;
+  const nextCariNo = cari ? (list.reduce((m, e) => Math.max(m, e.cariNo || 0), 0) + 1) : null;
 
-  c.innerHTML = `
+  const backBar = `
     <div class="toolbar">
       <a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a>
       <div class="grow"></div>
       <button class="btn btn-primary btn-sm" id="add-entry">+ Yeni Hareket</button>
-    </div>
-    <div class="grid cols-4" style="margin-bottom:18px">
-      <div class="stat"><div class="label">Hesap</div><div class="value" style="font-size:19px">${esc(acc.code || "")}</div><div class="foot">${esc(acc.name || "")}</div></div>
-      <div class="stat green"><div class="label">Toplam Giren</div><div class="value">${fmtTRY(totGiren)}</div></div>
-      <div class="stat red"><div class="label">Toplam Çıkan</div><div class="value">${fmtTRY(totCikan)}</div></div>
-      <div class="stat"><div class="label">Güncel Bakiye</div><div class="value" style="color:${run<0?'var(--danger)':'inherit'}">${fmtTRY(run)}</div><div class="foot">Açılış: ${fmtTRY(opening)}</div></div>
-    </div>
-    <div class="card">
-      <div class="card-head"><h3>Hareketler</h3><span class="hint">${list.length} hareket</span></div>
-      <div class="table-wrap"><table class="data">
-        <thead><tr>
-          <th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
-          <th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th>
-        </tr></thead>
-        <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr>
-          <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
-          <td>${fmtDate(e.date)}</td>
-          <td>${esc(e.islemAdi || "")}</td>
-          <td>${esc(e.sahis || "")}</td>
-          <td>${esc(e.aciklama || "")}</td>
-          <td>${esc(e.rapor || "")}</td>
-          <td class="num" style="color:var(--ok)">${e.giren ? fmtTRY(parseNum(e.giren)) : "—"}</td>
-          <td class="num" style="color:var(--danger)">${e.cikan ? fmtTRY(parseNum(e.cikan)) : "—"}</td>
-          <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
-          <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
-        </tr>`).join("") : `<tr><td colspan="10"><div class="empty"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div></td></tr>`}
-        </tbody>
-        ${rows.length ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)">
-          <td colspan="6">Toplam</td>
-          <td class="num" style="color:var(--ok)">${fmtTRY(totGiren)}</td>
-          <td class="num" style="color:var(--danger)">${fmtTRY(totCikan)}</td>
-          <td class="num">${fmtTRY(run)}</td><td></td>
-        </tr></tfoot>` : ""}
-      </table></div>
     </div>`;
 
-  $("#add-entry").onclick = () => entryModal(acc, null, nextNo);
+  if (cari) {
+    const totBorc = list.reduce((s, e) => s + parseNum(e.borc), 0);
+    const totAlacak = list.reduce((s, e) => s + parseNum(e.alacak), 0);
+    c.innerHTML = backBar + `
+      <div class="grid cols-4" style="margin-bottom:18px">
+        <div class="stat"><div class="label">Cari Hesap</div><div class="value" style="font-size:19px">${esc(acc.code || "")}</div><div class="foot">${esc(acc.name || "")}</div></div>
+        <div class="stat"><div class="label">Toplam Borç</div><div class="value">${fmtTRY(totBorc)}</div></div>
+        <div class="stat"><div class="label">Toplam Alacak</div><div class="value">${fmtTRY(totAlacak)}</div></div>
+        <div class="stat"><div class="label">Güncel Bakiye</div><div class="value" style="color:${run<0?'var(--danger)':'inherit'}">${fmtTRY(Math.abs(run))}</div><div class="foot">${run>=0?"Borç":"Alacak"} bakiye</div></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Cari Hareketler</h3><span class="hint">${list.length} hareket</span></div>
+        <div class="table-wrap"><table class="data">
+          <thead><tr>
+            <th>İşlem No</th><th>Cari No</th><th>Tarih</th><th>Şahıs</th><th>Açıklama</th>
+            <th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>
+            <th>Fatura Türü</th><th>Fatura No</th><th></th>
+          </tr></thead>
+          <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr>
+            <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
+            <td>${esc(String(e.cariNo ?? "—"))}</td>
+            <td>${fmtDate(e.date)}</td>
+            <td>${esc(e.sahis || "")}</td>
+            <td>${esc(e.aciklama || "")}</td>
+            <td class="num">${e.borc ? fmtTRY(parseNum(e.borc)) : "—"}</td>
+            <td class="num">${e.alacak ? fmtTRY(parseNum(e.alacak)) : "—"}</td>
+            <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
+            <td>${esc(e.faturaTuru || "")}</td>
+            <td>${esc(e.faturaNo || "")}</td>
+            <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
+          </tr>`).join("") : `<tr><td colspan="11"><div class="empty"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div></td></tr>`}
+          </tbody>
+          ${rows.length ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)">
+            <td colspan="5">Toplam</td>
+            <td class="num">${fmtTRY(totBorc)}</td>
+            <td class="num">${fmtTRY(totAlacak)}</td>
+            <td class="num">${fmtTRY(run)}</td><td colspan="3"></td>
+          </tr></tfoot>` : ""}
+        </table></div>
+      </div>`;
+  } else {
+    const totGiren = list.reduce((s, e) => s + parseNum(e.giren), 0);
+    const totCikan = list.reduce((s, e) => s + parseNum(e.cikan), 0);
+    c.innerHTML = backBar + `
+      <div class="grid cols-4" style="margin-bottom:18px">
+        <div class="stat"><div class="label">Hesap</div><div class="value" style="font-size:19px">${esc(acc.code || "")}</div><div class="foot">${esc(acc.name || "")}</div></div>
+        <div class="stat green"><div class="label">Toplam Giren</div><div class="value">${fmtTRY(totGiren)}</div></div>
+        <div class="stat red"><div class="label">Toplam Çıkan</div><div class="value">${fmtTRY(totCikan)}</div></div>
+        <div class="stat"><div class="label">Güncel Bakiye</div><div class="value" style="color:${run<0?'var(--danger)':'inherit'}">${fmtTRY(run)}</div><div class="foot">Açılış: ${fmtTRY(opening)}</div></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Hareketler</h3><span class="hint">${list.length} hareket</span></div>
+        <div class="table-wrap"><table class="data">
+          <thead><tr>
+            <th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
+            <th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th>
+          </tr></thead>
+          <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr>
+            <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
+            <td>${fmtDate(e.date)}</td>
+            <td>${esc(e.islemAdi || "")}</td>
+            <td>${esc(e.sahis || "")}</td>
+            <td>${esc(e.aciklama || "")}</td>
+            <td>${esc(e.rapor || "")}</td>
+            <td class="num" style="color:var(--ok)">${e.giren ? fmtTRY(parseNum(e.giren)) : "—"}</td>
+            <td class="num" style="color:var(--danger)">${e.cikan ? fmtTRY(parseNum(e.cikan)) : "—"}</td>
+            <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
+            <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
+          </tr>`).join("") : `<tr><td colspan="10"><div class="empty"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div></td></tr>`}
+          </tbody>
+          ${rows.length ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)">
+            <td colspan="6">Toplam</td>
+            <td class="num" style="color:var(--ok)">${fmtTRY(totGiren)}</td>
+            <td class="num" style="color:var(--danger)">${fmtTRY(totCikan)}</td>
+            <td class="num">${fmtTRY(run)}</td><td></td>
+          </tr></tfoot>` : ""}
+        </table></div>
+      </div>`;
+  }
+
+  $("#add-entry").onclick = () => entryModal(acc, null, { nextNo, nextCariNo });
   $$("[data-edit]", c).forEach((b) => b.onclick = () =>
-    entryModal(acc, list.find((e) => e.id === b.dataset.edit), null));
+    entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo }));
 }
 
-function entryModal(acc, entry, nextNo) {
+function entryModal(acc, entry, opts) {
   const isNew = !entry;
+  const cari = isCari(acc.type);
   const body = document.createElement("div");
-  body.innerHTML = `
-    <div class="form-row">
-      <div class="field"><label>İşlem No</label><input id="e-no" value="${esc(String(entry?.islemNo ?? nextNo ?? ""))}" ${isNew ? "readonly" : ""} /></div>
-      <div class="field"><label>Tarih</label><input type="date" id="e-date" value="${esc(entry?.date || todayISO())}" /></div>
-    </div>
-    <div class="field"><label>İşlem Adı</label><input id="e-islem" value="${esc(entry?.islemAdi || "")}" placeholder="Örn. Tahsilat / Ödeme / Gün Sonu" /></div>
-    <div class="form-row">
-      <div class="field"><label>Şahıs</label><input id="e-sahis" value="${esc(entry?.sahis || "")}" placeholder="Kişi / firma" /></div>
-      <div class="field"><label>Rapor</label><input id="e-rapor" value="${esc(entry?.rapor || "")}" placeholder="Rapor / referans" /></div>
-    </div>
-    <div class="field"><label>Açıklama</label><textarea id="e-aciklama" rows="2" placeholder="Açıklama...">${esc(entry?.aciklama || "")}</textarea></div>
-    <div class="form-row">
-      <div class="field"><label>Giren Tutar (₺)</label><input id="e-giren" class="num" value="${entry?.giren ?? ""}" placeholder="0" /></div>
-      <div class="field"><label>Çıkan Tutar (₺)</label><input id="e-cikan" class="num" value="${entry?.cikan ?? ""}" placeholder="0" /></div>
-    </div>`;
+  if (cari) {
+    body.innerHTML = `
+      <div class="form-row">
+        <div class="field"><label>İşlem No</label><input id="e-no" value="${esc(String(entry?.islemNo ?? opts?.nextNo ?? ""))}" readonly /></div>
+        <div class="field"><label>Cari No</label><input id="e-carino" value="${esc(String(entry?.cariNo ?? opts?.nextCariNo ?? ""))}" readonly /></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Tarih</label><input type="date" id="e-date" value="${esc(entry?.date || todayISO())}" /></div>
+        <div class="field"><label>Şahıs</label><input id="e-sahis" value="${esc(entry?.sahis || "")}" placeholder="Kişi / firma" /></div>
+      </div>
+      <div class="field"><label>Açıklama</label><textarea id="e-aciklama" rows="2" placeholder="Açıklama...">${esc(entry?.aciklama || "")}</textarea></div>
+      <div class="form-row">
+        <div class="field"><label>Borç (₺)</label><input id="e-borc" class="num" value="${entry?.borc ?? ""}" placeholder="0" /></div>
+        <div class="field"><label>Alacak (₺)</label><input id="e-alacak" class="num" value="${entry?.alacak ?? ""}" placeholder="0" /></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Fatura Türü</label><select id="e-faturaturu">
+          ${FATURA_TURU.map((t) => `<option value="${esc(t)}" ${entry?.faturaTuru===t?"selected":""}>${t || "—"}</option>`).join("")}
+        </select></div>
+        <div class="field"><label>Fatura No</label><input id="e-faturano" value="${esc(entry?.faturaNo || "")}" placeholder="Örn. A-000123" /></div>
+      </div>`;
+  } else {
+    body.innerHTML = `
+      <div class="form-row">
+        <div class="field"><label>İşlem No</label><input id="e-no" value="${esc(String(entry?.islemNo ?? opts?.nextNo ?? ""))}" readonly /></div>
+        <div class="field"><label>Tarih</label><input type="date" id="e-date" value="${esc(entry?.date || todayISO())}" /></div>
+      </div>
+      <div class="field"><label>İşlem Adı</label><input id="e-islem" value="${esc(entry?.islemAdi || "")}" placeholder="Örn. Tahsilat / Ödeme / Gün Sonu" /></div>
+      <div class="form-row">
+        <div class="field"><label>Şahıs</label><input id="e-sahis" value="${esc(entry?.sahis || "")}" placeholder="Kişi / firma" /></div>
+        <div class="field"><label>Rapor</label><input id="e-rapor" value="${esc(entry?.rapor || "")}" placeholder="Rapor / referans" /></div>
+      </div>
+      <div class="field"><label>Açıklama</label><textarea id="e-aciklama" rows="2" placeholder="Açıklama...">${esc(entry?.aciklama || "")}</textarea></div>
+      <div class="form-row">
+        <div class="field"><label>Giren Tutar (₺)</label><input id="e-giren" class="num" value="${entry?.giren ?? ""}" placeholder="0" /></div>
+        <div class="field"><label>Çıkan Tutar (₺)</label><input id="e-cikan" class="num" value="${entry?.cikan ?? ""}" placeholder="0" /></div>
+      </div>`;
+  }
   const footer = [];
   if (!isNew) {
     const del = mkBtn("🗑️ Sil", "btn-danger", () =>
@@ -1328,27 +1411,47 @@ function entryModal(acc, entry, nextNo) {
   }
   footer.push(mkBtn("Vazgeç", "", () => m.close()));
   footer.push(mkBtn("Kaydet", "btn-primary", async () => {
-    const giren = parseNum($("#e-giren", body).value);
-    const cikan = parseNum($("#e-cikan", body).value);
-    if (!giren && !cikan) return toast("Giren ya da çıkan tutar girin.", "err");
-    const payload = {
+    const base = {
       accountId: acc.id, accountCode: acc.code || "",
-      islemNo: parseInt($("#e-no", body).value) || (entry?.islemNo ?? nextNo),
+      islemNo: parseInt($("#e-no", body).value) || (entry?.islemNo ?? opts?.nextNo),
       date: $("#e-date", body).value || todayISO(),
-      islemAdi: $("#e-islem", body).value.trim(),
       sahis: $("#e-sahis", body).value.trim(),
       aciklama: $("#e-aciklama", body).value.trim(),
-      rapor: $("#e-rapor", body).value.trim(),
-      giren, cikan,
       updatedAt: serverTimestamp(),
     };
+    let payload;
+    if (cari) {
+      const borc = parseNum($("#e-borc", body).value);
+      const alacak = parseNum($("#e-alacak", body).value);
+      if (!borc && !alacak) return toast("Borç ya da alacak tutarı girin.", "err");
+      payload = {
+        ...base,
+        cariNo: parseInt($("#e-carino", body).value) || (entry?.cariNo ?? opts?.nextCariNo),
+        borc, alacak,
+        faturaTuru: $("#e-faturaturu", body).value,
+        faturaNo: $("#e-faturano", body).value.trim(),
+      };
+    } else {
+      const giren = parseNum($("#e-giren", body).value);
+      const cikan = parseNum($("#e-cikan", body).value);
+      if (!giren && !cikan) return toast("Giren ya da çıkan tutar girin.", "err");
+      payload = {
+        ...base,
+        islemAdi: $("#e-islem", body).value.trim(),
+        rapor: $("#e-rapor", body).value.trim(),
+        giren, cikan,
+      };
+    }
     try {
       if (isNew) await addDoc(C.accountEntries(), { ...payload, createdAt: serverTimestamp(), createdBy: currentUser.email });
       else await updateDoc(doc(db, "accountEntries", entry.id), payload);
       m.close(); toast("Kaydedildi.", "ok"); route();
     } catch (e) { toast("Hata: " + e.message, "err"); }
   }));
-  const m = openModal({ title: isNew ? "Yeni Hareket" : `Hareket · İşlem No ${entry.islemNo ?? ""}`, body, footer });
+  const m = openModal({
+    title: isNew ? (cari ? "Yeni Cari Hareket" : "Yeni Hareket") : `Hareket · İşlem No ${entry.islemNo ?? ""}`,
+    body, footer,
+  });
   $(".modal", $("#modal-root")).style.maxWidth = "560px";
 }
 
