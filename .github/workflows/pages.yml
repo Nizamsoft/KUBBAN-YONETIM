@@ -1,0 +1,42 @@
+name: GitHub Pages'e Yayınla
+
+# Bu iş akışı, siteyi GitHub Pages'e yayınlar ve Pages daha önce açık değilse
+# otomatik olarak açar. Belirlenen dala her push'ta çalışır.
+on:
+  push:
+    branches: ["claude/software-dev-2week-schedule-odvu2h"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Aynı anda tek bir yayınlama çalışsın
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Pages yapılandır (yoksa otomatik aç)
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Siteyi paketle
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "."
+
+      - name: Pages'e yayınla
+        id: deployment
+        uses: actions/deploy-pages@v4
