@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Güllüoğlu Kübban — Yönetim</title>
+  <link rel="icon" href="https://firebasestorage.googleapis.com/v0/b/nizam--to-do.firebasestorage.app/o/company-logos%2FahknZI41JjoHGdkfyy8W%2Fphoto.jpg?alt=media&token=2b3ea8e5-90ba-4299-8cb4-5681c646baf9" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Yükleniyor perdesi -->
+  <div id="loader"><div class="spinner"></div></div>
+
+  <!-- ===================== GİRİŞ EKRANI ===================== -->
+  <div id="login-view" class="hidden">
+    <div class="login-card">
+      <img class="logo" src="https://firebasestorage.googleapis.com/v0/b/nizam--to-do.firebasestorage.app/o/company-logos%2FahknZI41JjoHGdkfyy8W%2Fphoto.jpg?alt=media&token=2b3ea8e5-90ba-4299-8cb4-5681c646baf9" alt="Güllüoğlu Kübban" />
+      <h1>Güllüoğlu Kübban</h1>
+      <div class="sub">Yönetim Paneli</div>
+
+      <form id="login-form">
+        <div class="field">
+          <label for="email">E-posta</label>
+          <input type="email" id="email" autocomplete="email" placeholder="ornek@gulluoglukubban.com" required />
+        </div>
+        <div class="field">
+          <label for="password">Parola</label>
+          <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" required />
+        </div>
+        <div class="field hidden" id="name-field">
+          <label for="displayName">Ad Soyad</label>
+          <input type="text" id="displayName" autocomplete="name" placeholder="Adınız Soyadınız" />
+        </div>
+        <div class="auth-error" id="auth-error"></div>
+        <button type="submit" class="btn btn-primary btn-block" id="auth-submit">Giriş Yap</button>
+      </form>
+
+      <div class="auth-toggle">
+        <span id="toggle-text">Hesabınız yok mu?</span>
+        <a id="toggle-mode">Kayıt olun</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===================== UYGULAMA ===================== -->
+  <div id="app-view" class="hidden">
+    <!-- Yan menü -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-brand">
+        <img src="https://firebasestorage.googleapis.com/v0/b/nizam--to-do.firebasestorage.app/o/company-logos%2FahknZI41JjoHGdkfyy8W%2Fphoto.jpg?alt=media&token=2b3ea8e5-90ba-4299-8cb4-5681c646baf9" alt="logo" />
+        <div class="name">Kübban<small>Gaziantep Mutfağı</small></div>
+      </div>
+      <nav class="nav" id="nav"><!-- JS ile doldurulur --></nav>
+      <div class="sidebar-foot">v0.1 · Yönetim Yazılımı</div>
+    </aside>
+
+    <!-- İçerik -->
+    <div class="main">
+      <header class="topbar">
+        <button class="btn btn-ghost btn-sm" id="menu-toggle" style="display:none">☰</button>
+        <div>
+          <div class="crumb" id="crumb">Ana Sayfa</div>
+          <h2 id="page-title">Dashboard</h2>
+        </div>
+        <div class="spacer"></div>
+        <div class="user-chip" id="user-chip" title="Çıkış için tıklayın">
+          <div class="avatar" id="user-avatar">?</div>
+          <div class="meta">
+            <b id="user-name">—</b>
+            <span class="role-badge" id="user-role">kullanıcı</span>
+          </div>
+        </div>
+      </header>
+
+      <main class="content" id="view-container"><!-- Görünümler JS ile render edilir --></main>
+    </div>
+  </div>
+
+  <!-- Modal & toast konteynerları -->
+  <div id="modal-root"></div>
+  <div id="toasts"></div>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,9 @@
+# Bağımlılıklar / araç çıktıları
+node_modules/
+.firebase/
+firebase-debug.log*
+.DS_Store
+*.log
+
+# Yerel gizli config (isteğe bağlı)
+# config.local.js
