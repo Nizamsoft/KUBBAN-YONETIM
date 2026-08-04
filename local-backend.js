@@ -217,7 +217,7 @@ export async function updateProfile(user, { displayName }) {
 //  YEDEK / GERİ YÜKLE  (yerel moda özel yardımcılar)
 // ===========================================================================
 export const COLLECTIONS = [
-  "users", "accounts", "dayEndRecords",
+  "users", "accounts", "accountEntries", "dayEndRecords",
   "currentMovements", "bankTransactions", "cashflowItems",
 ];
 

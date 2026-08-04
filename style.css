@@ -271,7 +271,11 @@ table.data input.num { text-align: right; }
 .acc-tree tr.acc-main > td { background: var(--surface); border-top: 1px solid var(--line-strong); }
 .acc-tree tr.acc-main.has-kids { cursor: pointer; }
 .acc-tree tr.acc-main.has-kids:hover > td { background: var(--surface-2); }
+.acc-tree tr.acc-main.leaf { cursor: pointer; }
+.acc-tree tr.acc-main.leaf:hover > td { background: var(--surface-2); }
+.acc-tree tr.acc-sub { cursor: pointer; }
 .acc-tree tr.acc-sub > td { background: var(--surface-2); font-size: 12.5px; }
+.acc-tree tr.acc-sub:hover > td { background: #f4ecdd; }
 .acc-tree tr.acc-sub td:first-child { color: var(--ink-soft); }
 
 .empty { text-align: center; color: var(--ink-faint); padding: 40px 20px; }

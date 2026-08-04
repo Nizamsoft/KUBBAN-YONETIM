@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.06";
+} from "./local-backend.js?v=2026.07";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.06";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.07";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -109,6 +109,7 @@ if (CONFIG_READY) {
 const C = {
   users:            () => collection(db, "users"),
   accounts:         () => collection(db, "accounts"),
+  accountEntries:   () => collection(db, "accountEntries"),
   dayEndRecords:    () => collection(db, "dayEndRecords"),
   currentMovements: () => collection(db, "currentMovements"),
   bankTransactions: () => collection(db, "bankTransactions"),
@@ -255,8 +256,14 @@ $("#user-chip").addEventListener("click", () => {
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.06";
+const APP_VERSION = "2026.07";
 const CHANGELOG = [
+  { version: "2026.07", date: "2026-08-04", items: [
+    "Hesap iç yapısı: hesaba tıklayınca Hareket Defteri açılıyor (Kasa dahil tüm hesaplar)",
+    "Hareket kolonları: İşlem No · Tarih · İşlem Adı · Şahıs · Açıklama · Rapor · Giren · Çıkan · Güncel Bakiye",
+    "İşlem No otomatik ve sıralı (kaydın kimlik numarası)",
+    "Her satırda yürüyen (güncel) bakiye; hesap bakiyesi hareketlere göre güncelleniyor",
+  ]},
   { version: "2026.06", date: "2026-08-04", items: [
     "Hesaplar: hesap açılıp kapanınca tablo yatay kaymıyor (sabit sütun düzeni)",
     "Hesaplar: Sil butonu artık Düzenle penceresinin içinde",
@@ -317,6 +324,7 @@ const ROUTES = {
   "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu", render: viewGunSonuKayitlar },
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Gün Sonu", render: viewGunSonuRapor },
   "hesaplar":         { title: "Hesaplar", crumb: "Hesaplar", render: viewHesaplar },
+  "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger },
   "cari-hareket":     { title: "Cari Hareket İşleme", crumb: "Veri Girişi", render: viewCariHareket },
   "banka":            { title: "Banka İşleme", crumb: "Veri Girişi", render: viewBanka },
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
@@ -377,8 +385,9 @@ function toggleGroup(group) {
 async function route() {
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
   const r = ROUTES[path] || ROUTES["dashboard"];
+  const navPath = path === "hesap-detay" ? "hesaplar" : path;
   $$("#nav .nav-item").forEach((a) =>
-    a.classList.toggle("active", a.dataset.path === path));
+    a.classList.toggle("active", a.dataset.path === navPath));
   // Aktif sayfanın bulunduğu grubu aç (akordeon)
   $$("#nav .nav-group").forEach((g) =>
     g.classList.toggle("open", Array.isArray(g._paths) && g._paths.includes(path)));
@@ -554,14 +563,15 @@ function editableTable(columns, initialRows = [], opts = {}) {
 //  MODÜL: DASHBOARD
 // ===========================================================================
 async function viewDashboard(c) {
-  const [accounts, records, cashflow, cari, bank] = await Promise.all([
+  const [accounts, records, cashflow, cari, bank, entries] = await Promise.all([
     fetchAll(C.accounts).catch(() => []),
     fetchAll(C.dayEndRecords).catch(() => []),
     fetchAll(C.cashflowItems).catch(() => []),
     fetchAll(C.currentMovements).catch(() => []),
     fetchAll(C.bankTransactions).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
   ]);
-  const bal = computeBalances(accounts, cari, bank);
+  const bal = computeBalances(accounts, cari, bank, entries);
   const sumType = (t) => accounts.filter((a) => a.type === t)
     .reduce((s, a) => s + (bal.get(a.id)?.current || 0), 0);
   const kasa = sumType("kasa");
@@ -912,16 +922,21 @@ const ACCOUNT_TYPES = [
 const accTypeLabel = (v) => (ACCOUNT_TYPES.find((t) => t.value === v)?.label || v || "—");
 
 // Hesap bakiyelerini hareketlerden OTOMATİK hesapla:
-//   güncel = açılış bakiyesi + cari hareket deltası + banka hareket deltası
+//   güncel = açılış bakiyesi + hesap hareketleri + cari + banka
+//   · hesap hareketleri (accountEntries): giren − çıkan, accountId'ye göre
 //   · cari hareketler hesap KODUNA göre eşlenir (borç − alacak)
 //   · banka hareketleri, Banka İşleme'de seçilen hedef hesabın id'sine göre eşlenir
-function computeBalances(accounts, cari = [], bank = []) {
+function computeBalances(accounts, cari = [], bank = [], entries = []) {
   const map = new Map();
   const byCode = new Map();
   accounts.forEach((a) => {
     const opening = a.openingBalance != null ? a.openingBalance : (a.balance || 0);
     map.set(a.id, { opening, delta: 0, current: opening });
     if (a.code) byCode.set(String(a.code).trim(), a.id);
+  });
+  entries.forEach((e) => {
+    if (e.accountId && map.has(e.accountId))
+      map.get(e.accountId).delta += parseNum(e.giren) - parseNum(e.cikan);
   });
   cari.forEach((m) => {
     const id = byCode.get(String(m.code || "").trim());
@@ -962,12 +977,13 @@ async function seedDefaultChart() {
 }
 
 async function viewHesaplar(c) {
-  const [accounts, cari, bank] = await Promise.all([
+  const [accounts, cari, bank, entries] = await Promise.all([
     fetchAll(C.accounts),
     fetchAll(C.currentMovements).catch(() => []),
     fetchAll(C.bankTransactions).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
   ]);
-  const balances = computeBalances(accounts, cari, bank);
+  const balances = computeBalances(accounts, cari, bank, entries);
 
   // Hiç hesap yoksa: varsayılan planı öner
   if (!accounts.length) {
@@ -1017,17 +1033,17 @@ async function viewHesaplar(c) {
   const rowMain = (a) => {
     const ch = kids.get(a.id) || [];
     const bal = rolled(a);
-    return `<tr class="acc-main${ch.length ? " has-kids" : ""}" data-id="${a.id}">
+    return `<tr class="acc-main${ch.length ? " has-kids" : " leaf"}" data-id="${a.id}">
       <td><span class="tree-toggle">${ch.length ? "▾" : "&nbsp;&nbsp;"}</span> <b>${esc(a.code || "—")}</b></td>
-      <td><b>${esc(a.name || "")}</b>${ch.length ? ` <span style="color:var(--ink-faint);font-size:11px">(${ch.length} alt)</span>` : ""}</td>
+      <td><b>${esc(a.name || "")}</b>${ch.length ? ` <span style="color:var(--ink-faint);font-size:11px">(${ch.length} alt)</span>` : ` <span style="color:var(--gold-dark);font-size:11px">hareketler →</span>`}</td>
       <td class="num" style="font-weight:700;color:${bal<0?'var(--danger)':'inherit'}">${fmtTRY(bal)}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn btn-sm" data-addsub="${a.id}" title="Alt hesap ekle">+ Alt</button>
         <button class="btn btn-sm" data-edit="${a.id}">Düzenle</button>
       </td></tr>` +
-      ch.map((s) => `<tr class="acc-sub" data-parent="${a.id}">
+      ch.map((s) => `<tr class="acc-sub" data-parent="${a.id}" data-id="${s.id}">
         <td style="padding-left:36px">${esc(s.code || "")}</td>
-        <td>${esc(s.name || "")}</td>
+        <td>${esc(s.name || "")} <span style="color:var(--gold-dark);font-size:11px">hareketler →</span></td>
         <td class="num" style="color:${cur(s)<0?'var(--danger)':'inherit'}">${fmtTRY(cur(s))}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn btn-sm" data-edit="${s.id}">Düzenle</button>
@@ -1066,6 +1082,13 @@ async function viewHesaplar(c) {
     tr.addEventListener("click", (e) => {
       if (e.target.closest("button")) return;
       setOpen(tr.dataset.id, tr.dataset.open !== "1");
+    });
+  });
+  // Yaprak hesap / alt hesap satırına tıkla → hareket defteri (iç yapı)
+  $$("tr.acc-main.leaf, tr.acc-sub", c).forEach((tr) => {
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      location.hash = "#/hesap-detay?id=" + tr.dataset.id;
     });
   });
   $("#toggle-all").onclick = () => {
@@ -1197,6 +1220,136 @@ function accModal(acc, parent, opts) {
     body,
     footer,
   });
+}
+
+// ===========================================================================
+//  MODÜL: HESAP HAREKET DEFTERİ (iç yapı) — Kasa vb.
+//  Kolonlar: İşlem No · Tarih · İşlem Adı · Şahıs · Açıklama · Rapor
+//            Giren Tutar · Çıkan Tutar · Güncel Bakiye
+// ===========================================================================
+function hashQuery(key) {
+  const q = location.hash.split("?")[1] || "";
+  return new URLSearchParams(q).get(key);
+}
+
+async function viewAccountLedger(c) {
+  const id = hashQuery("id");
+  const [accounts, entries] = await Promise.all([
+    fetchAll(C.accounts),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  const acc = accounts.find((a) => a.id === id);
+  if (!acc) {
+    c.innerHTML = `<div class="notice warn">Hesap bulunamadı. <a href="#/hesaplar">← Hesaplara dön</a></div>`;
+    return;
+  }
+  const list = entries.filter((e) => e.accountId === id)
+    .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.islemNo || 0) - (b.islemNo || 0));
+  const opening = acc.openingBalance ?? acc.balance ?? 0;
+  let run = opening;
+  const rows = list.map((e) => { run += parseNum(e.giren) - parseNum(e.cikan); return { e, bakiye: run }; });
+  const totGiren = list.reduce((s, e) => s + parseNum(e.giren), 0);
+  const totCikan = list.reduce((s, e) => s + parseNum(e.cikan), 0);
+  const nextNo = entries.reduce((m, e) => Math.max(m, e.islemNo || 0), 0) + 1;
+
+  c.innerHTML = `
+    <div class="toolbar">
+      <a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a>
+      <div class="grow"></div>
+      <button class="btn btn-primary btn-sm" id="add-entry">+ Yeni Hareket</button>
+    </div>
+    <div class="grid cols-4" style="margin-bottom:18px">
+      <div class="stat"><div class="label">Hesap</div><div class="value" style="font-size:19px">${esc(acc.code || "")}</div><div class="foot">${esc(acc.name || "")}</div></div>
+      <div class="stat green"><div class="label">Toplam Giren</div><div class="value">${fmtTRY(totGiren)}</div></div>
+      <div class="stat red"><div class="label">Toplam Çıkan</div><div class="value">${fmtTRY(totCikan)}</div></div>
+      <div class="stat"><div class="label">Güncel Bakiye</div><div class="value" style="color:${run<0?'var(--danger)':'inherit'}">${fmtTRY(run)}</div><div class="foot">Açılış: ${fmtTRY(opening)}</div></div>
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>Hareketler</h3><span class="hint">${list.length} hareket</span></div>
+      <div class="table-wrap"><table class="data">
+        <thead><tr>
+          <th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
+          <th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th>
+        </tr></thead>
+        <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr>
+          <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
+          <td>${fmtDate(e.date)}</td>
+          <td>${esc(e.islemAdi || "")}</td>
+          <td>${esc(e.sahis || "")}</td>
+          <td>${esc(e.aciklama || "")}</td>
+          <td>${esc(e.rapor || "")}</td>
+          <td class="num" style="color:var(--ok)">${e.giren ? fmtTRY(parseNum(e.giren)) : "—"}</td>
+          <td class="num" style="color:var(--danger)">${e.cikan ? fmtTRY(parseNum(e.cikan)) : "—"}</td>
+          <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
+          <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
+        </tr>`).join("") : `<tr><td colspan="10"><div class="empty"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div></td></tr>`}
+        </tbody>
+        ${rows.length ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)">
+          <td colspan="6">Toplam</td>
+          <td class="num" style="color:var(--ok)">${fmtTRY(totGiren)}</td>
+          <td class="num" style="color:var(--danger)">${fmtTRY(totCikan)}</td>
+          <td class="num">${fmtTRY(run)}</td><td></td>
+        </tr></tfoot>` : ""}
+      </table></div>
+    </div>`;
+
+  $("#add-entry").onclick = () => entryModal(acc, null, nextNo);
+  $$("[data-edit]", c).forEach((b) => b.onclick = () =>
+    entryModal(acc, list.find((e) => e.id === b.dataset.edit), null));
+}
+
+function entryModal(acc, entry, nextNo) {
+  const isNew = !entry;
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div class="form-row">
+      <div class="field"><label>İşlem No</label><input id="e-no" value="${esc(String(entry?.islemNo ?? nextNo ?? ""))}" ${isNew ? "readonly" : ""} /></div>
+      <div class="field"><label>Tarih</label><input type="date" id="e-date" value="${esc(entry?.date || todayISO())}" /></div>
+    </div>
+    <div class="field"><label>İşlem Adı</label><input id="e-islem" value="${esc(entry?.islemAdi || "")}" placeholder="Örn. Tahsilat / Ödeme / Gün Sonu" /></div>
+    <div class="form-row">
+      <div class="field"><label>Şahıs</label><input id="e-sahis" value="${esc(entry?.sahis || "")}" placeholder="Kişi / firma" /></div>
+      <div class="field"><label>Rapor</label><input id="e-rapor" value="${esc(entry?.rapor || "")}" placeholder="Rapor / referans" /></div>
+    </div>
+    <div class="field"><label>Açıklama</label><textarea id="e-aciklama" rows="2" placeholder="Açıklama...">${esc(entry?.aciklama || "")}</textarea></div>
+    <div class="form-row">
+      <div class="field"><label>Giren Tutar (₺)</label><input id="e-giren" class="num" value="${entry?.giren ?? ""}" placeholder="0" /></div>
+      <div class="field"><label>Çıkan Tutar (₺)</label><input id="e-cikan" class="num" value="${entry?.cikan ?? ""}" placeholder="0" /></div>
+    </div>`;
+  const footer = [];
+  if (!isNew) {
+    const del = mkBtn("🗑️ Sil", "btn-danger", () =>
+      confirmDialog("Hareket silinsin mi?", async () => {
+        await deleteDoc(doc(db, "accountEntries", entry.id));
+        m.close(); toast("Silindi.", "ok"); route();
+      }));
+    del.style.marginRight = "auto";
+    footer.push(del);
+  }
+  footer.push(mkBtn("Vazgeç", "", () => m.close()));
+  footer.push(mkBtn("Kaydet", "btn-primary", async () => {
+    const giren = parseNum($("#e-giren", body).value);
+    const cikan = parseNum($("#e-cikan", body).value);
+    if (!giren && !cikan) return toast("Giren ya da çıkan tutar girin.", "err");
+    const payload = {
+      accountId: acc.id, accountCode: acc.code || "",
+      islemNo: parseInt($("#e-no", body).value) || (entry?.islemNo ?? nextNo),
+      date: $("#e-date", body).value || todayISO(),
+      islemAdi: $("#e-islem", body).value.trim(),
+      sahis: $("#e-sahis", body).value.trim(),
+      aciklama: $("#e-aciklama", body).value.trim(),
+      rapor: $("#e-rapor", body).value.trim(),
+      giren, cikan,
+      updatedAt: serverTimestamp(),
+    };
+    try {
+      if (isNew) await addDoc(C.accountEntries(), { ...payload, createdAt: serverTimestamp(), createdBy: currentUser.email });
+      else await updateDoc(doc(db, "accountEntries", entry.id), payload);
+      m.close(); toast("Kaydedildi.", "ok"); route();
+    } catch (e) { toast("Hata: " + e.message, "err"); }
+  }));
+  const m = openModal({ title: isNew ? "Yeni Hareket" : `Hareket · İşlem No ${entry.islemNo ?? ""}`, body, footer });
+  $(".modal", $("#modal-root")).style.maxWidth = "560px";
 }
 
 // ===========================================================================
@@ -1476,13 +1629,14 @@ function cfModal(item) {
 //  MODÜL: NAKİT AKIŞ RAPORU (1 / 3 aylık projeksiyon)
 // ===========================================================================
 async function viewNakitAkisRapor(c) {
-  const [items, accounts, cari, bank] = await Promise.all([
+  const [items, accounts, cari, bank, entries] = await Promise.all([
     fetchAll(C.cashflowItems).catch(() => []),
     fetchAll(C.accounts).catch(() => []),
     fetchAll(C.currentMovements).catch(() => []),
     fetchAll(C.bankTransactions).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
   ]);
-  const bal = computeBalances(accounts, cari, bank);
+  const bal = computeBalances(accounts, cari, bank, entries);
   const startCash = accounts
     .filter((a) => a.type === "kasa" || a.type === "banka")
     .reduce((s, a) => s + (bal.get(a.id)?.current || 0), 0);
