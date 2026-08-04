@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.05";
+} from "./local-backend.js?v=2026.06";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.05";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.06";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -255,8 +255,13 @@ $("#user-chip").addEventListener("click", () => {
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.05";
+const APP_VERSION = "2026.06";
 const CHANGELOG = [
+  { version: "2026.06", date: "2026-08-04", items: [
+    "Hesaplar: hesap açılıp kapanınca tablo yatay kaymıyor (sabit sütun düzeni)",
+    "Hesaplar: Sil butonu artık Düzenle penceresinin içinde",
+    "Yeni Hesap: önce Ana/Alt seçimi; Alt seçilirse üst (ana) hesabı seçtiriyor",
+  ]},
   { version: "2026.05", date: "2026-08-04", items: [
     "Güncelleme ekranına 'Uygulamayı Güncelle' butonu eklendi (Ctrl+F5 gerekmez)",
     "Dosyalara sürüm etiketi (?v) eklendi; yeni sürümler önbelleğe takılmadan yüklenir",
@@ -1019,7 +1024,6 @@ async function viewHesaplar(c) {
       <td style="text-align:right;white-space:nowrap">
         <button class="btn btn-sm" data-addsub="${a.id}" title="Alt hesap ekle">+ Alt</button>
         <button class="btn btn-sm" data-edit="${a.id}">Düzenle</button>
-        <button class="btn btn-sm btn-danger" data-del="${a.id}">Sil</button>
       </td></tr>` +
       ch.map((s) => `<tr class="acc-sub" data-parent="${a.id}">
         <td style="padding-left:36px">${esc(s.code || "")}</td>
@@ -1027,7 +1031,6 @@ async function viewHesaplar(c) {
         <td class="num" style="color:${cur(s)<0?'var(--danger)':'inherit'}">${fmtTRY(cur(s))}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn btn-sm" data-edit="${s.id}">Düzenle</button>
-          <button class="btn btn-sm btn-danger" data-del="${s.id}">Sil</button>
         </td></tr>`).join("");
   };
 
@@ -1037,7 +1040,7 @@ async function viewHesaplar(c) {
     <div class="toolbar">
       <div class="grow"></div>
       <button class="btn btn-sm" id="toggle-all">Tümünü Aç / Kapat</button>
-      <button class="btn btn-primary btn-sm" id="acc-add">+ Yeni Ana Hesap</button>
+      <button class="btn btn-primary btn-sm" id="acc-add">+ Yeni Hesap</button>
     </div>
     <div class="card">
       <div class="card-head"><h3>Hesap Planı</h3><span class="hint">${roots.length} ana hesap · Genel Toplam ${fmtTRY(grand)}</span></div>
@@ -1070,23 +1073,49 @@ async function viewHesaplar(c) {
       $(`tr.acc-main[data-id="${a.id}"]`, c).dataset.open !== "1");
     roots.forEach((a) => { if ((kids.get(a.id) || []).length) setOpen(a.id, anyClosed); });
   };
-  $("#acc-add").onclick = () => accModal(null, null);
+  // Üstteki "Yeni Hesap": önce Ana/Alt, Alt ise hangi ana hesabın altında
+  const openNewChooser = () => {
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <div class="field"><label>Hesap Türü</label>
+        <select id="nk-kind">
+          <option value="main">Ana Hesap</option>
+          <option value="sub">Alt Hesap</option>
+        </select>
+      </div>
+      <div class="field" id="nk-parent-wrap" style="display:none">
+        <label>Hangi Ana Hesabın Altında?</label>
+        <select id="nk-parent">
+          ${roots.map((r) => `<option value="${r.id}">${esc((r.code || "") + " · " + r.name)}</option>`).join("")}
+        </select>
+      </div>`;
+    const m = openModal({
+      title: "Yeni Hesap",
+      body,
+      footer: [
+        mkBtn("Vazgeç", "", () => m.close()),
+        mkBtn("Devam", "btn-primary", () => {
+          const kind = $("#nk-kind", body).value;
+          m.close();
+          if (kind === "main") { accModal(null, null); return; }
+          const p = byId.get($("#nk-parent", body).value);
+          if (!p) return toast("Önce bir ana hesap seçin.", "err");
+          accModal(null, p, { nextCode: nextSubCode(p, kids.get(p.id) || []) });
+        }),
+      ],
+    });
+    $("#nk-kind", body).onchange = (e) =>
+      $("#nk-parent-wrap", body).style.display = e.target.value === "sub" ? "" : "none";
+  };
+
+  $("#acc-add").onclick = openNewChooser;
   $$("[data-addsub]", c).forEach((b) => b.onclick = () => {
     const p = byId.get(b.dataset.addsub);
     accModal(null, p, { nextCode: nextSubCode(p, kids.get(p.id) || []) });
   });
   $$("[data-edit]", c).forEach((b) => b.onclick = () => {
     const a = byId.get(b.dataset.edit);
-    accModal(a, a.parentId ? byId.get(a.parentId) : null);
-  });
-  $$("[data-del]", c).forEach((b) => b.onclick = () => {
-    const a = byId.get(b.dataset.del);
-    const n = (kids.get(a.id) || []).length;
-    confirmDialog(n ? `"${a.name}" ve ${n} alt hesabı silinsin mi?` : `"${a.name}" silinsin mi?`, async () => {
-      for (const s of (kids.get(a.id) || [])) await deleteDoc(doc(db, "accounts", s.id));
-      await deleteDoc(doc(db, "accounts", a.id));
-      toast("Silindi.", "ok"); route();
-    });
+    accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [] });
   });
 }
 
@@ -1127,31 +1156,46 @@ function accModal(acc, parent, opts) {
     <div class="field"><label>Hesap Adı</label><input id="a-name" value="${esc(acc?.name || "")}" placeholder="${isSub ? "Garanti Banka Hesabı" : "Kasa Hesabı"}" /></div>
     <div class="field"><label>Açılış Bakiyesi (₺)</label><input id="a-balance" class="num" value="${acc?.openingBalance ?? acc?.balance ?? 0}" />
       <div style="font-size:11px;color:var(--ink-faint);margin-top:4px">Güncel bakiye, bu değere hareketler eklenerek otomatik hesaplanır.</div></div>`;
+  const footer = [];
+  // Düzenleme modunda Sil butonu (solda)
+  if (!isNew) {
+    const kids = opts?.children || [];
+    const delBtn = mkBtn("🗑️ Sil", "btn-danger", () => {
+      confirmDialog(
+        kids.length ? `"${acc.name}" ve ${kids.length} alt hesabı silinsin mi?` : `"${acc.name}" silinsin mi?`,
+        async () => {
+          for (const s of kids) await deleteDoc(doc(db, "accounts", s.id));
+          await deleteDoc(doc(db, "accounts", acc.id));
+          m.close(); toast("Silindi.", "ok"); route();
+        });
+    });
+    delBtn.style.marginRight = "auto"; // sola yasla
+    footer.push(delBtn);
+  }
+  footer.push(mkBtn("Vazgeç", "", () => m.close()));
+  footer.push(mkBtn("Kaydet", "btn-primary", async () => {
+    const payload = {
+      code: $("#a-code", body).value.trim(),
+      name: $("#a-name", body).value.trim(),
+      type: $("#a-type", body).value,
+      openingBalance: parseNum($("#a-balance", body).value),
+      updatedAt: serverTimestamp(),
+    };
+    if (isNew) {
+      payload.parentId = parent ? parent.id : null;
+      payload.parentCode = parent ? parent.code : null;
+    }
+    if (!payload.name) return toast("Hesap adı gerekli.", "err");
+    try {
+      if (isNew) await addDoc(C.accounts(), { ...payload, createdAt: serverTimestamp() });
+      else await updateDoc(doc(db, "accounts", acc.id), payload);
+      m.close(); toast("Kaydedildi.", "ok"); route();
+    } catch (e) { toast("Hata: " + e.message, "err"); }
+  }));
   const m = openModal({
     title: isNew ? (parent ? "Alt Hesap Ekle" : "Yeni Ana Hesap") : "Hesabı Düzenle",
     body,
-    footer: [
-      mkBtn("Vazgeç", "", () => m.close()),
-      mkBtn("Kaydet", "btn-primary", async () => {
-        const payload = {
-          code: $("#a-code", body).value.trim(),
-          name: $("#a-name", body).value.trim(),
-          type: $("#a-type", body).value,
-          openingBalance: parseNum($("#a-balance", body).value),
-          updatedAt: serverTimestamp(),
-        };
-        if (isNew) {
-          payload.parentId = parent ? parent.id : null;
-          payload.parentCode = parent ? parent.code : null;
-        }
-        if (!payload.name) return toast("Hesap adı gerekli.", "err");
-        try {
-          if (isNew) await addDoc(C.accounts(), { ...payload, createdAt: serverTimestamp() });
-          else await updateDoc(doc(db, "accounts", acc.id), payload);
-          m.close(); toast("Kaydedildi.", "ok"); route();
-        } catch (e) { toast("Hata: " + e.message, "err"); }
-      }),
-    ],
+    footer,
   });
 }
 
