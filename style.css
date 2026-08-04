@@ -261,6 +261,12 @@ table.data input:focus, table.data select:focus { outline: none; border-color: v
 table.data input.num { text-align: right; }
 .row-del { color: var(--danger); cursor: pointer; border: none; background: none; font-size: 15px; padding: 2px 6px; }
 
+/* Hesap ağacı */
+.acc-tree .tree-toggle { display: inline-block; width: 16px; text-align: center; cursor: pointer; color: var(--gold-dark); font-size: 11px; user-select: none; }
+.acc-tree tr.acc-main > td { background: var(--surface); border-top: 1px solid var(--line-strong); }
+.acc-tree tr.acc-sub > td { background: var(--surface-2); font-size: 12.5px; }
+.acc-tree tr.acc-sub td:first-child { color: var(--ink-soft); }
+
 .empty { text-align: center; color: var(--ink-faint); padding: 40px 20px; }
 .empty .ico { font-size: 34px; opacity: .5; }
 

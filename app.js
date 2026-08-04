@@ -255,8 +255,15 @@ $("#user-chip").addEventListener("click", () => {
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.03";
+const APP_VERSION = "2026.04";
 const CHANGELOG = [
+  { version: "2026.04", date: "2026-08-04", items: [
+    "Hesaplar: ana hesap → alt hesap (hiyerarşik hesap planı) yapısı geldi",
+    "Alt hesap ekleme (ör. 102 Banka altına Garanti/Türkiye Finans/Ziraat)",
+    "Ana hesap bakiyesi alt hesaplarının toplamı olarak gösteriliyor (aç/kapat ağaç)",
+    "Tek tıkla varsayılan hesap planı oluşturma (100/102/108/120/320)",
+    "Banka İşleme'de hedef hesap listesi yaprak banka hesaplarını gösteriyor",
+  ]},
   { version: "2026.03", date: "2026-08-04", items: [
     "Performans: sayfa geçişleri anlık ve akıcı hale getirildi (yükleniyor titremesi kaldırıldı, yumuşak geçiş eklendi)",
     "İçe aktarma tablolarında yazarken toplam hesaplama akıcılaştırıldı (rAF ile kısıtlama)",
@@ -916,84 +923,188 @@ function computeBalances(accounts, cari = [], bank = []) {
   return map;
 }
 
+// Kübban için önerilen varsayılan hesap planı (ana hesap + alt hesaplar)
+const DEFAULT_CHART = [
+  { code: "100", name: "Kasa Hesabı", type: "kasa" },
+  { code: "102", name: "Banka Hesabı", type: "banka", subs: [
+    { code: "102.01", name: "Garanti Banka Hesabı" },
+    { code: "102.02", name: "Türkiye Finans Bankası Hesabı" },
+    { code: "102.03", name: "Ziraat Bankası Hesabı" },
+  ]},
+  { code: "108", name: "Blokeli Hesaplar", type: "diger" },
+  { code: "120", name: "Alıcı Hesaplar (Müşteriler)", type: "musteri" },
+  { code: "320", name: "Tedarikçiler", type: "tedarikci" },
+];
+async function seedDefaultChart() {
+  for (const m of DEFAULT_CHART) {
+    const ref = await addDoc(C.accounts(), {
+      code: m.code, name: m.name, type: m.type, parentId: null, parentCode: null,
+      openingBalance: 0, createdAt: serverTimestamp(),
+    });
+    for (const s of (m.subs || [])) {
+      await addDoc(C.accounts(), {
+        code: s.code, name: s.name, type: m.type, parentId: ref.id, parentCode: m.code,
+        openingBalance: 0, createdAt: serverTimestamp(),
+      });
+    }
+  }
+}
+
 async function viewHesaplar(c) {
-  const [accounts0, cari, bank] = await Promise.all([
+  const [accounts, cari, bank] = await Promise.all([
     fetchAll(C.accounts),
     fetchAll(C.currentMovements).catch(() => []),
     fetchAll(C.bankTransactions).catch(() => []),
   ]);
-  const accounts = accounts0.sort((a, b) => (a.code || "").localeCompare(b.code || ""));
   const balances = computeBalances(accounts, cari, bank);
-  let filter = "all";
+
+  // Hiç hesap yoksa: varsayılan planı öner
+  if (!accounts.length) {
+    c.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h3>Hesap Planı</h3></div>
+        <div class="empty">
+          <div class="ico">💼</div>
+          <p>Henüz hesap yok. Kübban için önerilen hesap planını tek tıkla oluşturabilir<br>ya da kendiniz başlayabilirsiniz.</p>
+          <div class="toolbar" style="justify-content:center;margin-top:10px">
+            <button class="btn btn-primary" id="seed">✨ Varsayılan Hesap Planını Oluştur</button>
+            <button class="btn" id="manual">+ Boş Başla</button>
+          </div>
+          <div style="font-size:12px;color:var(--ink-faint);margin-top:10px">
+            100 Kasa · 102 Banka (Garanti, Türkiye Finans, Ziraat) · 108 Blokeli · 120 Alıcılar · 320 Tedarikçiler
+          </div>
+        </div>
+      </div>`;
+    $("#seed").onclick = async () => {
+      $("#seed").disabled = true;
+      try { await seedDefaultChart(); toast("Hesap planı oluşturuldu.", "ok"); route(); }
+      catch (e) { toast("Hata: " + e.message, "err"); $("#seed").disabled = false; }
+    };
+    $("#manual").onclick = () => accModal(null, null);
+    return;
+  }
+
+  // Ağaç kur (ana hesap → alt hesap)
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const kids = new Map();
+  const roots = [];
+  accounts.forEach((a) => {
+    if (a.parentId && byId.has(a.parentId)) {
+      if (!kids.has(a.parentId)) kids.set(a.parentId, []);
+      kids.get(a.parentId).push(a);
+    } else roots.push(a);
+  });
+  const byCode = (x, y) =>
+    String(x.code || "").localeCompare(String(y.code || ""), undefined, { numeric: true });
+  roots.sort(byCode);
+  kids.forEach((arr) => arr.sort(byCode));
+
+  const cur = (a) => balances.get(a.id)?.current || 0;
+  const rolled = (a) => (kids.get(a.id) || []).reduce((s, ch) => s + rolled(ch), cur(a));
+  const grand = roots.reduce((s, a) => s + rolled(a), 0);
+
+  const rowMain = (a) => {
+    const ch = kids.get(a.id) || [];
+    const bal = rolled(a);
+    return `<tr class="acc-main" data-id="${a.id}">
+      <td><span class="tree-toggle" data-toggle="${a.id}">${ch.length ? "▾" : "&nbsp;&nbsp;"}</span> <b>${esc(a.code || "—")}</b></td>
+      <td><b>${esc(a.name || "")}</b>${ch.length ? ` <span style="color:var(--ink-faint);font-size:11px">(${ch.length} alt)</span>` : ""}</td>
+      <td><span class="tag gold">${esc(accTypeLabel(a.type))}</span></td>
+      <td class="num" style="font-weight:700;color:${bal<0?'var(--danger)':'inherit'}">${fmtTRY(bal)}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-sm" data-addsub="${a.id}" title="Alt hesap ekle">+ Alt</button>
+        <button class="btn btn-sm" data-edit="${a.id}">Düzenle</button>
+        <button class="btn btn-sm btn-danger" data-del="${a.id}">Sil</button>
+      </td></tr>` +
+      ch.map((s) => `<tr class="acc-sub" data-parent="${a.id}">
+        <td style="padding-left:36px">${esc(s.code || "")}</td>
+        <td>${esc(s.name || "")}</td>
+        <td><span class="tag" style="background:var(--surface-2);color:var(--ink-soft)">alt hesap</span></td>
+        <td class="num" style="color:${cur(s)<0?'var(--danger)':'inherit'}">${fmtTRY(cur(s))}</td>
+        <td style="text-align:right;white-space:nowrap">
+          <button class="btn btn-sm" data-edit="${s.id}">Düzenle</button>
+          <button class="btn btn-sm btn-danger" data-del="${s.id}">Sil</button>
+        </td></tr>`).join("");
+  };
 
   c.innerHTML = `
+    <div class="notice info" style="margin-bottom:16px">ℹ️ <b>Ana hesap → alt hesap</b> yapısı. Ana hesabın bakiyesi, alt hesaplarının toplamıdır.
+      Cari hareketler hesap koduna, banka hareketleri Banka İşleme'deki hedef hesaba göre otomatik işlenir.</div>
     <div class="toolbar">
-      <div class="seg" id="acc-filter">
-        <button data-f="all" class="active">Tümü</button>
-        <button data-f="kasa">Kasa</button>
-        <button data-f="banka">Banka</button>
-        <button data-f="tedarikci">Tedarikçi</button>
-        <button data-f="musteri">Cari</button>
-      </div>
       <div class="grow"></div>
-      <button class="btn btn-primary btn-sm" id="acc-add">+ Yeni Hesap</button>
+      <button class="btn btn-sm" id="toggle-all">Tümünü Aç / Kapat</button>
+      <button class="btn btn-primary btn-sm" id="acc-add">+ Yeni Ana Hesap</button>
     </div>
-    <div id="acc-list"></div>`;
+    <div class="card">
+      <div class="card-head"><h3>Hesap Planı</h3><span class="hint">${roots.length} ana hesap · Genel Toplam ${fmtTRY(grand)}</span></div>
+      <div class="table-wrap"><table class="data acc-tree">
+        <thead><tr><th>Kod</th><th>Hesap Adı</th><th>Tür</th><th class="num">Güncel Bakiye</th><th></th></tr></thead>
+        <tbody>${roots.map(rowMain).join("")}</tbody>
+      </table></div>
+    </div>`;
 
-  function draw() {
-    const list = filter === "all" ? accounts : accounts.filter((a) => a.type === filter);
-    const total = list.reduce((s, a) => s + (balances.get(a.id)?.current || 0), 0);
-    $("#acc-list").innerHTML = `
-      <div class="notice info" style="margin-bottom:16px">ℹ️ Güncel bakiye = <b>açılış bakiyesi + hareketler</b>.
-        Cari hareketler hesap koduna, banka hareketleri Banka İşleme'de seçilen hedef hesaba göre otomatik eklenir.</div>
-      <div class="card">
-        <div class="card-head"><h3>Hesaplar</h3><span class="hint">${list.length} hesap · Güncel Toplam ${fmtTRY(total)}</span></div>
-        ${list.length ? `<div class="table-wrap"><table class="data">
-          <thead><tr><th>Kod</th><th>Hesap Adı</th><th>Tür</th><th class="num">Açılış</th><th class="num">Hareket</th><th class="num">Güncel Bakiye</th><th></th></tr></thead>
-          <tbody>${list.map((a) => { const b = balances.get(a.id) || { opening: 0, delta: 0, current: 0 }; return `<tr>
-            <td><b>${esc(a.code || "—")}</b></td>
-            <td>${esc(a.name || "")}</td>
-            <td><span class="tag gold">${esc(accTypeLabel(a.type))}</span></td>
-            <td class="num">${fmtTRY(b.opening)}</td>
-            <td class="num" style="color:${b.delta<0?'var(--danger)':b.delta>0?'var(--ok)':'var(--ink-faint)'}">${b.delta>=0?"+":""}${fmtNum(b.delta)}</td>
-            <td class="num" style="font-weight:700;color:${b.current<0?'var(--danger)':'inherit'}">${fmtTRY(b.current)}</td>
-            <td style="text-align:right">
-              <button class="btn btn-sm" data-edit="${a.id}">Düzenle</button>
-              <button class="btn btn-sm btn-danger" data-del="${a.id}">Sil</button>
-            </td></tr>`; }).join("")}</tbody>
-        </table></div>`
-          : `<div class="empty"><div class="ico">💼</div><p>Bu türde hesap yok.</p></div>`}
-      </div>`;
-    $$("[data-edit]", c).forEach((b) => b.onclick = () => accModal(accounts.find((a) => a.id === b.dataset.edit)));
-    $$("[data-del]", c).forEach((b) => b.onclick = () =>
-      confirmDialog("Hesap silinsin mi?", async () => {
-        await deleteDoc(doc(db, "accounts", b.dataset.del));
-        toast("Silindi.", "ok"); route();
-      }));
-  }
-  $$("#acc-filter button", c).forEach((b) => b.onclick = () => {
-    $$("#acc-filter button", c).forEach((x) => x.classList.remove("active"));
-    b.classList.add("active"); filter = b.dataset.f; draw();
+  const setOpen = (id, open) => {
+    $$(`tr.acc-sub[data-parent="${id}"]`, c).forEach((tr) => tr.style.display = open ? "" : "none");
+    const main = $(`tr.acc-main[data-id="${id}"]`, c);
+    if (main) main.dataset.open = open ? "1" : "0";
+    const t = $(`[data-toggle="${id}"]`, c);
+    if (t && t.textContent.trim()) t.textContent = open ? "▾" : "▸";
+  };
+  roots.forEach((a) => { if ((kids.get(a.id) || []).length) setOpen(a.id, true); });
+
+  $$("[data-toggle]", c).forEach((t) => t.onclick = () => {
+    const main = $(`tr.acc-main[data-id="${t.dataset.toggle}"]`, c);
+    setOpen(t.dataset.toggle, main.dataset.open !== "1");
   });
-  $("#acc-add").onclick = () => accModal(null);
-  draw();
+  $("#toggle-all").onclick = () => {
+    const anyClosed = roots.some((a) => (kids.get(a.id) || []).length &&
+      $(`tr.acc-main[data-id="${a.id}"]`, c).dataset.open !== "1");
+    roots.forEach((a) => { if ((kids.get(a.id) || []).length) setOpen(a.id, anyClosed); });
+  };
+  $("#acc-add").onclick = () => accModal(null, null);
+  $$("[data-addsub]", c).forEach((b) => b.onclick = () => accModal(null, byId.get(b.dataset.addsub)));
+  $$("[data-edit]", c).forEach((b) => b.onclick = () => {
+    const a = byId.get(b.dataset.edit);
+    accModal(a, a.parentId ? byId.get(a.parentId) : null);
+  });
+  $$("[data-del]", c).forEach((b) => b.onclick = () => {
+    const a = byId.get(b.dataset.del);
+    const n = (kids.get(a.id) || []).length;
+    confirmDialog(n ? `"${a.name}" ve ${n} alt hesabı silinsin mi?` : `"${a.name}" silinsin mi?`, async () => {
+      for (const s of (kids.get(a.id) || [])) await deleteDoc(doc(db, "accounts", s.id));
+      await deleteDoc(doc(db, "accounts", a.id));
+      toast("Silindi.", "ok"); route();
+    });
+  });
 }
 
-function accModal(acc) {
+// accModal(acc, parent):
+//   yeni ana hesap  → acc=null, parent=null
+//   yeni alt hesap  → acc=null, parent=<ana hesap>
+//   düzenleme       → acc=<hesap>, parent=<üst hesap ya da null>
+function accModal(acc, parent) {
   const isNew = !acc;
+  const isSub = !!parent || !!(acc && acc.parentId);
+  const fixedType = isSub ? (parent?.type || acc?.type) : null;
+  const codeDefault = isNew && parent ? (parent.code + ".") : (acc?.code || "");
   const body = document.createElement("div");
   body.innerHTML = `
+    ${isSub ? `<div class="notice info" style="margin-bottom:14px">Alt hesap${
+      parent ? " · Üst hesap: <b>" + esc((parent.code || "") + " " + parent.name) + "</b>"
+             : (acc?.parentCode ? " · Üst hesap: <b>" + esc(acc.parentCode) + "</b>" : "")}</div>` : ""}
     <div class="form-row">
-      <div class="field"><label>Hesap Kodu</label><input id="a-code" value="${esc(acc?.code || "")}" placeholder="100.01" /></div>
-      <div class="field"><label>Tür</label><select id="a-type">
-        ${ACCOUNT_TYPES.map((t) => `<option value="${t.value}" ${acc?.type===t.value?"selected":""}>${t.label}</option>`).join("")}
-      </select></div>
+      <div class="field"><label>Hesap Kodu</label><input id="a-code" value="${esc(codeDefault)}" placeholder="${isSub ? (parent?.code || "102") + ".01" : "100"}" /></div>
+      <div class="field"><label>Tür</label>
+        ${isSub
+          ? `<input value="${esc(accTypeLabel(fixedType))}" disabled /><input type="hidden" id="a-type" value="${esc(fixedType)}" />`
+          : `<select id="a-type">${ACCOUNT_TYPES.map((t) => `<option value="${t.value}" ${acc?.type===t.value?"selected":""}>${t.label}</option>`).join("")}</select>`}
+      </div>
     </div>
-    <div class="field"><label>Hesap Adı</label><input id="a-name" value="${esc(acc?.name || "")}" placeholder="Merkez Kasa" /></div>
+    <div class="field"><label>Hesap Adı</label><input id="a-name" value="${esc(acc?.name || "")}" placeholder="${isSub ? "Garanti Banka Hesabı" : "Kasa Hesabı"}" /></div>
     <div class="field"><label>Açılış Bakiyesi (₺)</label><input id="a-balance" class="num" value="${acc?.openingBalance ?? acc?.balance ?? 0}" />
       <div style="font-size:11px;color:var(--ink-faint);margin-top:4px">Güncel bakiye, bu değere hareketler eklenerek otomatik hesaplanır.</div></div>`;
   const m = openModal({
-    title: isNew ? "Yeni Hesap" : "Hesabı Düzenle",
+    title: isNew ? (parent ? "Alt Hesap Ekle" : "Yeni Ana Hesap") : "Hesabı Düzenle",
     body,
     footer: [
       mkBtn("Vazgeç", "", () => m.close()),
@@ -1005,6 +1116,10 @@ function accModal(acc) {
           openingBalance: parseNum($("#a-balance", body).value),
           updatedAt: serverTimestamp(),
         };
+        if (isNew) {
+          payload.parentId = parent ? parent.id : null;
+          payload.parentCode = parent ? parent.code : null;
+        }
         if (!payload.name) return toast("Hesap adı gerekli.", "err");
         try {
           if (isNew) await addDoc(C.accounts(), { ...payload, createdAt: serverTimestamp() });
@@ -1103,8 +1218,10 @@ async function viewCariHareket(c) {
 //  MODÜL: BANKA İŞLEME
 // ===========================================================================
 async function viewBanka(c) {
-  const bankAccounts = (await fetchAll(C.accounts).catch(() => []))
-    .filter((a) => a.type === "banka");
+  const allAcc = await fetchAll(C.accounts).catch(() => []);
+  const parentIds = new Set(allAcc.map((a) => a.parentId).filter(Boolean));
+  // Yalnızca alt hesabı olmayan (yaprak) banka hesapları — ör. 102.01 Garanti
+  const bankAccounts = allAcc.filter((a) => a.type === "banka" && !parentIds.has(a.id));
   c.innerHTML = `
     <div class="notice info">🏦 Banka hareket dosyanızı yükleyin. Aşağıda <b>düzenleme ve ön izleme</b> ekranı oluşur;
       kontrol edip kaydedin. Seçtiğiniz <b>hedef banka hesabı</b>nın bakiyesi bu hareketlerle güncellenir.</div>
