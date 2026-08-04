@@ -49,8 +49,11 @@ Kullanıcının görüntülediği hesap planı (100 Kasa, 320 Tedarikçiler, vb.
 | `code` | string | Hesap kodu (ör. `100.01`, `320.05`) |
 | `name` | string | Hesap adı |
 | `type` | `kasa`\|`banka`\|`tedarikci`\|`musteri`\|`gider`\|`diger` | Hesap türü |
-| `balance` | number | Güncel bakiye |
+| `openingBalance` | number | Açılış bakiyesi (manuel) |
 | `createdAt`/`updatedAt` | timestamp | |
+
+> **Güncel bakiye saklanmaz, otomatik hesaplanır:**
+> `güncel = openingBalance + Σ(cari borç − alacak, koda göre) + Σ(banka tutarı, accountId'ye göre)`
 
 ---
 
@@ -79,6 +82,8 @@ Banka dosyalarından aktarılan hareketler.
 | `type` | `"gelen"` \| `"giden"` | Yön |
 | `amount` | number | Tutar (giden negatif) |
 | `balance` | number | O anki bakiye |
+| `accountId` | string \| null | İşlendiği banka hesabı (accounts id) |
+| `accountCode` | string \| null | İşlendiği hesabın kodu |
 | `source` | string | `"banka"` |
 
 ---

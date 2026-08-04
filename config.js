@@ -31,5 +31,5 @@ export const COMPANY = {
 // Gün Sonu kayıtlarını düzenleyebilir/silebilir. Aşağıdaki e-postalar ise
 // ilk girişte otomatik olarak admin rolü ile oluşturulur (isteğe bağlı kolaylık).
 export const BOOTSTRAP_ADMINS = [
-  // "yonetici@gulluoglukubban.com",
+  "nizamsoft@icloud.com",
 ];

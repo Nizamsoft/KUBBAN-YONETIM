@@ -461,14 +461,19 @@ function editableTable(columns, initialRows = [], opts = {}) {
 //  MODÜL: DASHBOARD
 // ===========================================================================
 async function viewDashboard(c) {
-  const [accounts, records, cashflow] = await Promise.all([
+  const [accounts, records, cashflow, cari, bank] = await Promise.all([
     fetchAll(C.accounts).catch(() => []),
     fetchAll(C.dayEndRecords).catch(() => []),
     fetchAll(C.cashflowItems).catch(() => []),
+    fetchAll(C.currentMovements).catch(() => []),
+    fetchAll(C.bankTransactions).catch(() => []),
   ]);
-  const kasa = accounts.filter((a) => a.type === "kasa").reduce((s, a) => s + (a.balance || 0), 0);
-  const tedarikci = accounts.filter((a) => a.type === "tedarikci").reduce((s, a) => s + (a.balance || 0), 0);
-  const banka = accounts.filter((a) => a.type === "banka").reduce((s, a) => s + (a.balance || 0), 0);
+  const bal = computeBalances(accounts, cari, bank);
+  const sumType = (t) => accounts.filter((a) => a.type === t)
+    .reduce((s, a) => s + (bal.get(a.id)?.current || 0), 0);
+  const kasa = sumType("kasa");
+  const tedarikci = sumType("tedarikci");
+  const banka = sumType("banka");
 
   const monthlyIn = cashflow.filter((x) => x.type === "gelir" && x.active !== false)
     .reduce((s, x) => s + monthlyEquivalent(x), 0);
@@ -813,9 +818,37 @@ const ACCOUNT_TYPES = [
 ];
 const accTypeLabel = (v) => (ACCOUNT_TYPES.find((t) => t.value === v)?.label || v || "—");
 
+// Hesap bakiyelerini hareketlerden OTOMATİK hesapla:
+//   güncel = açılış bakiyesi + cari hareket deltası + banka hareket deltası
+//   · cari hareketler hesap KODUNA göre eşlenir (borç − alacak)
+//   · banka hareketleri, Banka İşleme'de seçilen hedef hesabın id'sine göre eşlenir
+function computeBalances(accounts, cari = [], bank = []) {
+  const map = new Map();
+  const byCode = new Map();
+  accounts.forEach((a) => {
+    const opening = a.openingBalance != null ? a.openingBalance : (a.balance || 0);
+    map.set(a.id, { opening, delta: 0, current: opening });
+    if (a.code) byCode.set(String(a.code).trim(), a.id);
+  });
+  cari.forEach((m) => {
+    const id = byCode.get(String(m.code || "").trim());
+    if (id) map.get(id).delta += parseNum(m.debit) - parseNum(m.credit);
+  });
+  bank.forEach((t) => {
+    if (t.accountId && map.has(t.accountId)) map.get(t.accountId).delta += parseNum(t.amount);
+  });
+  map.forEach((e) => { e.current = e.opening + e.delta; });
+  return map;
+}
+
 async function viewHesaplar(c) {
-  const accounts = (await fetchAll(C.accounts))
-    .sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+  const [accounts0, cari, bank] = await Promise.all([
+    fetchAll(C.accounts),
+    fetchAll(C.currentMovements).catch(() => []),
+    fetchAll(C.bankTransactions).catch(() => []),
+  ]);
+  const accounts = accounts0.sort((a, b) => (a.code || "").localeCompare(b.code || ""));
+  const balances = computeBalances(accounts, cari, bank);
   let filter = "all";
 
   c.innerHTML = `
@@ -834,21 +867,25 @@ async function viewHesaplar(c) {
 
   function draw() {
     const list = filter === "all" ? accounts : accounts.filter((a) => a.type === filter);
-    const total = list.reduce((s, a) => s + (a.balance || 0), 0);
+    const total = list.reduce((s, a) => s + (balances.get(a.id)?.current || 0), 0);
     $("#acc-list").innerHTML = `
+      <div class="notice info" style="margin-bottom:16px">ℹ️ Güncel bakiye = <b>açılış bakiyesi + hareketler</b>.
+        Cari hareketler hesap koduna, banka hareketleri Banka İşleme'de seçilen hedef hesaba göre otomatik eklenir.</div>
       <div class="card">
-        <div class="card-head"><h3>Hesaplar</h3><span class="hint">${list.length} hesap · Toplam ${fmtTRY(total)}</span></div>
+        <div class="card-head"><h3>Hesaplar</h3><span class="hint">${list.length} hesap · Güncel Toplam ${fmtTRY(total)}</span></div>
         ${list.length ? `<div class="table-wrap"><table class="data">
-          <thead><tr><th>Kod</th><th>Hesap Adı</th><th>Tür</th><th class="num">Bakiye</th><th></th></tr></thead>
-          <tbody>${list.map((a) => `<tr>
+          <thead><tr><th>Kod</th><th>Hesap Adı</th><th>Tür</th><th class="num">Açılış</th><th class="num">Hareket</th><th class="num">Güncel Bakiye</th><th></th></tr></thead>
+          <tbody>${list.map((a) => { const b = balances.get(a.id) || { opening: 0, delta: 0, current: 0 }; return `<tr>
             <td><b>${esc(a.code || "—")}</b></td>
             <td>${esc(a.name || "")}</td>
             <td><span class="tag gold">${esc(accTypeLabel(a.type))}</span></td>
-            <td class="num" style="color:${(a.balance||0)<0?'var(--danger)':'inherit'}">${fmtTRY(a.balance || 0)}</td>
+            <td class="num">${fmtTRY(b.opening)}</td>
+            <td class="num" style="color:${b.delta<0?'var(--danger)':b.delta>0?'var(--ok)':'var(--ink-faint)'}">${b.delta>=0?"+":""}${fmtNum(b.delta)}</td>
+            <td class="num" style="font-weight:700;color:${b.current<0?'var(--danger)':'inherit'}">${fmtTRY(b.current)}</td>
             <td style="text-align:right">
               <button class="btn btn-sm" data-edit="${a.id}">Düzenle</button>
               <button class="btn btn-sm btn-danger" data-del="${a.id}">Sil</button>
-            </td></tr>`).join("")}</tbody>
+            </td></tr>`; }).join("")}</tbody>
         </table></div>`
           : `<div class="empty"><div class="ico">💼</div><p>Bu türde hesap yok.</p></div>`}
       </div>`;
@@ -878,7 +915,8 @@ function accModal(acc) {
       </select></div>
     </div>
     <div class="field"><label>Hesap Adı</label><input id="a-name" value="${esc(acc?.name || "")}" placeholder="Merkez Kasa" /></div>
-    <div class="field"><label>Bakiye (₺)</label><input id="a-balance" class="num" value="${acc?.balance ?? 0}" /></div>`;
+    <div class="field"><label>Açılış Bakiyesi (₺)</label><input id="a-balance" class="num" value="${acc?.openingBalance ?? acc?.balance ?? 0}" />
+      <div style="font-size:11px;color:var(--ink-faint);margin-top:4px">Güncel bakiye, bu değere hareketler eklenerek otomatik hesaplanır.</div></div>`;
   const m = openModal({
     title: isNew ? "Yeni Hesap" : "Hesabı Düzenle",
     body,
@@ -889,7 +927,7 @@ function accModal(acc) {
           code: $("#a-code", body).value.trim(),
           name: $("#a-name", body).value.trim(),
           type: $("#a-type", body).value,
-          balance: parseNum($("#a-balance", body).value),
+          openingBalance: parseNum($("#a-balance", body).value),
           updatedAt: serverTimestamp(),
         };
         if (!payload.name) return toast("Hesap adı gerekli.", "err");
@@ -990,9 +1028,12 @@ async function viewCariHareket(c) {
 //  MODÜL: BANKA İŞLEME
 // ===========================================================================
 async function viewBanka(c) {
+  const bankAccounts = (await fetchAll(C.accounts).catch(() => []))
+    .filter((a) => a.type === "banka");
   c.innerHTML = `
     <div class="notice info">🏦 Banka hareket dosyanızı yükleyin. Aşağıda <b>düzenleme ve ön izleme</b> ekranı oluşur;
-      kontrol edip kaydedin.</div>
+      kontrol edip kaydedin. Seçtiğiniz <b>hedef banka hesabı</b>nın bakiyesi bu hareketlerle güncellenir.</div>
+    ${bankAccounts.length ? "" : `<div class="notice warn">⚠️ Henüz <b>banka türünde hesap</b> yok. Hareketlerin bir hesaba işlenmesi için önce <a href="#/hesaplar">Hesaplar</a>'dan banka hesabı ekleyin.</div>`}
     <div class="card"><div class="card-head"><h3>1) Banka Dosyası Yükle</h3></div><div id="bk-drop"></div></div>
     <div id="bk-editor"></div>`;
 
@@ -1037,9 +1078,16 @@ async function viewBanka(c) {
     card.innerHTML = `<div class="card-head"><h3>2) Ön İzleme & Düzenleme</h3><span class="hint">${norm.length} hareket</span></div>`;
     card.appendChild(et.root);
     const foot = document.createElement("div"); foot.className = "toolbar"; foot.style.marginTop = "14px";
+    const acctField = document.createElement("div");
+    acctField.className = "field"; acctField.style.margin = "0";
+    acctField.innerHTML = `<label>Hedef Banka Hesabı</label>
+      <select id="bk-account">
+        <option value="">(hesaba işlenmesin)</option>
+        ${bankAccounts.map((a) => `<option value="${a.id}">${esc(a.code ? a.code + " · " : "")}${esc(a.name)}</option>`).join("")}
+      </select>`;
     const info = document.createElement("div"); info.className = "grow"; info.style.fontWeight = "700";
     const saveBtn = mkBtn("💾 Banka Hareketlerini Kaydet", "btn-primary");
-    foot.append(info, saveBtn);
+    foot.append(acctField, info, saveBtn);
     card.appendChild(foot);
     editor.appendChild(card);
 
@@ -1055,9 +1103,13 @@ async function viewBanka(c) {
       const data = et.getData().filter((r) => r.date || r.desc || r.amount);
       if (!data.length) return toast("Kaydedilecek hareket yok.", "err");
       saveBtn.disabled = true;
+      const acctId = $("#bk-account", editor)?.value || "";
+      const acct = bankAccounts.find((a) => a.id === acctId);
       try {
         await batchAdd(C.bankTransactions, data.map((r) => ({
-          ...r, source: "banka", createdAt: serverTimestamp(), createdBy: currentUser.email,
+          ...r, source: "banka",
+          accountId: acctId || null, accountCode: acct?.code || null,
+          createdAt: serverTimestamp(), createdBy: currentUser.email,
         })));
         toast(`${data.length} banka hareketi kaydedildi.`, "ok");
         editor.innerHTML = `<div class="notice info">✔ ${data.length} hareket kaydedildi.</div>`;
@@ -1164,13 +1216,16 @@ function cfModal(item) {
 //  MODÜL: NAKİT AKIŞ RAPORU (1 / 3 aylık projeksiyon)
 // ===========================================================================
 async function viewNakitAkisRapor(c) {
-  const [items, accounts] = await Promise.all([
+  const [items, accounts, cari, bank] = await Promise.all([
     fetchAll(C.cashflowItems).catch(() => []),
     fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.currentMovements).catch(() => []),
+    fetchAll(C.bankTransactions).catch(() => []),
   ]);
+  const bal = computeBalances(accounts, cari, bank);
   const startCash = accounts
     .filter((a) => a.type === "kasa" || a.type === "banka")
-    .reduce((s, a) => s + (a.balance || 0), 0);
+    .reduce((s, a) => s + (bal.get(a.id)?.current || 0), 0);
   let months = 3;
 
   c.innerHTML = `
