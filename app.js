@@ -255,8 +255,13 @@ $("#user-chip").addEventListener("click", () => {
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.02";
+const APP_VERSION = "2026.03";
 const CHANGELOG = [
+  { version: "2026.03", date: "2026-08-04", items: [
+    "Performans: sayfa geçişleri anlık ve akıcı hale getirildi (yükleniyor titremesi kaldırıldı, yumuşak geçiş eklendi)",
+    "İçe aktarma tablolarında yazarken toplam hesaplama akıcılaştırıldı (rAF ile kısıtlama)",
+    "Akordeon menü açılışı daha hızlı",
+  ]},
   { version: "2026.02", date: "2026-08-04", items: [
     "Sol menü akordeon yapıldı (ana bölümler açılır-kapanır) ve yeniden sıralandı",
     "Üst markaya 'Güllüoğlu Kübban' yazıldı",
@@ -362,13 +367,25 @@ async function route() {
   $("#page-title").textContent = r.title;
   $("#crumb").textContent = r.crumb;
   const c = $("#view-container");
-  c.innerHTML = `<div class="empty"><div class="spinner" style="margin:0 auto"></div></div>`;
   try {
     await r.render(c);
+    // Yumuşak, anlık geçiş (spinner titremesi olmadan)
+    c.style.animation = "none";
+    void c.offsetWidth;
+    c.style.animation = "viewIn .16s ease-out";
   } catch (err) {
     console.error(err);
     c.innerHTML = `<div class="notice warn"><b>Hata:</b> ${esc(err.message || err)}</div>`;
   }
+}
+// requestAnimationFrame ile kısıtlama (akıcı yeniden hesaplama için)
+function rafThrottle(fn) {
+  let scheduled = false;
+  return (...a) => {
+    if (scheduled) return;
+    scheduled = true;
+    requestAnimationFrame(() => { scheduled = false; fn(...a); });
+  };
 }
 window.addEventListener("hashchange", route);
 
@@ -671,7 +688,7 @@ async function viewGunSonuAktarim(c) {
       return { total, data, col };
     }
     computeTotal();
-    editor.addEventListener("input", computeTotal);
+    editor.addEventListener("input", rafThrottle(computeTotal));
     $("#gs-add").addEventListener("click", () => { et.addRow(); computeTotal(); });
 
     saveBtn.addEventListener("click", async () => {
@@ -1064,7 +1081,7 @@ async function viewCariHareket(c) {
       info.textContent = `Toplam Borç: ${fmtTRY(borc)}  ·  Toplam Alacak: ${fmtTRY(alacak)}`;
     };
     recompute();
-    editor.addEventListener("input", recompute);
+    editor.addEventListener("input", rafThrottle(recompute));
     addBtn.onclick = () => { et.addRow({ date: todayISO() }); recompute(); };
 
     saveBtn.onclick = async () => {
@@ -1156,7 +1173,7 @@ async function viewBanka(c) {
       info.textContent = `Gelen: ${fmtTRY(gelen)}  ·  Giden: ${fmtTRY(giden)}  ·  Net: ${fmtTRY(gelen+giden)}`;
     };
     recompute();
-    editor.addEventListener("input", recompute);
+    editor.addEventListener("input", rafThrottle(recompute));
     saveBtn.onclick = async () => {
       const data = et.getData().filter((r) => r.date || r.desc || r.amount);
       if (!data.length) return toast("Kaydedilecek hareket yok.", "err");

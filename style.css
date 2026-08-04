@@ -185,7 +185,7 @@ button { font-family: inherit; }
 .nav-group.open > .nav-group-header .chev { transform: rotate(90deg); opacity: 1; }
 .nav-group-body {
   overflow: hidden; max-height: 0;
-  transition: max-height .25s ease;
+  transition: max-height .2s ease-out;
 }
 .nav-group.open > .nav-group-body { max-height: 320px; }
 .nav-group-body { display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
@@ -216,6 +216,8 @@ button { font-family: inherit; }
 .role-badge.user { background: var(--line-strong); color: var(--ink-soft); }
 
 .content { padding: 24px; flex: 1; }
+#view-container { will-change: opacity; }
+@keyframes viewIn { from { opacity: .4; transform: translateY(3px); } to { opacity: 1; transform: none; } }
 
 /* ==========================================================================
    KARTLAR / IZGARA / TABLO
