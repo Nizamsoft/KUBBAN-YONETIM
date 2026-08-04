@@ -248,22 +248,26 @@ $("#user-chip").addEventListener("click", () => {
 // ---------------------------------------------------------------------------
 //  NAVİGASYON & YÖNLENDİRME (ROUTER)
 // ---------------------------------------------------------------------------
+// Akordeon menü: ana bölümler + alt sayfalar. Sıra kullanıcı isteğine göre.
 const NAV = [
-  { type: "item", path: "dashboard", icon: "📊", label: "Dashboard" },
-  { type: "group", label: "Gün Sonu" },
-  { type: "item", path: "gunsonu-aktarim", icon: "📥", label: "Aktarım Ekranı", sub: true },
-  { type: "item", path: "gunsonu-kayitlar", icon: "🗂️", label: "Gün Sonu Kayıtları", sub: true },
-  { type: "item", path: "gunsonu-rapor",   icon: "📝", label: "Gün Sonu Raporu", sub: true },
-  { type: "group", label: "Hesaplar" },
-  { type: "item", path: "hesaplar", icon: "💼", label: "Hesaplar", sub: true },
-  { type: "group", label: "Veri Girişi" },
-  { type: "item", path: "cari-hareket", icon: "🔁", label: "Cari Hareket İşleme", sub: true },
-  { type: "item", path: "banka",        icon: "🏦", label: "Banka İşleme", sub: true },
-  { type: "group", label: "Raporlar" },
-  { type: "item", path: "nakit-akis-rapor", icon: "📈", label: "Nakit Akış Raporu", sub: true },
-  { type: "item", path: "nakit-akis-veri",  icon: "🔄", label: "Nakit Akış Verileri", sub: true },
-  { type: "group", label: "Sistem" },
-  { type: "item", path: "yedek", icon: "💾", label: "Yedek / Veri", sub: true },
+  { label: "Dashboard", icon: "📊", path: "dashboard" },
+  { label: "Veri Girişleri", icon: "📝", children: [
+    { label: "Cari Hareket İşleme", icon: "🔁", path: "cari-hareket" },
+    { label: "Banka İşleme",        icon: "🏦", path: "banka" },
+  ]},
+  { label: "Gün Sonu İşlemleri", icon: "🌙", children: [
+    { label: "Aktarım Ekranı",      icon: "📥", path: "gunsonu-aktarim" },
+    { label: "Gün Sonu Kayıtları",  icon: "🗂️", path: "gunsonu-kayitlar" },
+    { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
+  ]},
+  { label: "Hesaplar", icon: "💼", path: "hesaplar" },
+  { label: "Raporlar", icon: "📈", children: [
+    { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
+    { label: "Nakit Akış Verileri", icon: "🔄", path: "nakit-akis-veri" },
+  ]},
+  { label: "Sistem", icon: "⚙️", children: [
+    { label: "Yedek / Veri", icon: "💾", path: "yedek" },
+  ]},
 ];
 
 const ROUTES = {
@@ -283,14 +287,37 @@ function buildNav() {
   const nav = $("#nav");
   nav.innerHTML = "";
   NAV.forEach((n) => {
-    if (n.type === "group") {
-      const g = document.createElement("div");
-      g.className = "nav-group-title";
-      g.textContent = n.label;
-      nav.appendChild(g);
+    if (n.children) {
+      // Akordeon grubu
+      const group = document.createElement("div");
+      group.className = "nav-group";
+      group._paths = n.children.map((c) => c.path);
+
+      const header = document.createElement("button");
+      header.className = "nav-group-header";
+      header.type = "button";
+      header.innerHTML =
+        `<span class="ico">${n.icon}</span><span class="lbl">${esc(n.label)}</span><span class="chev">▸</span>`;
+      header.addEventListener("click", () => toggleGroup(group));
+
+      const bodyEl = document.createElement("div");
+      bodyEl.className = "nav-group-body";
+      n.children.forEach((ch) => {
+        const a = document.createElement("a");
+        a.className = "nav-item nav-sub";
+        a.href = "#/" + ch.path;
+        a.dataset.path = ch.path;
+        a.innerHTML = `<span class="ico">${ch.icon}</span><span>${esc(ch.label)}</span>`;
+        bodyEl.appendChild(a);
+      });
+
+      group.appendChild(header);
+      group.appendChild(bodyEl);
+      nav.appendChild(group);
     } else {
+      // Ana seviye tek bağlantı (Dashboard, Hesaplar)
       const a = document.createElement("a");
-      a.className = "nav-item" + (n.sub ? " nav-sub" : "");
+      a.className = "nav-item nav-top";
       a.href = "#/" + n.path;
       a.dataset.path = n.path;
       a.innerHTML = `<span class="ico">${n.icon}</span><span>${esc(n.label)}</span>`;
@@ -298,12 +325,21 @@ function buildNav() {
     }
   });
 }
+// Tek-açık akordeon: bir grup açılınca diğerleri kapanır
+function toggleGroup(group) {
+  const willOpen = !group.classList.contains("open");
+  $$("#nav .nav-group").forEach((g) => g.classList.remove("open"));
+  if (willOpen) group.classList.add("open");
+}
 
 async function route() {
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
   const r = ROUTES[path] || ROUTES["dashboard"];
   $$("#nav .nav-item").forEach((a) =>
     a.classList.toggle("active", a.dataset.path === path));
+  // Aktif sayfanın bulunduğu grubu aç (akordeon)
+  $$("#nav .nav-group").forEach((g) =>
+    g.classList.toggle("open", Array.isArray(g._paths) && g._paths.includes(path)));
   $("#page-title").textContent = r.title;
   $("#crumb").textContent = r.crumb;
   const c = $("#view-container");

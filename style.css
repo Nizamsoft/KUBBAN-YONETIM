@@ -165,7 +165,30 @@ button { font-family: inherit; }
 .nav-item:hover { background: rgba(255,255,255,.06); }
 .nav-item.active { background: var(--gold); color: #fff; }
 .nav-item .ico { width: 18px; text-align: center; font-size: 15px; }
-.nav-sub { margin-left: 8px; }
+.nav-sub { margin-left: 6px; }
+
+/* -------- Akordeon menü -------- */
+.nav-top { margin-bottom: 2px; }
+.nav-group { margin-bottom: 2px; }
+.nav-group-header {
+  display: flex; align-items: center; gap: 11px; width: 100%;
+  padding: 10px 12px; border: none; background: transparent; color: var(--on-dark);
+  cursor: pointer; font-size: 13.5px; font-weight: 600; border-radius: 8px;
+  font-family: inherit; text-align: left;
+  transition: background .12s, color .12s;
+}
+.nav-group-header:hover { background: rgba(255,255,255,.06); }
+.nav-group-header .ico { width: 18px; text-align: center; font-size: 15px; }
+.nav-group-header .lbl { flex: 1; }
+.nav-group-header .chev { font-size: 11px; opacity: .65; transition: transform .2s; }
+.nav-group.open > .nav-group-header { color: #fff; }
+.nav-group.open > .nav-group-header .chev { transform: rotate(90deg); opacity: 1; }
+.nav-group-body {
+  overflow: hidden; max-height: 0;
+  transition: max-height .25s ease;
+}
+.nav-group.open > .nav-group-body { max-height: 320px; }
+.nav-group-body { display: flex; flex-direction: column; gap: 2px; padding-top: 2px; }
 
 .sidebar-foot { padding: 12px 14px; border-top: 1px solid rgba(255,255,255,.08); font-size: 11px; color: #8c7c60; }
 
