@@ -237,6 +237,8 @@ function showApp() {
   const roleEl = $("#user-role");
   roleEl.textContent = isAdmin() ? "Yönetici" : "Kullanıcı";
   roleEl.classList.toggle("user", !isAdmin());
+  const foot = $(".sidebar-foot");
+  if (foot) foot.textContent = `Sürüm ${APP_VERSION} · Yerel Mod`;
   buildNav();
   if (!location.hash) location.hash = "#/dashboard";
   route();
@@ -248,6 +250,21 @@ $("#user-chip").addEventListener("click", () => {
 // ---------------------------------------------------------------------------
 //  NAVİGASYON & YÖNLENDİRME (ROUTER)
 // ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+//  SÜRÜM & GÜNCELLEME GEÇMİŞİ
+//  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
+//  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
+// ---------------------------------------------------------------------------
+const APP_VERSION = "2026.02";
+const CHANGELOG = [
+  { version: "2026.02", date: "2026-08-04", items: [
+    "Sol menü akordeon yapıldı (ana bölümler açılır-kapanır) ve yeniden sıralandı",
+    "Üst markaya 'Güllüoğlu Kübban' yazıldı",
+    "Sistem altına Güncelleme / Sürüm ekranı eklendi",
+    "GitHub Pages üzerinden canlı yayına alındı",
+  ]},
+];
+
 // Akordeon menü: ana bölümler + alt sayfalar. Sıra kullanıcı isteğine göre.
 const NAV = [
   { label: "Dashboard", icon: "📊", path: "dashboard" },
@@ -267,6 +284,7 @@ const NAV = [
   ]},
   { label: "Sistem", icon: "⚙️", children: [
     { label: "Yedek / Veri", icon: "💾", path: "yedek" },
+    { label: "Güncelleme",   icon: "🆕", path: "guncelleme" },
   ]},
 ];
 
@@ -281,6 +299,7 @@ const ROUTES = {
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
   "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Raporlar", render: viewNakitAkisVeri },
   "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
+  "guncelleme":       { title: "Güncelleme", crumb: "Sistem", render: viewGuncelleme },
 };
 
 function buildNav() {
@@ -1430,6 +1449,35 @@ async function viewYedek(c) {
       toast("Tüm veri temizlendi.", "ok");
       route();
     });
+}
+
+// ===========================================================================
+//  MODÜL: GÜNCELLEME / SÜRÜM
+// ===========================================================================
+async function viewGuncelleme(c) {
+  const cur = CHANGELOG[0] || { version: APP_VERSION, date: todayISO(), items: [] };
+  c.innerHTML = `
+    <div class="grid cols-3">
+      <div class="stat"><div class="label">Güncel Sürüm</div><div class="value">${esc(APP_VERSION)}</div><div class="foot">${fmtDate(cur.date)}</div></div>
+      <div class="stat green"><div class="label">Yayın</div><div class="value" style="font-size:19px">Canlı</div><div class="foot">GitHub Pages · Yerel Mod</div></div>
+      <div class="stat"><div class="label">Toplam Sürüm</div><div class="value">${CHANGELOG.length}</div><div class="foot">Düzen: YIL.NO (artan)</div></div>
+    </div>
+    <div class="card" style="margin-top:18px">
+      <div class="card-head"><h3>Sürüm Geçmişi</h3><span class="hint">En yeni sürüm üstte</span></div>
+      <div class="note-list">
+        ${CHANGELOG.map((v, i) => `
+          <div class="note" style="border-left-color:${i === 0 ? "var(--gold)" : "var(--line-strong)"}">
+            <div class="meta">
+              <b style="color:var(--gold-dark);font-size:13.5px">Sürüm ${esc(v.version)}</b>
+              &nbsp;·&nbsp;${fmtDate(v.date)}
+              ${i === 0 ? '<span class="tag ok" style="margin-left:6px">güncel</span>' : ""}
+            </div>
+            <ul style="margin:6px 0 0;padding-left:18px;color:var(--ink)">
+              ${(v.items || []).map((it) => `<li style="margin:2px 0">${esc(it)}</li>`).join("")}
+            </ul>
+          </div>`).join("")}
+      </div>
+    </div>`;
 }
 
 // ---------------------------------------------------------------------------
