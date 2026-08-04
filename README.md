@@ -7,9 +7,23 @@ cari/banka veri girişi ve nakit akışı yönetim paneli.
 > yazılımdır. Kendi GitHub reposunu ve **kendi Firebase projesini** kullanır;
 > veriler ve kullanıcılar karışmaz.
 
+## Çalışma Modu
+
+> 🟢 **Şu an YEREL MOD aktif.** Tüm veriler (kullanıcılar dahil) yalnızca
+> **tarayıcının belleğinde** (`localStorage`) saklanır. Firebase **gerekmez**;
+> `config.js` doldurmadan çalışır. Firebase'i **en sona** bağlayacağız.
+>
+> - Giriş de yereldir: ilk kez **Kayıt olun** ile hesap oluşturun.
+> - Veri kaybını önlemek için **Sistem → Yedek / Veri** ekranından düzenli
+>   yedek indirin. Firebase bağlanınca bu yedeği içe aktarabilirsiniz.
+>
+> **Firebase'e geçiş** (ileride): `app.js`'in en üstündeki import'u
+> `./local-backend.js` yerine gstatic Firebase SDK adreslerine çevirin ve
+> `config.js`'e proje bilgilerini girin. Fonksiyon imzaları birebir aynıdır.
+
 ## Teknoloji
 - Saf **HTML + CSS + vanilla JavaScript** (framework yok)
-- **Firebase Authentication** (giriş) + **Firestore** (veritabanı)
+- Veri katmanı: **yerel mod** (`local-backend.js`, localStorage) — sonradan **Firebase** (Auth + Firestore)
 - Excel okuma: [SheetJS](https://sheetjs.com) (CDN üzerinden, tarayıcıda)
 
 ## Dosya Yapısı
@@ -22,7 +36,17 @@ firestore.rules → Firestore güvenlik kuralları
 DATA-MODEL.md   → koleksiyon/alan şeması
 ```
 
-## Kurulum
+## Hızlı Başlangıç (Yerel Mod)
+
+Firebase'e gerek yok. Basit bir sunucu yeterli (`file://` ile **açılmaz**):
+```bash
+python3 -m http.server 8080      # veya:  npx serve .
+```
+Tarayıcıda **http://localhost:8080** → **Kayıt olun** ile ilk kullanıcıyı oluşturun.
+
+---
+
+## Firebase Kurulumu (İLERİDE — şimdilik atlayın)
 
 ### 1) Yeni Firebase projesi oluşturun
 1. [Firebase Console](https://console.firebase.google.com) → **Add project**

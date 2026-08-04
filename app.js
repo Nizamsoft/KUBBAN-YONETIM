@@ -3,25 +3,25 @@
 //  Saf vanilla JS (framework yok) · Firebase Auth + Firestore
 // ============================================================================
 
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+// ⚙️ YEREL MOD: Şimdilik tüm veri tarayıcıda (localStorage) saklanır.
+// Firebase'e geçmek için aşağıdaki import'u tekrar gstatic Firebase SDK'sına
+// çevirmek yeterli (fonksiyon imzaları birebir aynıdır). Bkz. local-backend.js
 import {
+  initializeApp, getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc,
+  updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp, writeBatch,
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
-import {
-  getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc,
-  updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp,
-  writeBatch,
-} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+  exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
+} from "./local-backend.js";
 
-import { firebaseConfig, COMPANY, BOOTSTRAP_ADMINS } from "./config.js";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
 // ---------------------------------------------------------------------------
 const $  = (sel, root = document) => root.querySelector(sel);
 const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
-const CONFIG_READY = !String(firebaseConfig.apiKey || "").includes("BURAYA");
+const CONFIG_READY = true; // Yerel mod her zaman hazır
 
 const nf  = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtTRY = (n) => (isFinite(n) ? nf.format(n) : "0,00") + " ₺";
@@ -100,7 +100,7 @@ function confirmDialog(message, onYes) {
 // ---------------------------------------------------------------------------
 let app, auth, db;
 if (CONFIG_READY) {
-  app  = initializeApp(firebaseConfig);
+  app  = initializeApp({});   // yerel mod
   auth = getAuth(app);
   db   = getFirestore(app);
 }
@@ -262,6 +262,8 @@ const NAV = [
   { type: "group", label: "Raporlar" },
   { type: "item", path: "nakit-akis-rapor", icon: "📈", label: "Nakit Akış Raporu", sub: true },
   { type: "item", path: "nakit-akis-veri",  icon: "🔄", label: "Nakit Akış Verileri", sub: true },
+  { type: "group", label: "Sistem" },
+  { type: "item", path: "yedek", icon: "💾", label: "Yedek / Veri", sub: true },
 ];
 
 const ROUTES = {
@@ -274,6 +276,7 @@ const ROUTES = {
   "banka":            { title: "Banka İşleme", crumb: "Veri Girişi", render: viewBanka },
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
   "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Raporlar", render: viewNakitAkisVeri },
+  "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
 };
 
 function buildNav() {
@@ -1323,6 +1326,74 @@ function miniBars(rows) {
     <span><span style="display:inline-block;width:10px;height:10px;background:var(--ok);border-radius:2px"></span> Giriş</span>
     <span><span style="display:inline-block;width:10px;height:10px;background:var(--red);border-radius:2px"></span> Çıkış</span>
   </div>`;
+}
+
+// ===========================================================================
+//  MODÜL: YEDEK / VERİ (yerel mod)
+// ===========================================================================
+const COL_LABELS = {
+  users: "Kullanıcılar", accounts: "Hesaplar", dayEndRecords: "Gün Sonu Kayıtları",
+  currentMovements: "Cari Hareketler", bankTransactions: "Banka Hareketleri",
+  cashflowItems: "Nakit Akış Verileri",
+};
+async function viewYedek(c) {
+  const stats = storageStats();
+  const kb = (stats.bytes / 1024).toFixed(1);
+  c.innerHTML = `
+    <div class="notice info">💾 <b>Yerel mod aktif.</b> Tüm veriler yalnızca <b>bu tarayıcıda</b> saklanıyor.
+      Veri kaybını önlemek için düzenli olarak <b>yedek indirin</b>. Firebase bağlandığında bu yedeği içe aktarabilirsiniz.</div>
+    <div class="grid cols-2">
+      <div class="card">
+        <div class="card-head"><h3>Depolama Durumu</h3><span class="hint">${kb} KB</span></div>
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Koleksiyon</th><th class="num">Kayıt</th></tr></thead>
+          <tbody>${COLLECTIONS.map((n) => `<tr><td>${esc(COL_LABELS[n] || n)}</td><td class="num">${stats.counts[n] || 0}</td></tr>`).join("")}</tbody>
+        </table></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><h3>Yedekle & Geri Yükle</h3></div>
+        <p style="color:var(--ink-soft);font-size:13px;margin-top:0">Tüm verinizi tek bir <code>.json</code> dosyasına indirin ya da bir yedeği geri yükleyin.</p>
+        <div class="toolbar" style="margin-bottom:0">
+          <button class="btn btn-primary" id="yd-export">⬇️ Yedeği İndir</button>
+          <button class="btn" id="yd-import-btn">⬆️ Yedeği Geri Yükle</button>
+          <input type="file" id="yd-import" accept=".json" style="display:none" />
+        </div>
+        <hr style="border:none;border-top:1px solid var(--line);margin:18px 0" />
+        <div class="notice warn" style="margin-bottom:10px">⚠️ Aşağıdaki işlem <b>tüm yerel veriyi</b> siler, geri alınamaz.</div>
+        <button class="btn btn-danger btn-sm" id="yd-clear">🗑️ Tüm Veriyi Temizle</button>
+      </div>
+    </div>`;
+
+  $("#yd-export").onclick = () => {
+    const data = exportAll();
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `kubban-yedek-${todayISO()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast("Yedek indirildi.", "ok");
+  };
+  $("#yd-import-btn").onclick = () => $("#yd-import").click();
+  $("#yd-import").onchange = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const payload = JSON.parse(await file.text());
+      confirmDialog("Bu yedek mevcut yerel verinin ÜZERİNE yazılacak. Devam edilsin mi?", () => {
+        importAll(payload, { replace: true });
+        toast("Yedek geri yüklendi.", "ok");
+        route();
+      });
+    } catch (err) { toast("Geçersiz yedek dosyası.", "err"); }
+  };
+  $("#yd-clear").onclick = () =>
+    confirmDialog("TÜM veriler silinsin mi? Bu işlem geri alınamaz.", () => {
+      clearAllData();
+      toast("Tüm veri temizlendi.", "ok");
+      route();
+    });
 }
 
 // ---------------------------------------------------------------------------
