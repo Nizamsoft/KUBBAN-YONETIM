@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js";
+} from "./local-backend.js?v=2026.05";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.05";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -255,8 +255,14 @@ $("#user-chip").addEventListener("click", () => {
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.04";
+const APP_VERSION = "2026.05";
 const CHANGELOG = [
+  { version: "2026.05", date: "2026-08-04", items: [
+    "Güncelleme ekranına 'Uygulamayı Güncelle' butonu eklendi (Ctrl+F5 gerekmez)",
+    "Dosyalara sürüm etiketi (?v) eklendi; yeni sürümler önbelleğe takılmadan yüklenir",
+    "Hesaplar: Tür sütunu kaldırıldı; alt hesaplar akordeon (satıra tıkla aç/kapat)",
+    "Hesaplar: alt hesap kodu otomatik ilerliyor (ör. 102.03 sonrası 102.04)",
+  ]},
   { version: "2026.04", date: "2026-08-04", items: [
     "Hesaplar: ana hesap → alt hesap (hiyerarşik hesap planı) yapısı geldi",
     "Alt hesap ekleme (ör. 102 Banka altına Garanti/Türkiye Finans/Ziraat)",
@@ -1006,10 +1012,9 @@ async function viewHesaplar(c) {
   const rowMain = (a) => {
     const ch = kids.get(a.id) || [];
     const bal = rolled(a);
-    return `<tr class="acc-main" data-id="${a.id}">
-      <td><span class="tree-toggle" data-toggle="${a.id}">${ch.length ? "▾" : "&nbsp;&nbsp;"}</span> <b>${esc(a.code || "—")}</b></td>
+    return `<tr class="acc-main${ch.length ? " has-kids" : ""}" data-id="${a.id}">
+      <td><span class="tree-toggle">${ch.length ? "▾" : "&nbsp;&nbsp;"}</span> <b>${esc(a.code || "—")}</b></td>
       <td><b>${esc(a.name || "")}</b>${ch.length ? ` <span style="color:var(--ink-faint);font-size:11px">(${ch.length} alt)</span>` : ""}</td>
-      <td><span class="tag gold">${esc(accTypeLabel(a.type))}</span></td>
       <td class="num" style="font-weight:700;color:${bal<0?'var(--danger)':'inherit'}">${fmtTRY(bal)}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn btn-sm" data-addsub="${a.id}" title="Alt hesap ekle">+ Alt</button>
@@ -1019,7 +1024,6 @@ async function viewHesaplar(c) {
       ch.map((s) => `<tr class="acc-sub" data-parent="${a.id}">
         <td style="padding-left:36px">${esc(s.code || "")}</td>
         <td>${esc(s.name || "")}</td>
-        <td><span class="tag" style="background:var(--surface-2);color:var(--ink-soft)">alt hesap</span></td>
         <td class="num" style="color:${cur(s)<0?'var(--danger)':'inherit'}">${fmtTRY(cur(s))}</td>
         <td style="text-align:right;white-space:nowrap">
           <button class="btn btn-sm" data-edit="${s.id}">Düzenle</button>
@@ -1038,7 +1042,7 @@ async function viewHesaplar(c) {
     <div class="card">
       <div class="card-head"><h3>Hesap Planı</h3><span class="hint">${roots.length} ana hesap · Genel Toplam ${fmtTRY(grand)}</span></div>
       <div class="table-wrap"><table class="data acc-tree">
-        <thead><tr><th>Kod</th><th>Hesap Adı</th><th>Tür</th><th class="num">Güncel Bakiye</th><th></th></tr></thead>
+        <thead><tr><th>Kod</th><th>Hesap Adı</th><th class="num">Güncel Bakiye</th><th></th></tr></thead>
         <tbody>${roots.map(rowMain).join("")}</tbody>
       </table></div>
     </div>`;
@@ -1046,15 +1050,20 @@ async function viewHesaplar(c) {
   const setOpen = (id, open) => {
     $$(`tr.acc-sub[data-parent="${id}"]`, c).forEach((tr) => tr.style.display = open ? "" : "none");
     const main = $(`tr.acc-main[data-id="${id}"]`, c);
-    if (main) main.dataset.open = open ? "1" : "0";
-    const t = $(`[data-toggle="${id}"]`, c);
-    if (t && t.textContent.trim()) t.textContent = open ? "▾" : "▸";
+    if (main) {
+      main.dataset.open = open ? "1" : "0";
+      const t = $(".tree-toggle", main);
+      if (t && t.textContent.trim()) t.textContent = open ? "▾" : "▸";
+    }
   };
   roots.forEach((a) => { if ((kids.get(a.id) || []).length) setOpen(a.id, true); });
 
-  $$("[data-toggle]", c).forEach((t) => t.onclick = () => {
-    const main = $(`tr.acc-main[data-id="${t.dataset.toggle}"]`, c);
-    setOpen(t.dataset.toggle, main.dataset.open !== "1");
+  // Akordeon: ana hesap satırına tıkla → alt hesaplar açılır/kapanır (butonlar hariç)
+  $$("tr.acc-main.has-kids", c).forEach((tr) => {
+    tr.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      setOpen(tr.dataset.id, tr.dataset.open !== "1");
+    });
   });
   $("#toggle-all").onclick = () => {
     const anyClosed = roots.some((a) => (kids.get(a.id) || []).length &&
@@ -1062,7 +1071,10 @@ async function viewHesaplar(c) {
     roots.forEach((a) => { if ((kids.get(a.id) || []).length) setOpen(a.id, anyClosed); });
   };
   $("#acc-add").onclick = () => accModal(null, null);
-  $$("[data-addsub]", c).forEach((b) => b.onclick = () => accModal(null, byId.get(b.dataset.addsub)));
+  $$("[data-addsub]", c).forEach((b) => b.onclick = () => {
+    const p = byId.get(b.dataset.addsub);
+    accModal(null, p, { nextCode: nextSubCode(p, kids.get(p.id) || []) });
+  });
   $$("[data-edit]", c).forEach((b) => b.onclick = () => {
     const a = byId.get(b.dataset.edit);
     accModal(a, a.parentId ? byId.get(a.parentId) : null);
@@ -1078,15 +1090,27 @@ async function viewHesaplar(c) {
   });
 }
 
-// accModal(acc, parent):
+// Bir ana hesabın bir sonraki alt hesap kodunu üretir (102.03 sonrası 102.04)
+function nextSubCode(parent, siblings) {
+  const prefix = (parent.code || "") + ".";
+  let max = 0;
+  (siblings || []).forEach((s) => {
+    const rest = String(s.code || "").startsWith(prefix) ? s.code.slice(prefix.length) : "";
+    const n = parseInt(rest, 10);
+    if (!isNaN(n) && n > max) max = n;
+  });
+  return prefix + String(max + 1).padStart(2, "0");
+}
+
+// accModal(acc, parent, opts):
 //   yeni ana hesap  → acc=null, parent=null
-//   yeni alt hesap  → acc=null, parent=<ana hesap>
+//   yeni alt hesap  → acc=null, parent=<ana hesap>, opts.nextCode=<otomatik kod>
 //   düzenleme       → acc=<hesap>, parent=<üst hesap ya da null>
-function accModal(acc, parent) {
+function accModal(acc, parent, opts) {
   const isNew = !acc;
   const isSub = !!parent || !!(acc && acc.parentId);
   const fixedType = isSub ? (parent?.type || acc?.type) : null;
-  const codeDefault = isNew && parent ? (parent.code + ".") : (acc?.code || "");
+  const codeDefault = isNew && parent ? (opts?.nextCode || (parent.code + ".01")) : (acc?.code || "");
   const body = document.createElement("div");
   body.innerHTML = `
     ${isSub ? `<div class="notice info" style="margin-bottom:14px">Alt hesap${
@@ -1588,9 +1612,31 @@ async function viewYedek(c) {
 // ===========================================================================
 //  MODÜL: GÜNCELLEME / SÜRÜM
 // ===========================================================================
+// Önbelleği temizleyip uygulamayı en güncel sürümle yeniden yükle
+async function doAppUpdate(btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "Güncelleniyor…"; }
+  try {
+    if ("caches" in window) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (_) { /* yoksay */ }
+  // Benzersiz sorgu ile HTML'yi taze indir; index güncel ?v ile app.js'i tazeler
+  const fresh = location.pathname + "?u=" + Date.now() + (location.hash || "#/guncelleme");
+  location.replace(fresh);
+}
+
 async function viewGuncelleme(c) {
   const cur = CHANGELOG[0] || { version: APP_VERSION, date: todayISO(), items: [] };
   c.innerHTML = `
+    <div class="card" style="margin-bottom:18px">
+      <div class="card-head"><h3>Uygulama Güncelleme</h3><span class="hint">En son sürümü yükle</span></div>
+      <p style="margin:0 0 12px;color:var(--ink-soft);font-size:13px">
+        Yeni bir sürüm yayınlandığında, tarayıcı önbelleğini atlayıp en güncel sürümü yüklemek için butona basın.
+        (Artık <b>Ctrl+F5</b> gerekmez.)
+      </p>
+      <button class="btn btn-primary" id="app-update">🔄 Uygulamayı Güncelle</button>
+    </div>
     <div class="grid cols-3">
       <div class="stat"><div class="label">Güncel Sürüm</div><div class="value">${esc(APP_VERSION)}</div><div class="foot">${fmtDate(cur.date)}</div></div>
       <div class="stat green"><div class="label">Yayın</div><div class="value" style="font-size:19px">Canlı</div><div class="foot">GitHub Pages · Yerel Mod</div></div>
@@ -1612,6 +1658,10 @@ async function viewGuncelleme(c) {
           </div>`).join("")}
       </div>
     </div>`;
+
+  $("#app-update").onclick = (e) =>
+    confirmDialog("Uygulama en güncel sürüme yenilenecek. Devam edilsin mi?",
+      () => doAppUpdate(e.target));
 }
 
 // ---------------------------------------------------------------------------
