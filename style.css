@@ -456,15 +456,11 @@ table.data input.num { text-align: right; }
 
   .card { padding: 14px; }
 
-  /* Pencere → alttan açılan sayfa (bottom-sheet), butonlar hep görünür */
-  .modal-backdrop { align-items: flex-end; padding: 0; }
-  .modal {
-    max-width: 100% !important; width: 100%; max-height: 92vh;
-    border-radius: 18px 18px 0 0; display: flex; flex-direction: column;
-  }
-  .modal-head { position: sticky; top: 0; background: var(--surface); z-index: 2; padding: 15px 18px; }
-  .modal-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 18px; }
-  .modal-foot { position: sticky; bottom: 0; background: var(--surface); z-index: 2; box-shadow: 0 -4px 12px rgba(36,29,21,.06); }
+  /* Pencere: üstten, sayfa gibi kaydırılır (klavye alanları kapatmaz) */
+  .modal-backdrop { align-items: flex-start; padding: 10px; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .modal { max-width: 100% !important; width: 100%; max-height: none; border-radius: 14px; margin: 4px 0 28px; }
+  .modal-head { padding: 15px 18px; }
+  .modal-body { padding: 14px 18px; }
 
   /* Alanları biraz sıkılaştır (16px → iOS'ta odakta yakınlaşmayı önler) */
   .field { margin-bottom: 11px; }

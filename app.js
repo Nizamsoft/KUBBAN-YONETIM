@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.18";
+} from "./local-backend.js?v=2026.19";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.18";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.19";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -304,8 +304,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.18";
+const APP_VERSION = "2026.19";
 const CHANGELOG = [
+  { version: "2026.19", date: "2026-08-04", items: [
+    "Mobil pencereler alttan açılmıyor; üstten normal sayfa gibi kaydırılıyor (klavye alanları/butonları kapatmıyor)",
+  ]},
   { version: "2026.18", date: "2026-08-04", items: [
     "Tarih ve diğer alanların taşması giderildi (ızgara hücreleri küçülebiliyor)",
     "Giren/Çıkan ve Borç/Alacak tutarları para birimi biçiminde (binlik ayraç + ₺)",
