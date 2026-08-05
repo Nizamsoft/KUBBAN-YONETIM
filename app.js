@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.23";
+} from "./local-backend.js?v=2026.24";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.23";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.24";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.23";
+const APP_VERSION = "2026.24";
 const CHANGELOG = [
+  { version: "2026.24", date: "2026-08-04", items: [
+    "Cari aktarımda açıklamalar kaldırıldı, Excel yükleme alanı küçültüldü",
+    "Aktarımda faturalar sıra sıra soruluyor: Açık / Kapalı / Kısmi Kapat (Kısmi'de tutar girilir)",
+    "Kısmi kapatta girilen tutar karşı tarafa (Alacak/Borç) yazılır",
+    "Önizleme mobilde kart, masaüstünde tablo; satıra/karta dokununca durumu yeniden sorar",
+  ]},
   { version: "2026.23", date: "2026-08-04", items: [
     "Cari defter üst kartları sadeleşti: Hesap adı + Güncel Bakiye",
     "Hesaplar: satırlardaki ✎/＋ kaldırıldı; üstte 'Hesapları Düzenle' modu geldi",
@@ -612,14 +618,16 @@ function guessCol(headers, keywords) {
 // ---------------------------------------------------------------------------
 //  ORTAK: Dosya bırakma alanı
 // ---------------------------------------------------------------------------
-function fileDrop(onFile, accept = ".xlsx,.xls,.csv") {
+function fileDrop(onFile, accept = ".xlsx,.xls,.csv", compact = false) {
   const wrap = document.createElement("div");
-  wrap.className = "filedrop";
-  wrap.innerHTML = `
-    <div class="ico">📄</div>
-    <div><b>Dosya seçin</b> ya da buraya sürükleyin</div>
-    <div style="font-size:12px;color:var(--ink-faint);margin-top:4px">Excel (.xlsx/.xls) veya .csv</div>
-    <input type="file" accept="${accept}" style="display:none" />`;
+  wrap.className = "filedrop" + (compact ? " sm" : "");
+  wrap.innerHTML = compact
+    ? `<div><b>📄 Dosya seç</b> ya da sürükle <span style="color:var(--ink-faint);font-size:11px">(.xlsx / .xls / .csv)</span></div>
+       <input type="file" accept="${accept}" style="display:none" />`
+    : `<div class="ico">📄</div>
+       <div><b>Dosya seçin</b> ya da buraya sürükleyin</div>
+       <div style="font-size:12px;color:var(--ink-faint);margin-top:4px">Excel (.xlsx/.xls) veya .csv</div>
+       <input type="file" accept="${accept}" style="display:none" />`;
   const input = $("input", wrap);
   wrap.addEventListener("click", () => input.click());
   input.addEventListener("change", () => input.files[0] && onFile(input.files[0]));
@@ -1682,11 +1690,7 @@ async function viewCariHareket(c) {
   const nrm = (s) => String(s || "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim();
 
   c.innerHTML = `
-    <div class="notice info">🔁 Uyumsoft <b>Fatura Genel Raporu</b> Excel'ini yükleyin. Sadece şu bilgiler alınır:
-      <b>Fatura No · Fatura Tarihi · Cari Adı · VKN/TCKN · Ödenecek Miktar</b>.<br>
-      Yükleyince <b>Alış mı Satış mı</b> sorulur. Alış → Tedarikçi (320) <b>Alacak</b>'a · Satış → Alıcı (120) <b>Borç</b>'a.
-      Aynı caride aynı fatura no varsa tekrar aktarılmaz.</div>
-    <div class="card"><div class="card-head"><h3>1) Excel Yükle</h3></div><div id="ch-drop"></div></div>
+    <div class="card" style="padding:12px"><div id="ch-drop"></div></div>
     <div id="ch-editor"></div>`;
 
   $("#ch-drop").appendChild(fileDrop(async (file) => {
@@ -1695,7 +1699,7 @@ async function viewCariHareket(c) {
       if (!rows.length) return toast("Veri bulunamadı.", "err");
       askType(headers, rows);
     } catch (e) { toast("Okunamadı: " + e.message, "err"); }
-  }));
+  }, ".xlsx,.xls,.csv", true));
 
   function askType(headers, rows) {
     const m = openModal({
@@ -1745,7 +1749,8 @@ async function viewCariHareket(c) {
       ad: String(r[col.ad] ?? "").trim(),
       vkn: String(r[col.vkn] ?? "").trim(),
       amount: parseNum(r[col.amount]),
-      durum: "acik", // satışta: açık = sadece borç, kapalı = borç + alacak
+      durum: "acik",   // açık / kapalı / kısmi
+      kismiTutar: 0,   // kısmi kapatta girilen tutar
     })).filter((it) =>
       // Gerçek fatura satırı: fatura no rakam içerir ve VKN ya da tutar var
       // (Başlama/Bitiş/Süre/Belge Sayısı gibi özet satırları elenir)
@@ -1776,51 +1781,116 @@ async function viewCariHareket(c) {
       if (!silent) { toast("Cari eklendi: " + payload.name, "ok"); draw(); }
     }
 
+    // Borç/Alacak, faturanın türü ve durumuna göre
+    const amountsOf = (it) => {
+      const closed = it.durum === "kapali" ? it.amount : it.durum === "kismi" ? (it.kismiTutar || 0) : 0;
+      return kind === "satis" ? { borc: it.amount, alacak: closed } : { borc: closed, alacak: it.amount };
+    };
+    const durumInfo = (it) => it.durum === "kapali" ? { label: "Kapalı", tag: "ok" }
+      : it.durum === "kismi" ? { label: `Kısmi ${fmtTRY(it.kismiTutar || 0)}`, tag: "gold" }
+      : { label: "Açık", tag: "warn" };
+    const nonDupIdx = () => items.map((it, i) => i).filter((i) => statusOf(items[i]).code !== "dup");
+
+    // Sıra sıra soran sihirbaz: Açık / Kapalı / Kısmi Kapat
+    function runWizard(indices) {
+      if (!indices.length) { draw(); return; }
+      let k = 0, keyH = null;
+      const body = document.createElement("div");
+      const finish = () => { if (keyH) document.removeEventListener("keydown", keyH); m.close(); draw(); };
+      const m = openModal({ title: "Fatura Durumu", body, footer: [mkBtn("Bitir", "", finish)] });
+      const choose = (w, amt) => {
+        const it = items[indices[k]];
+        it.durum = w;
+        it.kismiTutar = w === "kismi" ? Math.min(amt || 0, it.amount) : 0;
+        k++; step();
+      };
+      function step() {
+        if (k >= indices.length) { finish(); return; }
+        const it = items[indices[k]];
+        body.innerHTML = `
+          <div style="font-size:12px;color:var(--ink-faint)">${k + 1}/${indices.length}</div>
+          <div style="font-weight:700;font-size:15px;margin-top:4px">${esc(it.ad || "-")}</div>
+          <div style="font-size:12.5px;color:var(--ink-soft);margin:4px 0 14px">${esc(it.faturaNo)} · ${fmtDate(it.date)} · Tutar <b>${fmtTRY(it.amount)}</b></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button class="btn btn-primary" data-w="acik">Açık ↵</button>
+            <button class="btn" data-w="kapali">Kapalı</button>
+            <button class="btn" data-w="kismi">Kısmi Kapat</button>
+          </div>
+          <div id="wz-kismi" style="display:none;margin-top:14px">
+            ${moneyField(kind === "satis" ? "Tahsil Edilen (Alacak)" : "Ödenen (Borç)", "wz-amount", "")}
+            <button class="btn btn-primary btn-sm" id="wz-ok">Devam</button>
+          </div>`;
+        wireMoney(body);
+        $$("[data-w]", body).forEach((b) => b.onclick = () => {
+          if (b.dataset.w === "kismi") { $("#wz-kismi", body).style.display = "block"; $("#wz-amount", body).focus(); return; }
+          choose(b.dataset.w);
+        });
+        $("#wz-ok", body).onclick = () => {
+          const amt = parseNum($("#wz-amount", body).value);
+          if (!amt) return toast("Kapatılan tutarı girin.", "err");
+          choose("kismi", amt);
+        };
+      }
+      keyH = (e) => {
+        if (e.key !== "Enter") return;
+        const p = $("#wz-kismi", body);
+        if (p && p.style.display !== "none") { e.preventDefault(); $("#wz-ok", body).click(); return; }
+        e.preventDefault(); choose("acik");
+      };
+      document.addEventListener("keydown", keyH);
+      step();
+    }
+    const askOne = (i) => runWizard([i]);
+
     function draw() {
       const st = items.map(statusOf);
       const ready = st.filter((s) => s.code === "ready").length;
       const dups = st.filter((s) => s.code === "dup").length;
       const noc = st.filter((s) => s.code === "nocari").length;
-      const satis = kind === "satis";
       const badgeOf = (s, i) => s.code === "ready" ? `<span class="tag ok">${esc(s.acc.code)} · ${esc(s.acc.name)}</span>`
-        : s.code === "dup" ? `<span class="tag warn">Zaten var (atlanır)</span>`
+        : s.code === "dup" ? `<span class="tag warn">Zaten var</span>`
         : `<span class="tag red">Cari yok</span> <button class="btn btn-sm" data-addcari="${i}">+ Cari Ekle</button>`;
+
       const rowsHtml = items.map((it, i) => {
-        const borc = satis ? it.amount : 0;
-        const alacak = satis ? (it.durum === "kapali" ? it.amount : 0) : it.amount;
-        const durumCell = satis ? `<td>
-          <select data-durum="${i}">
-            <option value="acik" ${it.durum === "acik" ? "selected" : ""}>Açık</option>
-            <option value="kapali" ${it.durum === "kapali" ? "selected" : ""}>Kapalı</option>
-          </select></td>` : "";
-        return `<tr>
-          <td>${esc(it.faturaNo)}</td>
-          <td>${fmtDate(it.date)}</td>
-          <td>${esc(it.ad)}</td>
-          <td>${esc(it.vkn)}</td>
-          <td class="num">${borc ? fmtTRY(borc) : "—"}</td>
-          <td class="num">${alacak ? fmtTRY(alacak) : "—"}</td>
-          ${durumCell}
+        const a = amountsOf(it), d = durumInfo(it);
+        return `<tr data-ask="${i}" style="cursor:pointer">
+          <td>${esc(it.faturaNo)}</td><td>${fmtDate(it.date)}</td><td>${esc(it.ad)}</td><td>${esc(it.vkn)}</td>
+          <td class="num">${a.borc ? fmtTRY(a.borc) : "—"}</td>
+          <td class="num">${a.alacak ? fmtTRY(a.alacak) : "—"}</td>
+          <td><span class="tag ${d.tag}">${d.label}</span></td>
           <td>${badgeOf(st[i], i)}</td>
         </tr>`;
       }).join("");
 
+      const cardsHtml = items.map((it, i) => {
+        const a = amountsOf(it), d = durumInfo(it);
+        return `<div class="tx-card" data-ask="${i}">
+          <div class="tx-left">
+            <div class="tx-title">${esc(it.ad || "-")}</div>
+            <div class="tx-sub">${esc(it.faturaNo)} · ${fmtDate(it.date)}</div>
+            <div class="tx-desc">Borç ${fmtTRY(a.borc)}${a.alacak ? ` · Alacak ${fmtTRY(a.alacak)}` : ""}</div>
+            <div style="margin-top:6px">${badgeOf(st[i], i)}</div>
+          </div>
+          <div class="tx-right"><span class="tag ${d.tag}">${d.label}</span></div>
+        </div>`;
+      }).join("");
+
       editor.innerHTML = `
         <div class="card">
-          <div class="card-head"><h3>2) Önizleme · ${faturaTuru}</h3>
-            <span class="hint">Hedef: ${esc(main.code)} ${esc(main.name)} · ${items.length} fatura</span></div>
+          <div class="card-head"><h3>Önizleme · ${faturaTuru}</h3>
+            <span class="hint">${esc(main.code)} ${esc(main.name)} · ${items.length} fatura</span></div>
           <div class="toolbar" style="margin:0 0 12px">
             <span class="tag ok">${ready} işlenecek</span>
             <span class="tag warn">${dups} zaten var</span>
             <span class="tag red">${noc} cari yok</span>
             <div class="grow"></div>
-            ${satis ? `<button class="btn btn-sm" id="all-durum">Tümü Açık / Kapalı</button>` : ""}
+            <button class="btn btn-sm" id="reask">Durumları Sor</button>
             ${noc ? `<button class="btn btn-sm" id="add-all-cari">Eksik carileri oluştur</button>` : ""}
           </div>
-          ${satis ? `<div class="notice info" style="margin:0 0 12px">Satış faturasında <b>Açık</b> = yalnızca Borç; <b>Kapalı</b> = aynı tutar Alacağa da yazılır (tahsil edilmiş).</div>` : ""}
-          <div class="table-wrap"><table class="data">
-            <thead><tr><th>Fatura No</th><th>Fatura Tarihi</th><th>Cari Adı</th><th>VKN/TCKN</th>
-              <th class="num">Borç</th><th class="num">Alacak</th>${satis ? "<th>Durum</th>" : ""}<th>Cari Hesap</th></tr></thead>
+          <div class="ledger-cards">${cardsHtml}</div>
+          <div class="table-wrap ledger-table"><table class="data">
+            <thead><tr><th>Fatura No</th><th>Tarih</th><th>Cari Adı</th><th>VKN/TCKN</th>
+              <th class="num">Borç</th><th class="num">Alacak</th><th>Durum</th><th>Cari Hesap</th></tr></thead>
             <tbody>${rowsHtml}</tbody>
           </table></div>
           <div class="toolbar" style="margin-top:14px">
@@ -1829,15 +1899,11 @@ async function viewCariHareket(c) {
           </div>
         </div>`;
 
-      $$("[data-durum]", editor).forEach((sel) => sel.onchange = () => {
-        items[+sel.dataset.durum].durum = sel.value; draw();
-      });
-      const allDurum = $("#all-durum", editor);
-      if (allDurum) allDurum.onclick = () => {
-        const anyOpen = items.some((it) => it.durum === "acik");
-        items.forEach((it) => it.durum = anyOpen ? "kapali" : "acik");
-        draw();
-      };
+      $$("[data-ask]", editor).forEach((el) => el.addEventListener("click", (e) => {
+        if (e.target.closest("button")) return;
+        askOne(+el.dataset.ask);
+      }));
+      $("#reask", editor).onclick = () => runWizard(nonDupIdx());
       $$("[data-addcari]", editor).forEach((b) => b.onclick = () => createCari(items[+b.dataset.addcari]));
       const addAll = $("#add-all-cari", editor);
       if (addAll) addAll.onclick = async () => {
@@ -1874,14 +1940,14 @@ async function viewCariHareket(c) {
           cnoMap.set(acc.id, fresh.filter((e) => e.accountId === acc.id).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
         const cno = cnoMap.get(acc.id) + 1; cnoMap.set(acc.id, cno);
         gno++;
+        const a = amountsOf(it);
         docs.push({
           accountId: acc.id, accountCode: acc.code || "",
           islemNo: gno, cariNo: cno,
           date: it.date || todayISO(),
           sahis: it.ad || "", vkn: it.vkn || "",
           aciklama: "Fatura",
-          borc: kind === "satis" ? it.amount : 0,
-          alacak: kind === "alis" ? it.amount : (it.durum === "kapali" ? it.amount : 0),
+          borc: a.borc, alacak: a.alacak, durum: it.durum,
           faturaTuru, faturaNo: it.faturaNo || "",
           source: "fatura-import", createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
@@ -1898,7 +1964,9 @@ async function viewCariHareket(c) {
       } catch (e) { toast("Hata: " + e.message, "err"); sendBtn.disabled = false; }
     }
 
-    draw();
+    // Otomatik: önce sıra sıra durum sor (mükerrer olmayanlar), sonra önizleme
+    const startIdx = nonDupIdx();
+    if (startIdx.length) runWizard(startIdx); else draw();
   }
 }
 

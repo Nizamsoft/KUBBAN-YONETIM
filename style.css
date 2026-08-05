@@ -367,6 +367,7 @@ table.data input.num { text-align: right; }
   background: var(--surface-2); transition: border-color .15s, background .15s;
 }
 .filedrop:hover, .filedrop.drag { border-color: var(--gold); background: #fff; }
+.filedrop.sm { padding: 14px; font-size: 13.5px; }
 .filedrop .ico { font-size: 30px; }
 .filedrop b { color: var(--gold-dark); }
 
