@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.16";
+} from "./local-backend.js?v=2026.17";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.16";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.17";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -272,8 +272,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.16";
+const APP_VERSION = "2026.17";
 const CHANGELOG = [
+  { version: "2026.17", date: "2026-08-04", items: [
+    "Mobil pencereler (Yeni Hareket vb.) alttan açılan sayfa (bottom-sheet) oldu",
+    "Kaydet/Vazgeç butonları altta sabit ve hep görünür; başlık üstte sabit",
+    "İkili alanlar yan yana kaldı (form kısaldı); alanlar sıkılaştırıldı, iOS'ta odakta yakınlaşma engellendi",
+  ]},
   { version: "2026.16", date: "2026-08-04", items: [
     "Hesap defteri mobilde banka uygulaması tarzı hareket kartlarına dönüşüyor (tablo taşmıyor)",
     "Kartta: açıklama/şahıs, tarih+no, tutar (yeşil giriş / kırmızı çıkış), altında bakiye",

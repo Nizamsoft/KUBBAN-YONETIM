@@ -434,7 +434,8 @@ table.data input.num { text-align: right; }
 
   .grid.cols-4, .grid.cols-3 { grid-template-columns: repeat(2, 1fr); }
   .grid.cols-2 { grid-template-columns: 1fr; }
-  .form-row { grid-template-columns: 1fr; }
+  /* İkili alanlar yan yana kalsın (form kısa dursun) */
+  .form-row { gap: 10px; }
 
   /* Dokunmatik hedefleri biraz büyüt */
   .btn { padding: 10px 14px; }
@@ -444,11 +445,21 @@ table.data input.num { text-align: right; }
   .user-chip .meta { display: none; }
 
   .card { padding: 14px; }
-  .modal { max-width: 100% !important; }
-  .modal-body { padding: 16px; }
 
-  /* Geniş hesap ağacı mobilde kutu içinde kayabilsin */
-  .acc-tree { min-width: 520px; }
+  /* Pencere → alttan açılan sayfa (bottom-sheet), butonlar hep görünür */
+  .modal-backdrop { align-items: flex-end; padding: 0; }
+  .modal {
+    max-width: 100% !important; width: 100%; max-height: 92vh;
+    border-radius: 18px 18px 0 0; display: flex; flex-direction: column;
+  }
+  .modal-head { position: sticky; top: 0; background: var(--surface); z-index: 2; padding: 15px 18px; }
+  .modal-body { flex: 1; overflow-y: auto; -webkit-overflow-scrolling: touch; padding: 14px 18px; }
+  .modal-foot { position: sticky; bottom: 0; background: var(--surface); z-index: 2; box-shadow: 0 -4px 12px rgba(36,29,21,.06); }
+
+  /* Alanları biraz sıkılaştır (16px → iOS'ta odakta yakınlaşmayı önler) */
+  .field { margin-bottom: 11px; }
+  .field label { margin-bottom: 4px; }
+  .field input, .field select, .field textarea { padding: 11px 12px; font-size: 16px; }
 }
 
 @media (max-width: 480px) {
