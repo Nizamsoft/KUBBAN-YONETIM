@@ -261,22 +261,39 @@ table.data input:focus, table.data select:focus { outline: none; border-color: v
 table.data input.num { text-align: right; }
 .row-del { color: var(--danger); cursor: pointer; border: none; background: none; font-size: 15px; padding: 2px 6px; }
 
-/* Hesap ağacı (akordeon) — sabit sütun genişlikleri (açılınca kaymaz) */
-.acc-tree { table-layout: fixed; width: 100%; min-width: 640px; }
-.acc-tree th:nth-child(1), .acc-tree td:nth-child(1) { width: 160px; }
-.acc-tree th:nth-child(3), .acc-tree td:nth-child(3) { width: 170px; }
-.acc-tree th:nth-child(4), .acc-tree td:nth-child(4) { width: 190px; }
-.acc-tree td:nth-child(2) { white-space: normal; }  /* hesap adı gerekirse alt satıra */
-.acc-tree .tree-toggle { display: inline-block; width: 16px; text-align: center; color: var(--gold-dark); font-size: 11px; user-select: none; }
-.acc-tree tr.acc-main > td { background: var(--surface); border-top: 1px solid var(--line-strong); }
-.acc-tree tr.acc-main.has-kids { cursor: pointer; }
-.acc-tree tr.acc-main.has-kids:hover > td { background: var(--surface-2); }
-.acc-tree tr.acc-main.leaf { cursor: pointer; }
-.acc-tree tr.acc-main.leaf:hover > td { background: var(--surface-2); }
-.acc-tree tr.acc-sub { cursor: pointer; }
-.acc-tree tr.acc-sub > td { background: var(--surface-2); font-size: 12.5px; }
-.acc-tree tr.acc-sub:hover > td { background: #f4ecdd; }
-.acc-tree tr.acc-sub td:first-child { color: var(--ink-soft); }
+/* Hesap planı — liste görünümü (mobil + masaüstü uyumlu) */
+.acc-list { display: flex; flex-direction: column; }
+.acc-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 13px 16px; border-top: 1px solid var(--line); cursor: pointer;
+  transition: background .12s;
+}
+.acc-row:first-child { border-top: none; }
+.acc-row.parent { background: var(--surface); }
+.acc-row.leaf:hover, .acc-row.parent:hover { background: var(--surface-2); }
+.acc-row.sub { background: var(--surface-2); padding-left: 40px; }
+.acc-row.sub:hover { background: #f4ecdd; }
+.acc-row .chev { width: 14px; flex-shrink: 0; text-align: center; color: var(--gold-dark); font-size: 11px; user-select: none; }
+.acc-row .info { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 9px; }
+.acc-row .info .code { flex-shrink: 0; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
+.acc-row.sub .info .code { font-weight: 600; color: var(--ink-soft); font-size: 13px; }
+.acc-row .info .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.acc-row.sub .info .name { font-size: 13px; }
+.acc-row .info .name em { color: var(--ink-faint); font-style: normal; font-size: 11px; }
+.acc-row .bal { flex-shrink: 0; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.acc-row .acts { flex-shrink: 0; display: flex; align-items: center; gap: 1px; }
+.acc-row .acts .ic {
+  border: none; background: transparent; cursor: pointer; font-size: 15px;
+  padding: 7px 8px; border-radius: 7px; color: var(--ink-soft); line-height: 1;
+}
+.acc-row .acts .ic:hover { background: rgba(51,41,28,.08); color: var(--ink); }
+.acc-row .acts .go { color: var(--ink-faint); font-size: 20px; padding: 0 2px 0 4px; }
+@media (max-width: 480px) {
+  .acc-row { padding: 12px; gap: 8px; }
+  .acc-row.sub { padding-left: 30px; }
+  .acc-row .bal { font-size: 13px; }
+  .acc-row .acts .ic { font-size: 16px; padding: 8px 7px; }
+}
 
 .empty { text-align: center; color: var(--ink-faint); padding: 40px 20px; }
 .empty .ico { font-size: 34px; opacity: .5; }

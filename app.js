@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.10";
+} from "./local-backend.js?v=2026.11";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.10";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.11";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -272,8 +272,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.10";
+const APP_VERSION = "2026.11";
 const CHANGELOG = [
+  { version: "2026.11", date: "2026-08-04", items: [
+    "Hesap Planı tablo yerine şık liste görünümüne geçti (mobilde çok daha düzenli)",
+    "Kod + ad tek satır, sağda bakiye; düzenle ✎ ve alt hesap ＋ ikonları",
+    "Hesaba dokununca hareket defteri açılır (yaprak/alt), ana hesap açılıp kapanır",
+  ]},
   { version: "2026.10", date: "2026-08-04", items: [
     "Mobil arayüz: hamburger menü (☰) ve kayan yan menü (drawer) + arka plan karartma",
     "Menüden bir sayfa seçince menü otomatik kapanıyor",
@@ -1063,71 +1068,68 @@ async function viewHesaplar(c) {
   const rolled = (a) => (kids.get(a.id) || []).reduce((s, ch) => s + rolled(ch), cur(a));
   const grand = roots.reduce((s, a) => s + rolled(a), 0);
 
-  const rowMain = (a) => {
-    const ch = kids.get(a.id) || [];
-    const bal = rolled(a);
-    return `<tr class="acc-main${ch.length ? " has-kids" : " leaf"}" data-id="${a.id}">
-      <td><span class="tree-toggle">${ch.length ? "▸" : "&nbsp;&nbsp;"}</span> <b>${esc(a.code || "—")}</b></td>
-      <td><b>${esc(a.name || "")}</b>${ch.length ? ` <span style="color:var(--ink-faint);font-size:11px">(${ch.length} alt)</span>` : ` <span style="color:var(--gold-dark);font-size:11px">hareketler →</span>`}</td>
-      <td class="num" style="font-weight:700;color:${bal<0?'var(--danger)':'inherit'}">${fmtTRY(bal)}</td>
-      <td style="text-align:right;white-space:nowrap">
-        <button class="btn btn-sm" data-addsub="${a.id}" title="Alt hesap ekle">+ Alt</button>
-        <button class="btn btn-sm" data-edit="${a.id}">Düzenle</button>
-      </td></tr>` +
-      ch.map((s) => `<tr class="acc-sub" data-parent="${a.id}" data-id="${s.id}" style="display:none">
-        <td style="padding-left:36px">${esc(s.code || "")}</td>
-        <td>${esc(s.name || "")} <span style="color:var(--gold-dark);font-size:11px">hareketler →</span></td>
-        <td class="num" style="color:${cur(s)<0?'var(--danger)':'inherit'}">${fmtTRY(cur(s))}</td>
-        <td style="text-align:right;white-space:nowrap">
-          <button class="btn btn-sm" data-edit="${s.id}">Düzenle</button>
-        </td></tr>`).join("");
+  const childCount = (a) => (kids.get(a.id) || []).length;
+
+  const rowHtml = (a, sub) => {
+    const parent = !sub && childCount(a) > 0;
+    const bal = sub ? cur(a) : rolled(a);
+    const cls = sub ? "sub" : (parent ? "parent" : "leaf");
+    return `<div class="acc-row ${cls}" data-id="${a.id}"${sub ? ` data-parent="${a.parentId}" style="display:none"` : ""}>
+      <span class="chev">${parent ? "▸" : ""}</span>
+      <div class="info">
+        <span class="code">${esc(a.code || "—")}</span>
+        <span class="name">${esc(a.name || "")}${parent ? ` <em>(${childCount(a)} alt)</em>` : ""}</span>
+      </div>
+      <span class="bal" style="color:${bal<0?'var(--danger)':'inherit'}">${fmtTRY(bal)}</span>
+      <span class="acts">
+        ${parent ? `<button class="ic" data-addsub="${a.id}" title="Alt hesap ekle">＋</button>` : ""}
+        <button class="ic" data-edit="${a.id}" title="Düzenle">✎</button>
+        ${!parent ? `<span class="go" aria-hidden="true">›</span>` : ""}
+      </span>
+    </div>`;
   };
+  const renderMain = (a) =>
+    rowHtml(a, false) + (kids.get(a.id) || []).map((s) => rowHtml(s, true)).join("");
 
   c.innerHTML = `
-    <div class="notice info" style="margin-bottom:16px">ℹ️ <b>Ana hesap → alt hesap</b> yapısı. Ana hesabın bakiyesi, alt hesaplarının toplamıdır.
-      Cari hareketler hesap koduna, banka hareketleri Banka İşleme'deki hedef hesaba göre otomatik işlenir.</div>
+    <div class="notice info" style="margin-bottom:16px">ℹ️ <b>Ana hesap → alt hesap</b> yapısı. Ana hesabın bakiyesi, alt hesaplarının toplamıdır. Hesaba dokununca hareketleri açılır.</div>
     <div class="toolbar">
       <div class="grow"></div>
       <button class="btn btn-sm" id="toggle-all">Tümünü Aç / Kapat</button>
       <button class="btn btn-primary btn-sm" id="acc-add">+ Yeni Hesap</button>
     </div>
-    <div class="card">
-      <div class="card-head"><h3>Hesap Planı</h3><span class="hint">${roots.length} ana hesap · Genel Toplam ${fmtTRY(grand)}</span></div>
-      <div class="table-wrap"><table class="data acc-tree">
-        <thead><tr><th>Kod</th><th>Hesap Adı</th><th class="num">Güncel Bakiye</th><th></th></tr></thead>
-        <tbody>${roots.map(rowMain).join("")}</tbody>
-      </table></div>
+    <div class="card" style="padding:0;overflow:hidden">
+      <div class="card-head" style="padding:16px 16px 12px"><h3>Hesap Planı</h3><span class="hint">${roots.length} ana hesap · Genel Toplam ${fmtTRY(grand)}</span></div>
+      <div class="acc-list">${roots.map(renderMain).join("")}</div>
     </div>`;
 
   const setOpen = (id, open) => {
-    $$(`tr.acc-sub[data-parent="${id}"]`, c).forEach((tr) => tr.style.display = open ? "" : "none");
-    const main = $(`tr.acc-main[data-id="${id}"]`, c);
+    $$(`.acc-row.sub[data-parent="${id}"]`, c).forEach((r) => r.style.display = open ? "flex" : "none");
+    const main = $(`.acc-row.parent[data-id="${id}"]`, c);
     if (main) {
       main.dataset.open = open ? "1" : "0";
-      const t = $(".tree-toggle", main);
-      if (t && t.textContent.trim()) t.textContent = open ? "▾" : "▸";
+      const t = $(".chev", main);
+      if (t) t.textContent = open ? "▾" : "▸";
     }
   };
-  // Alt hesaplar varsayılan KAPALI başlar (dar görünüm)
+  // Alt hesaplar varsayılan KAPALI başlar
 
-  // Akordeon: ana hesap satırına tıkla → alt hesaplar açılır/kapanır (butonlar hariç)
-  $$("tr.acc-main.has-kids", c).forEach((tr) => {
-    tr.addEventListener("click", (e) => {
+  $$(".acc-row.parent", c).forEach((row) => {
+    row.addEventListener("click", (e) => {
       if (e.target.closest("button")) return;
-      setOpen(tr.dataset.id, tr.dataset.open !== "1");
+      setOpen(row.dataset.id, row.dataset.open !== "1");
     });
   });
-  // Yaprak hesap / alt hesap satırına tıkla → hareket defteri (iç yapı)
-  $$("tr.acc-main.leaf, tr.acc-sub", c).forEach((tr) => {
-    tr.addEventListener("click", (e) => {
+  $$(".acc-row.leaf, .acc-row.sub", c).forEach((row) => {
+    row.addEventListener("click", (e) => {
       if (e.target.closest("button")) return;
-      location.hash = "#/hesap-detay?id=" + tr.dataset.id;
+      location.hash = "#/hesap-detay?id=" + row.dataset.id;
     });
   });
   $("#toggle-all").onclick = () => {
-    const anyClosed = roots.some((a) => (kids.get(a.id) || []).length &&
-      $(`tr.acc-main[data-id="${a.id}"]`, c).dataset.open !== "1");
-    roots.forEach((a) => { if ((kids.get(a.id) || []).length) setOpen(a.id, anyClosed); });
+    const anyClosed = roots.some((a) => childCount(a) &&
+      $(`.acc-row.parent[data-id="${a.id}"]`, c).dataset.open !== "1");
+    roots.forEach((a) => { if (childCount(a)) setOpen(a.id, anyClosed); });
   };
   // Üstteki "Yeni Hesap": önce Ana/Alt, Alt ise hangi ana hesabın altında
   const openNewChooser = () => {
