@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.20";
+} from "./local-backend.js?v=2026.21";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.20";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.21";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -304,8 +304,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.20";
+const APP_VERSION = "2026.21";
 const CHANGELOG = [
+  { version: "2026.21", date: "2026-08-04", items: [
+    "Excel okuma düzeltildi (raw): tutarlar artık doğru (Amerikan/Türkçe format karışıklığı giderildi)",
+    "Fatura önizleme: Başlama/Bitiş/Süre/Belge Sayısı gibi özet satırları elenir",
+    "Hesaplarda güncel bakiye artık borç/alacak hareketlerini de içeriyor (cari bakiyeler görünür)",
+    "VKN baştaki sıfırlarıyla korunuyor",
+  ]},
   { version: "2026.20", date: "2026-08-04", items: [
     "Cari Hareket İşleme: Fatura Genel Raporu Excel'i (Fatura No/Tarih/Cari Adı/VKN/Ödenecek Miktar)",
     "Yüklerken Alış mı Satış mı sorulur; Alış→320 Alacak, Satış→120 Borç",
@@ -549,14 +555,20 @@ async function parseSpreadsheet(file) {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array", cellDates: true });
   const ws = wb.Sheets[wb.SheetNames[0]];
-  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: false });
+  // raw:true → sayılar gerçek sayı olarak gelir (yerel format karışıklığı olmaz),
+  // metin hücreleri (ör. VKN baştaki sıfırlarıyla) string kalır.
+  const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
   // İlk boş olmayan satırı başlık kabul et
   let headerIdx = aoa.findIndex((r) => r.some((c) => String(c).trim() !== ""));
   if (headerIdx < 0) return { headers: [], rows: [] };
+  const pad = (n) => String(n).padStart(2, "0");
+  const clean = (v) => (v instanceof Date)
+    ? `${pad(v.getUTCDate())}.${pad(v.getUTCMonth() + 1)}.${v.getUTCFullYear()}`
+    : v;
   const headers = aoa[headerIdx].map((h, i) => String(h).trim() || `Sütun ${i + 1}`);
   const rows = aoa.slice(headerIdx + 1)
     .filter((r) => r.some((c) => String(c).trim() !== ""))
-    .map((r) => headers.reduce((o, h, i) => ((o[h] = r[i] ?? ""), o), {}));
+    .map((r) => headers.reduce((o, h, i) => ((o[h] = clean(r[i] ?? "")), o), {}));
   return { headers, rows };
 }
 
@@ -1046,7 +1058,8 @@ function computeBalances(accounts, cari = [], bank = [], entries = []) {
   });
   entries.forEach((e) => {
     if (e.accountId && map.has(e.accountId))
-      map.get(e.accountId).delta += parseNum(e.giren) - parseNum(e.cikan);
+      map.get(e.accountId).delta +=
+        parseNum(e.giren) - parseNum(e.cikan) + parseNum(e.borc) - parseNum(e.alacak);
   });
   cari.forEach((m) => {
     const id = byCode.get(String(m.code || "").trim());
@@ -1672,7 +1685,10 @@ async function viewCariHareket(c) {
       ad: String(r[col.ad] ?? "").trim(),
       vkn: String(r[col.vkn] ?? "").trim(),
       amount: parseNum(r[col.amount]),
-    })).filter((it) => it.faturaNo || it.ad || it.amount);
+    })).filter((it) =>
+      // Gerçek fatura satırı: fatura no rakam içerir ve VKN ya da tutar var
+      // (Başlama/Bitiş/Süre/Belge Sayısı gibi özet satırları elenir)
+      /\d/.test(it.faturaNo) && !it.faturaNo.includes(":") && (it.vkn || it.amount));
 
     const findAcc = (it) =>
       cariAccounts.find((a) => a.vkn && it.vkn && String(a.vkn) === it.vkn) ||
