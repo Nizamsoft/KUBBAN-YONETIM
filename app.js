@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.17";
+} from "./local-backend.js?v=2026.18";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.17";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.18";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -46,6 +46,25 @@ function parseNum(v) {
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Math.random().toString(36).slice(2, 10);
+
+// Para alanı: ₺ ekli, binlik ayraçlı görünüm (kaydederken parseNum çözer)
+function moneyField(label, id, value) {
+  const v = (value !== "" && value != null) ? fmtNum(parseNum(value)) : "";
+  return `<div class="field"><label>${esc(label)}</label>
+    <div class="money-wrap">
+      <input id="${id}" class="num money" inputmode="decimal" value="${esc(v)}" placeholder="0,00" />
+      <span class="cur">₺</span>
+    </div></div>`;
+}
+function wireMoney(root) {
+  $$(".money", root).forEach((inp) => {
+    inp.addEventListener("blur", () => {
+      const n = parseNum(inp.value);
+      inp.value = n ? fmtNum(n) : "";
+    });
+    inp.addEventListener("focus", () => { inp.select(); });
+  });
+}
 
 // ---------------------------------------------------------------------------
 //  Toast & Modal
@@ -114,7 +133,20 @@ const C = {
   currentMovements: () => collection(db, "currentMovements"),
   bankTransactions: () => collection(db, "bankTransactions"),
   cashflowItems:    () => collection(db, "cashflowItems"),
+  auditLog:         () => collection(db, "auditLog"),
 };
+
+// Değişiklik kaydı: kim, ne zaman, hangi işlem, hangi kayıt
+async function logAction(action, entity, label) {
+  try {
+    await addDoc(C.auditLog(), {
+      user: currentUser?.email || "?",
+      userName: currentUser?.displayName || "",
+      action, entity, label: label || "",
+      at: new Date().toISOString(),
+    });
+  } catch (_) { /* log hatası işlemi engellemesin */ }
+}
 
 // ---------------------------------------------------------------------------
 //  Durum
@@ -272,8 +304,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.17";
+const APP_VERSION = "2026.18";
 const CHANGELOG = [
+  { version: "2026.18", date: "2026-08-04", items: [
+    "Tarih ve diğer alanların taşması giderildi (ızgara hücreleri küçülebiliyor)",
+    "Giren/Çıkan ve Borç/Alacak tutarları para birimi biçiminde (binlik ayraç + ₺)",
+    "Değişiklik Kaydı eklendi (Sistem): kim, ne zaman, neyi ekledi/düzenledi/sildi",
+  ]},
   { version: "2026.17", date: "2026-08-04", items: [
     "Mobil pencereler (Yeni Hareket vb.) alttan açılan sayfa (bottom-sheet) oldu",
     "Kaydet/Vazgeç butonları altta sabit ve hep görünür; başlık üstte sabit",
@@ -374,6 +411,7 @@ const NAV = [
     { label: "Nakit Akış Verileri", icon: "🔄", path: "nakit-akis-veri" },
   ]},
   { label: "Sistem", icon: "⚙️", children: [
+    { label: "Değişiklik Kaydı", icon: "📋", path: "audit" },
     { label: "Yedek / Veri", icon: "💾", path: "yedek" },
     { label: "Güncelleme",   icon: "🆕", path: "guncelleme" },
   ]},
@@ -392,6 +430,7 @@ const ROUTES = {
   "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Raporlar", render: viewNakitAkisVeri },
   "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
   "guncelleme":       { title: "Güncelleme", crumb: "Sistem", render: viewGuncelleme },
+  "audit":            { title: "Değişiklik Kaydı", crumb: "Sistem", render: viewAuditLog },
 };
 
 function buildNav() {
@@ -1248,6 +1287,7 @@ function accModal(acc, parent, opts) {
         async () => {
           for (const s of kids) await deleteDoc(doc(db, "accounts", s.id));
           await deleteDoc(doc(db, "accounts", acc.id));
+          await logAction("Silme", "Hesap", `${acc.code || ""} ${acc.name || ""}`);
           m.close(); toast("Silindi.", "ok"); route();
         });
     });
@@ -1269,8 +1309,13 @@ function accModal(acc, parent, opts) {
     }
     if (!payload.name) return toast("Hesap adı gerekli.", "err");
     try {
-      if (isNew) await addDoc(C.accounts(), { ...payload, createdAt: serverTimestamp() });
-      else await updateDoc(doc(db, "accounts", acc.id), payload);
+      if (isNew) {
+        await addDoc(C.accounts(), { ...payload, createdAt: serverTimestamp() });
+        await logAction("Ekleme", "Hesap", `${payload.code || ""} ${payload.name}`);
+      } else {
+        await updateDoc(doc(db, "accounts", acc.id), payload);
+        await logAction("Düzenleme", "Hesap", `${payload.code || ""} ${payload.name}`);
+      }
       m.close(); toast("Kaydedildi.", "ok"); route();
     } catch (e) { toast("Hata: " + e.message, "err"); }
   }));
@@ -1458,8 +1503,8 @@ function entryModal(acc, entry, opts) {
       </div>
       <div class="field"><label>Açıklama</label><textarea id="e-aciklama" rows="2" placeholder="Açıklama...">${esc(entry?.aciklama || "")}</textarea></div>
       <div class="form-row">
-        <div class="field"><label>Borç (₺)</label><input id="e-borc" class="num" value="${entry?.borc ?? ""}" placeholder="0" /></div>
-        <div class="field"><label>Alacak (₺)</label><input id="e-alacak" class="num" value="${entry?.alacak ?? ""}" placeholder="0" /></div>
+        ${moneyField("Borç", "e-borc", entry?.borc ?? "")}
+        ${moneyField("Alacak", "e-alacak", entry?.alacak ?? "")}
       </div>
       <div class="form-row">
         <div class="field"><label>Fatura Türü</label><select id="e-faturaturu">
@@ -1480,15 +1525,17 @@ function entryModal(acc, entry, opts) {
       </div>
       <div class="field"><label>Açıklama</label><textarea id="e-aciklama" rows="2" placeholder="Açıklama...">${esc(entry?.aciklama || "")}</textarea></div>
       <div class="form-row">
-        <div class="field"><label>Giren Tutar (₺)</label><input id="e-giren" class="num" value="${entry?.giren ?? ""}" placeholder="0" /></div>
-        <div class="field"><label>Çıkan Tutar (₺)</label><input id="e-cikan" class="num" value="${entry?.cikan ?? ""}" placeholder="0" /></div>
+        ${moneyField("Giren Tutar", "e-giren", entry?.giren ?? "")}
+        ${moneyField("Çıkan Tutar", "e-cikan", entry?.cikan ?? "")}
       </div>`;
   }
+  wireMoney(body);
   const footer = [];
   if (!isNew) {
     const del = mkBtn("🗑️ Sil", "btn-danger", () =>
       confirmDialog("Hareket silinsin mi?", async () => {
         await deleteDoc(doc(db, "accountEntries", entry.id));
+        await logAction("Silme", "Hesap Hareketi", `${acc.code || ""} ${acc.name || ""} · İşlem No ${entry.islemNo ?? ""}`);
         m.close(); toast("Silindi.", "ok"); route();
       }));
     del.style.marginRight = "auto";
@@ -1528,8 +1575,14 @@ function entryModal(acc, entry, opts) {
       };
     }
     try {
-      if (isNew) await addDoc(C.accountEntries(), { ...payload, createdAt: serverTimestamp(), createdBy: currentUser.email });
-      else await updateDoc(doc(db, "accountEntries", entry.id), payload);
+      const lbl = `${acc.code || ""} ${acc.name || ""} · İşlem No ${payload.islemNo ?? ""}`;
+      if (isNew) {
+        await addDoc(C.accountEntries(), { ...payload, createdAt: serverTimestamp(), createdBy: currentUser.email });
+        await logAction("Ekleme", "Hesap Hareketi", lbl);
+      } else {
+        await updateDoc(doc(db, "accountEntries", entry.id), payload);
+        await logAction("Düzenleme", "Hesap Hareketi", lbl);
+      }
       m.close(); toast("Kaydedildi.", "ok"); route();
     } catch (e) { toast("Hata: " + e.message, "err"); }
   }));
@@ -1993,6 +2046,56 @@ async function viewYedek(c) {
       toast("Tüm veri temizlendi.", "ok");
       route();
     });
+}
+
+// ===========================================================================
+//  MODÜL: DEĞİŞİKLİK KAYDI (audit log)
+// ===========================================================================
+const ACTION_TAG = { "Ekleme": "ok", "Düzenleme": "gold", "Silme": "red" };
+async function viewAuditLog(c) {
+  const logs = (await fetchAll(C.auditLog).catch(() => []))
+    .sort((a, b) => (b.at || "").localeCompare(a.at || ""));
+  const fmtWhen = (iso) => {
+    if (!iso) return "—";
+    const d = new Date(iso);
+    return isNaN(d) ? iso : d.toLocaleString("tr-TR");
+  };
+  c.innerHTML = `
+    <div class="notice info">📋 Yapılan <b>ekleme, düzenleme ve silme</b> işlemleri burada tutulur — hangi kullanıcı, ne zaman, neyi değiştirdi.</div>
+    <div class="toolbar">
+      <div class="grow"></div>
+      ${logs.length ? `<button class="btn btn-sm btn-danger" id="audit-clear">Kaydı Temizle</button>` : ""}
+    </div>
+    <div class="card">
+      <div class="card-head"><h3>İşlem Geçmişi</h3><span class="hint">${logs.length} kayıt</span></div>
+      ${logs.length ? `
+        <div class="ledger-cards">
+          ${logs.map((l) => `<div class="tx-card" style="cursor:default">
+            <div class="tx-left">
+              <div class="tx-title">${esc(l.entity || "")} <span class="tag ${ACTION_TAG[l.action]||'gold'}" style="margin-left:4px">${esc(l.action || "")}</span></div>
+              <div class="tx-sub">${esc(l.userName || l.user || "?")} · ${esc(fmtWhen(l.at))}</div>
+              ${l.label ? `<div class="tx-desc">${esc(l.label)}</div>` : ""}
+            </div>
+          </div>`).join("")}
+        </div>
+        <div class="table-wrap ledger-table"><table class="data">
+          <thead><tr><th>Tarih / Saat</th><th>Kullanıcı</th><th>İşlem</th><th>Tür</th><th>Kayıt</th></tr></thead>
+          <tbody>${logs.map((l) => `<tr>
+            <td>${esc(fmtWhen(l.at))}</td>
+            <td>${esc(l.userName || l.user || "?")}</td>
+            <td><span class="tag ${ACTION_TAG[l.action]||'gold'}">${esc(l.action || "")}</span></td>
+            <td>${esc(l.entity || "")}</td>
+            <td>${esc(l.label || "")}</td>
+          </tr>`).join("")}</tbody>
+        </table></div>`
+        : `<div class="empty"><div class="ico">📋</div><p>Henüz kayıt yok. İşlem yaptıkça burada görünecek.</p></div>`}
+    </div>`;
+
+  const clr = $("#audit-clear");
+  if (clr) clr.onclick = () => confirmDialog("Tüm değişiklik kaydı silinsin mi?", async () => {
+    for (const l of logs) await deleteDoc(doc(db, "auditLog", l.id));
+    toast("Kayıt temizlendi.", "ok"); route();
+  });
 }
 
 // ===========================================================================

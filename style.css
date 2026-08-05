@@ -107,6 +107,16 @@ button { font-family: inherit; }
   outline: none; border-color: var(--gold);
   box-shadow: 0 0 0 3px rgba(166,123,46,.15);
 }
+/* Izgara hücresinde alan taşmasını önle (ör. tarih alanı sağa kaymasın) */
+.form-row { min-width: 0; }
+.form-row > .field { min-width: 0; }
+.field input, .field select, .field textarea { min-width: 0; max-width: 100%; }
+.field input[type="date"] { -webkit-appearance: none; appearance: none; }
+
+/* Para alanı: sağda ₺ */
+.money-wrap { position: relative; }
+.money-wrap input { text-align: right; padding-right: 30px; }
+.money-wrap .cur { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); pointer-events: none; }
 .auth-error { color: var(--danger); font-size: 13px; min-height: 18px; margin: 4px 0 6px; }
 .auth-toggle { text-align: center; margin-top: 14px; font-size: 13px; color: var(--ink-soft); }
 .auth-toggle a { cursor: pointer; font-weight: 600; }

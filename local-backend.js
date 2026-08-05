@@ -218,7 +218,7 @@ export async function updateProfile(user, { displayName }) {
 // ===========================================================================
 export const COLLECTIONS = [
   "users", "accounts", "accountEntries", "dayEndRecords",
-  "currentMovements", "bankTransactions", "cashflowItems",
+  "currentMovements", "bankTransactions", "cashflowItems", "auditLog",
 ];
 
 export function exportAll() {
