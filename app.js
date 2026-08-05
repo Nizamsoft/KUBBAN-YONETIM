@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.09";
+} from "./local-backend.js?v=2026.10";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.09";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.10";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -249,6 +249,22 @@ $("#user-chip").addEventListener("click", () => {
 });
 
 // ---------------------------------------------------------------------------
+//  MOBİL MENÜ (kayan çekmece)
+// ---------------------------------------------------------------------------
+function closeDrawer() {
+  $("#sidebar")?.classList.remove("open");
+  $("#sidebar-overlay")?.classList.remove("show");
+}
+function toggleDrawer() {
+  const s = $("#sidebar"), o = $("#sidebar-overlay");
+  const open = !s.classList.contains("open");
+  s.classList.toggle("open", open);
+  o?.classList.toggle("show", open);
+}
+$("#menu-toggle")?.addEventListener("click", toggleDrawer);
+$("#sidebar-overlay")?.addEventListener("click", closeDrawer);
+
+// ---------------------------------------------------------------------------
 //  NAVİGASYON & YÖNLENDİRME (ROUTER)
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -256,8 +272,14 @@ $("#user-chip").addEventListener("click", () => {
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.09";
+const APP_VERSION = "2026.10";
 const CHANGELOG = [
+  { version: "2026.10", date: "2026-08-04", items: [
+    "Mobil arayüz: hamburger menü (☰) ve kayan yan menü (drawer) + arka plan karartma",
+    "Menüden bir sayfa seçince menü otomatik kapanıyor",
+    "Kartlar, formlar ve tablolar mobile göre düzenlendi; tablolar kutu içinde kayıyor",
+    "Dokunmatik için daha büyük butonlar",
+  ]},
   { version: "2026.09", date: "2026-08-04", items: [
     "Hesaplar: alt hesaplar artık KAPALI (dar) başlıyor, isteğe göre açılır",
     "Sayfa geçişi yalnızca yumuşak solma; yatay kayma/genişleme kaldırıldı",
@@ -395,6 +417,7 @@ function toggleGroup(group) {
 async function route() {
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
   const r = ROUTES[path] || ROUTES["dashboard"];
+  closeDrawer(); // mobilde gezinince menüyü kapat
   const navPath = path === "hesap-detay" ? "hesaplar" : path;
   $$("#nav .nav-item").forEach((a) =>
     a.classList.toggle("active", a.dataset.path === navPath));

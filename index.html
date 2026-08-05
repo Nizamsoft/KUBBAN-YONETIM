@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Güllüoğlu Kübban — Yönetim</title>
   <link rel="icon" href="https://firebasestorage.googleapis.com/v0/b/nizam--to-do.firebasestorage.app/o/company-logos%2FahknZI41JjoHGdkfyy8W%2Fphoto.jpg?alt=media&token=2b3ea8e5-90ba-4299-8cb4-5681c646baf9" />
-  <link rel="stylesheet" href="style.css?v=2026.09" />
+  <link rel="stylesheet" href="style.css?v=2026.10" />
 </head>
 <body>
 
@@ -62,7 +62,7 @@
     <!-- İçerik -->
     <div class="main">
       <header class="topbar">
-        <button class="btn btn-ghost btn-sm" id="menu-toggle" style="display:none">☰</button>
+        <button class="btn btn-ghost btn-sm" id="menu-toggle" aria-label="Menü">☰</button>
         <div>
           <div class="crumb" id="crumb">Ana Sayfa</div>
           <h2 id="page-title">Dashboard</h2>
@@ -81,10 +81,13 @@
     </div>
   </div>
 
+  <!-- Mobil menü arka planı (overlay) -->
+  <div id="sidebar-overlay"></div>
+
   <!-- Modal & toast konteynerları -->
   <div id="modal-root"></div>
   <div id="toasts"></div>
 
-  <script type="module" src="app.js?v=2026.09"></script>
+  <script type="module" src="app.js?v=2026.10"></script>
 </body>
 </html>
