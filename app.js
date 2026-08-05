@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.08";
+} from "./local-backend.js?v=2026.09";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.08";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.09";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -256,8 +256,12 @@ $("#user-chip").addEventListener("click", () => {
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.08";
+const APP_VERSION = "2026.09";
 const CHANGELOG = [
+  { version: "2026.09", date: "2026-08-04", items: [
+    "Hesaplar: alt hesaplar artık KAPALI (dar) başlıyor, isteğe göre açılır",
+    "Sayfa geçişi yalnızca yumuşak solma; yatay kayma/genişleme kaldırıldı",
+  ]},
   { version: "2026.08", date: "2026-08-04", items: [
     "Cari hesaplar (320 Tedarikçi / 120 Müşteri) için ayrı hareket defteri",
     "Cari kolonları: İşlem No · Cari No · Tarih · Şahıs · Açıklama · Borç · Alacak · Güncel Bakiye · Fatura Türü · Fatura No",
@@ -1040,14 +1044,14 @@ async function viewHesaplar(c) {
     const ch = kids.get(a.id) || [];
     const bal = rolled(a);
     return `<tr class="acc-main${ch.length ? " has-kids" : " leaf"}" data-id="${a.id}">
-      <td><span class="tree-toggle">${ch.length ? "▾" : "&nbsp;&nbsp;"}</span> <b>${esc(a.code || "—")}</b></td>
+      <td><span class="tree-toggle">${ch.length ? "▸" : "&nbsp;&nbsp;"}</span> <b>${esc(a.code || "—")}</b></td>
       <td><b>${esc(a.name || "")}</b>${ch.length ? ` <span style="color:var(--ink-faint);font-size:11px">(${ch.length} alt)</span>` : ` <span style="color:var(--gold-dark);font-size:11px">hareketler →</span>`}</td>
       <td class="num" style="font-weight:700;color:${bal<0?'var(--danger)':'inherit'}">${fmtTRY(bal)}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn btn-sm" data-addsub="${a.id}" title="Alt hesap ekle">+ Alt</button>
         <button class="btn btn-sm" data-edit="${a.id}">Düzenle</button>
       </td></tr>` +
-      ch.map((s) => `<tr class="acc-sub" data-parent="${a.id}" data-id="${s.id}">
+      ch.map((s) => `<tr class="acc-sub" data-parent="${a.id}" data-id="${s.id}" style="display:none">
         <td style="padding-left:36px">${esc(s.code || "")}</td>
         <td>${esc(s.name || "")} <span style="color:var(--gold-dark);font-size:11px">hareketler →</span></td>
         <td class="num" style="color:${cur(s)<0?'var(--danger)':'inherit'}">${fmtTRY(cur(s))}</td>
@@ -1081,7 +1085,7 @@ async function viewHesaplar(c) {
       if (t && t.textContent.trim()) t.textContent = open ? "▾" : "▸";
     }
   };
-  roots.forEach((a) => { if ((kids.get(a.id) || []).length) setOpen(a.id, true); });
+  // Alt hesaplar varsayılan KAPALI başlar (dar görünüm)
 
   // Akordeon: ana hesap satırına tıkla → alt hesaplar açılır/kapanır (butonlar hariç)
   $$("tr.acc-main.has-kids", c).forEach((tr) => {
