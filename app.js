@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.19";
+} from "./local-backend.js?v=2026.20";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.19";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.20";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -304,8 +304,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.19";
+const APP_VERSION = "2026.20";
 const CHANGELOG = [
+  { version: "2026.20", date: "2026-08-04", items: [
+    "Cari Hareket İşleme: Fatura Genel Raporu Excel'i (Fatura No/Tarih/Cari Adı/VKN/Ödenecek Miktar)",
+    "Yüklerken Alış mı Satış mı sorulur; Alış→320 Alacak, Satış→120 Borç",
+    "Önizleme: her fatura cari hesapla eşleştirilir; cari yoksa oradan '+ Cari Ekle' (alt hesap açar)",
+    "Aynı caride aynı fatura no varsa aktarılmaz (mükerrer atlanır); İşlem No/Cari No otomatik",
+  ]},
   { version: "2026.19", date: "2026-08-04", items: [
     "Mobil pencereler alttan açılmıyor; üstten normal sayfa gibi kaydırılıyor (klavye alanları/butonları kapatmıyor)",
   ]},
@@ -1600,9 +1606,13 @@ function entryModal(acc, entry, opts) {
 //  MODÜL: CARİ HAREKET İŞLEME (Uyumsoft Excel)
 // ===========================================================================
 async function viewCariHareket(c) {
+  const nrm = (s) => String(s || "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim();
+
   c.innerHTML = `
-    <div class="notice info">🔁 <b>Uyumsoft</b>'tan indirdiğiniz cari hareket Excel raporunu yükleyin.
-      Hareketler alt alta listelenir; düzenleyip <b>Kayıtları Gönder</b> ile kaydedin.</div>
+    <div class="notice info">🔁 Uyumsoft <b>Fatura Genel Raporu</b> Excel'ini yükleyin. Sadece şu bilgiler alınır:
+      <b>Fatura No · Fatura Tarihi · Cari Adı · VKN/TCKN · Ödenecek Miktar</b>.<br>
+      Yükleyince <b>Alış mı Satış mı</b> sorulur. Alış → Tedarikçi (320) <b>Alacak</b>'a · Satış → Alıcı (120) <b>Borç</b>'a.
+      Aynı caride aynı fatura no varsa tekrar aktarılmaz.</div>
     <div class="card"><div class="card-head"><h3>1) Excel Yükle</h3></div><div id="ch-drop"></div></div>
     <div id="ch-editor"></div>`;
 
@@ -1610,72 +1620,186 @@ async function viewCariHareket(c) {
     try {
       const { headers, rows } = await parseSpreadsheet(file);
       if (!rows.length) return toast("Veri bulunamadı.", "err");
-      renderEditor(headers, rows);
-      toast(`${rows.length} hareket okundu.`, "ok");
+      askType(headers, rows);
     } catch (e) { toast("Okunamadı: " + e.message, "err"); }
   }));
 
-  function renderEditor(headers, rows) {
-    // Uyumsoft sütunlarını esnek eşle
-    const map = {
-      date: guessCol(headers, ["tarih"]),
-      code: guessCol(headers, ["cari kod", "hesap kod", "kod"]),
-      name: guessCol(headers, ["cari", "unvan", "ünvan", "açıklama", "aciklama"]),
-      debit: guessCol(headers, ["borç", "borc"]),
-      credit: guessCol(headers, ["alacak"]),
-    };
-    const norm = rows.map((r) => ({
-      date: excelDateToISO(r[map.date]),
-      code: r[map.code] || "",
-      name: r[map.name] || "",
-      debit: parseNum(r[map.debit]),
-      credit: parseNum(r[map.credit]),
-    }));
-    const columns = [
-      { key: "date", label: "Tarih", type: "date" },
-      { key: "code", label: "Cari Kod", type: "text" },
-      { key: "name", label: "Cari / Açıklama", type: "text" },
-      { key: "debit", label: "Borç", type: "num" },
-      { key: "credit", label: "Alacak", type: "num" },
-    ];
-    const et = editableTable(columns, norm);
+  function askType(headers, rows) {
+    const m = openModal({
+      title: "Fatura Türü",
+      body: `<p style="margin:0 0 10px">${rows.length} fatura bulundu. Bu faturaları hangi tür olarak işleyelim?</p>
+        <div style="font-size:12.5px;color:var(--ink-soft);line-height:1.7">
+          • <b>Alış Faturası</b> → 320 Tedarikçiler · tutar <b>Alacak</b>'a<br>
+          • <b>Satış Faturası</b> → 120 Alıcılar · tutar <b>Borç</b>'a
+        </div>`,
+      footer: [
+        mkBtn("Vazgeç", "", () => m.close()),
+        mkBtn("Satış Faturası", "", () => { m.close(); buildPreview(headers, rows, "satis"); }),
+        mkBtn("Alış Faturası", "btn-primary", () => { m.close(); buildPreview(headers, rows, "alis"); }),
+      ],
+    });
+  }
+
+  async function buildPreview(headers, rows, kind) {
+    const targetType = kind === "alis" ? "tedarikci" : "musteri";
+    const faturaTuru = kind === "alis" ? "Alış Faturası" : "Satış Faturası";
     const editor = $("#ch-editor");
-    editor.innerHTML = "";
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `<div class="card-head"><h3>2) Hareketleri Düzenle</h3><span class="hint">${norm.length} hareket</span></div>`;
-    card.appendChild(et.root);
-    const foot = document.createElement("div");
-    foot.className = "toolbar"; foot.style.marginTop = "14px";
-    const info = document.createElement("div"); info.className = "grow"; info.style.fontWeight = "700";
-    const addBtn = mkBtn("+ Satır", "btn-sm");
-    const saveBtn = mkBtn("📤 Kayıtları Gönder", "btn-primary");
-    foot.append(info, addBtn, saveBtn);
-    card.appendChild(foot);
-    editor.appendChild(card);
+    editor.innerHTML = `<div class="empty"><div class="spinner" style="margin:0 auto"></div></div>`;
 
-    const recompute = () => {
-      const d = et.getData();
-      const borc = d.reduce((s, r) => s + parseNum(r.debit), 0);
-      const alacak = d.reduce((s, r) => s + parseNum(r.credit), 0);
-      info.textContent = `Toplam Borç: ${fmtTRY(borc)}  ·  Toplam Alacak: ${fmtTRY(alacak)}`;
+    const [accounts, entries] = await Promise.all([
+      fetchAll(C.accounts).catch(() => []),
+      fetchAll(C.accountEntries).catch(() => []),
+    ]);
+    const main = accounts.find((a) => a.type === targetType && !a.parentId)
+              || accounts.find((a) => a.type === targetType);
+    if (!main) {
+      editor.innerHTML = `<div class="notice warn">⚠️ <b>${kind === "alis" ? "320 Tedarikçiler" : "120 Alıcılar"}</b> ana hesabı yok.
+        Önce <a href="#/hesaplar">Hesaplar</a>'dan oluşturun.</div>`;
+      return;
+    }
+    let cariAccounts = accounts.filter((a) => a.type === targetType);
+
+    const col = {
+      faturaNo: guessCol(headers, ["fatura no"]),
+      date: guessCol(headers, ["fatura tarih"]),
+      ad: guessCol(headers, ["cari ad", "cari ünvan", "cari unvan"]),
+      vkn: guessCol(headers, ["vkn", "tckn"]),
+      amount: guessCol(headers, ["ödenecek miktar"]) || guessCol(headers, ["ödenecek"]),
     };
-    recompute();
-    editor.addEventListener("input", rafThrottle(recompute));
-    addBtn.onclick = () => { et.addRow({ date: todayISO() }); recompute(); };
+    const items = rows.map((r) => ({
+      faturaNo: String(r[col.faturaNo] ?? "").trim(),
+      date: excelDateToISO(r[col.date]),
+      ad: String(r[col.ad] ?? "").trim(),
+      vkn: String(r[col.vkn] ?? "").trim(),
+      amount: parseNum(r[col.amount]),
+    })).filter((it) => it.faturaNo || it.ad || it.amount);
 
-    saveBtn.onclick = async () => {
-      const data = et.getData().filter((r) => r.code || r.name || r.debit || r.credit);
-      if (!data.length) return toast("Gönderilecek hareket yok.", "err");
-      saveBtn.disabled = true;
+    const findAcc = (it) =>
+      cariAccounts.find((a) => a.vkn && it.vkn && String(a.vkn) === it.vkn) ||
+      cariAccounts.find((a) => nrm(a.name) === nrm(it.ad));
+    const statusOf = (it) => {
+      const acc = findAcc(it);
+      if (!acc) return { code: "nocari" };
+      const dup = it.faturaNo && entries.some((e) => e.accountId === acc.id && String(e.faturaNo || "") === it.faturaNo);
+      return { code: dup ? "dup" : "ready", acc };
+    };
+
+    async function createCari(it, silent) {
+      const siblings = accounts.filter((a) => a.parentId === main.id);
+      const code = nextSubCode(main, siblings);
+      const payload = {
+        code, name: it.ad || "Yeni Cari", type: main.type,
+        parentId: main.id, parentCode: main.code, vkn: it.vkn || "",
+        openingBalance: 0, createdAt: serverTimestamp(),
+      };
+      const ref = await addDoc(C.accounts(), payload);
+      const newAcc = { id: ref.id, ...payload };
+      accounts.push(newAcc); cariAccounts.push(newAcc);
+      await logAction("Ekleme", "Cari Hesap", `${code} ${payload.name}`);
+      if (!silent) { toast("Cari eklendi: " + payload.name, "ok"); draw(); }
+    }
+
+    function draw() {
+      const st = items.map(statusOf);
+      const ready = st.filter((s) => s.code === "ready").length;
+      const dups = st.filter((s) => s.code === "dup").length;
+      const noc = st.filter((s) => s.code === "nocari").length;
+      const amtLabel = kind === "alis" ? "Alacak" : "Borç";
+      const rowsHtml = items.map((it, i) => {
+        const s = st[i];
+        const badge = s.code === "ready" ? `<span class="tag ok">${esc(s.acc.code)} · ${esc(s.acc.name)}</span>`
+          : s.code === "dup" ? `<span class="tag warn">Zaten var (atlanır)</span>`
+          : `<span class="tag red">Cari yok</span> <button class="btn btn-sm" data-addcari="${i}">+ Cari Ekle</button>`;
+        return `<tr>
+          <td>${esc(it.faturaNo)}</td>
+          <td>${fmtDate(it.date)}</td>
+          <td>${esc(it.ad)}</td>
+          <td>${esc(it.vkn)}</td>
+          <td class="num">${fmtTRY(it.amount)}</td>
+          <td>${badge}</td>
+        </tr>`;
+      }).join("");
+
+      editor.innerHTML = `
+        <div class="card">
+          <div class="card-head"><h3>2) Önizleme · ${faturaTuru}</h3>
+            <span class="hint">Hedef: ${esc(main.code)} ${esc(main.name)} · ${items.length} fatura</span></div>
+          <div class="toolbar" style="margin:0 0 12px">
+            <span class="tag ok">${ready} işlenecek</span>
+            <span class="tag warn">${dups} zaten var</span>
+            <span class="tag red">${noc} cari yok</span>
+            <div class="grow"></div>
+            ${noc ? `<button class="btn btn-sm" id="add-all-cari">Eksik carileri oluştur</button>` : ""}
+          </div>
+          <div class="table-wrap"><table class="data">
+            <thead><tr><th>Fatura No</th><th>Fatura Tarihi</th><th>Cari Adı</th><th>VKN/TCKN</th>
+              <th class="num">${amtLabel} (Tutar)</th><th>Cari Hesap</th></tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table></div>
+          <div class="toolbar" style="margin-top:14px">
+            <div class="grow"></div>
+            <button class="btn btn-primary" id="send-inv" ${ready ? "" : "disabled"}>📤 ${ready} Faturayı İşle</button>
+          </div>
+        </div>`;
+
+      $$("[data-addcari]", editor).forEach((b) => b.onclick = () => createCari(items[+b.dataset.addcari]));
+      const addAll = $("#add-all-cari", editor);
+      if (addAll) addAll.onclick = async () => {
+        addAll.disabled = true;
+        const seen = new Set();
+        for (const it of items) {
+          if (statusOf(it).code !== "nocari") continue;
+          const key = it.vkn || nrm(it.ad);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          await createCari(it, true);
+        }
+        toast("Eksik cariler oluşturuldu.", "ok"); draw();
+      };
+      const send = $("#send-inv", editor);
+      if (send) send.onclick = () => onSend(send);
+    }
+
+    async function onSend(sendBtn) {
+      sendBtn.disabled = true;
+      const fresh = await fetchAll(C.accountEntries).catch(() => []);
+      let gno = fresh.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+      const cnoMap = new Map();
+      const docs = [];
+      let sDup = 0, sNo = 0;
+      for (const it of items) {
+        const acc = findAcc(it);
+        if (!acc) { sNo++; continue; }
+        const exists = it.faturaNo && (
+          fresh.some((e) => e.accountId === acc.id && String(e.faturaNo || "") === it.faturaNo) ||
+          docs.some((d) => d.accountId === acc.id && d.faturaNo === it.faturaNo));
+        if (exists) { sDup++; continue; }
+        if (!cnoMap.has(acc.id))
+          cnoMap.set(acc.id, fresh.filter((e) => e.accountId === acc.id).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
+        const cno = cnoMap.get(acc.id) + 1; cnoMap.set(acc.id, cno);
+        gno++;
+        docs.push({
+          accountId: acc.id, accountCode: acc.code || "",
+          islemNo: gno, cariNo: cno,
+          date: it.date || todayISO(),
+          sahis: it.ad || "", vkn: it.vkn || "",
+          aciklama: it.vkn ? "VKN: " + it.vkn : "",
+          borc: kind === "satis" ? it.amount : 0,
+          alacak: kind === "alis" ? it.amount : 0,
+          faturaTuru, faturaNo: it.faturaNo || "",
+          source: "fatura-import", createdAt: serverTimestamp(), createdBy: currentUser.email,
+        });
+      }
+      if (!docs.length) { sendBtn.disabled = false; return toast(`İşlenecek yeni fatura yok (${sDup} zaten var, ${sNo} cari yok).`, "err"); }
       try {
-        await batchAdd(C.currentMovements, data.map((r) => ({
-          ...r, source: "uyumsoft-cari", createdAt: serverTimestamp(), createdBy: currentUser.email,
-        })));
-        toast(`${data.length} hareket kaydedildi.`, "ok");
-        editor.innerHTML = `<div class="notice info">✔ ${data.length} cari hareket kaydedildi.</div>`;
-      } catch (e) { toast("Hata: " + e.message, "err"); saveBtn.disabled = false; }
-    };
+        await batchAdd(C.accountEntries, docs);
+        await logAction("İçe Aktarma", "Cari Fatura", `${main.code} ${main.name} · ${docs.length} ${faturaTuru}`);
+        editor.innerHTML = `<div class="notice info">✔ <b>${docs.length}</b> fatura işlendi.${sDup ? ` ${sDup} zaten vardı (atlandı).` : ""}${sNo ? ` ${sNo} cari bulunamadı (atlandı).` : ""}</div>
+          <div class="toolbar"><a class="btn btn-primary" href="#/hesap-detay?id=${main.id}">${esc(main.name)} Hesabını Görüntüle →</a></div>`;
+      } catch (e) { toast("Hata: " + e.message, "err"); sendBtn.disabled = false; }
+    }
+
+    draw();
   }
 }
 
