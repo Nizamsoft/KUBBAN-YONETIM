@@ -270,9 +270,15 @@ table.data input.num { text-align: right; }
 }
 .acc-row:first-child { border-top: none; }
 .acc-row.parent { background: var(--surface); }
-.acc-row.leaf:hover, .acc-row.parent:hover { background: var(--surface-2); }
-.acc-row.sub { background: var(--surface-2); padding-left: 40px; }
-.acc-row.sub:hover { background: #f4ecdd; }
+.acc-row.leaf:hover { background: var(--surface-2); }
+.acc-row.parent:hover { background: var(--surface-2); }
+/* Açık ana hesap: hafif altın vurgu (grup başlığı gibi) */
+.acc-row.parent[data-open="1"] { background: var(--warn-bg); border-top-color: var(--line-strong); }
+.acc-row.parent[data-open="1"] .chev { color: var(--gold-dark); }
+/* Alt hesaplar: beyaz + soldan altın rehber çizgisi (arka planla karışmaz) */
+.acc-row.sub { background: var(--surface); padding-left: 40px; box-shadow: inset 3px 0 0 var(--gold-light); border-top-color: #f2ead9; }
+.acc-row.sub:hover { background: var(--surface-2); }
+.acc-row.sub:last-child { border-bottom: 2px solid var(--warn-bg); }
 .acc-row .chev { width: 14px; flex-shrink: 0; text-align: center; color: var(--gold-dark); font-size: 11px; user-select: none; }
 .acc-row .info { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 9px; }
 .acc-row .info .code { flex-shrink: 0; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }

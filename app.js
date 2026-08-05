@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.11";
+} from "./local-backend.js?v=2026.12";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.11";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.12";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -272,8 +272,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.11";
+const APP_VERSION = "2026.12";
 const CHANGELOG = [
+  { version: "2026.12", date: "2026-08-04", items: [
+    "Hesap listesi renkleri düzeltildi: alt hesaplar beyaz + soldan altın rehber çizgisi",
+    "Açık ana hesap hafif altın vurguyla grup başlığı gibi görünüyor",
+  ]},
   { version: "2026.11", date: "2026-08-04", items: [
     "Hesap Planı tablo yerine şık liste görünümüne geçti (mobilde çok daha düzenli)",
     "Kod + ad tek satır, sağda bakiye; düzenle ✎ ve alt hesap ＋ ikonları",
