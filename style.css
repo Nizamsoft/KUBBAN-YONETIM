@@ -275,8 +275,8 @@ table.data input.num { text-align: right; }
 /* Açık ana hesap: hafif altın vurgu (grup başlığı gibi) */
 .acc-row.parent[data-open="1"] { background: var(--warn-bg); border-top-color: var(--line-strong); }
 .acc-row.parent[data-open="1"] .chev { color: var(--gold-dark); }
-/* Alt hesaplar: beyaz + soldan altın rehber çizgisi (arka planla karışmaz) */
-.acc-row.sub { background: var(--surface); padding-left: 40px; box-shadow: inset 3px 0 0 var(--gold-light); border-top-color: #f2ead9; }
+/* Alt hesaplar: ana hesaplarla aynı hizada; sadece soldan altın çizgi ile ayrışır */
+.acc-row.sub { background: var(--surface); box-shadow: inset 3px 0 0 var(--gold-light); border-top-color: #f2ead9; }
 .acc-row.sub:hover { background: var(--surface-2); }
 .acc-row.sub:last-child { border-bottom: 2px solid var(--warn-bg); }
 .acc-row .chev { width: 14px; flex-shrink: 0; text-align: center; color: var(--gold-dark); font-size: 11px; user-select: none; }
@@ -299,7 +299,6 @@ table.data input.num { text-align: right; }
 .acc-row .acts .go { color: var(--ink-faint); font-size: 20px; }
 @media (max-width: 480px) {
   .acc-row { padding: 12px 8px; gap: 6px; }
-  .acc-row.sub { padding-left: 26px; }
   .acc-row .bal { min-width: 74px; font-size: 13px; }
   .acc-row .acts .slot { width: 30px; }
 }
