@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.15";
+} from "./local-backend.js?v=2026.16";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.15";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.16";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -272,8 +272,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.15";
+const APP_VERSION = "2026.16";
 const CHANGELOG = [
+  { version: "2026.16", date: "2026-08-04", items: [
+    "Hesap defteri mobilde banka uygulaması tarzı hareket kartlarına dönüşüyor (tablo taşmıyor)",
+    "Kartta: açıklama/şahıs, tarih+no, tutar (yeşil giriş / kırmızı çıkış), altında bakiye",
+    "Masaüstünde tam tablo korunuyor; karta dokununca düzenleme açılıyor",
+  ]},
   { version: "2026.15", date: "2026-08-04", items: [
     "Mobil: özet kartları 2x2 kompakt ızgara, daha küçük yazı/boşluk (daha az yer kaplıyor)",
   ]},
@@ -1308,6 +1313,36 @@ async function viewAccountLedger(c) {
   const nextNo = entries.reduce((m, e) => Math.max(m, e.islemNo || 0), 0) + 1;
   const nextCariNo = cari ? (list.reduce((m, e) => Math.max(m, e.cariNo || 0), 0) + 1) : null;
 
+  // Mobil: banka uygulaması tarzı hareket kartları
+  const ledgerEmpty = `<div class="empty" style="padding:28px"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div>`;
+  const kasaCard = ({ e, bakiye }) => `
+    <button class="tx-card" data-edit="${e.id}">
+      <div class="tx-left">
+        <div class="tx-title">${esc(e.islemAdi || "Hareket")}</div>
+        <div class="tx-sub">${fmtDate(e.date)} · No ${esc(String(e.islemNo ?? "—"))}${e.sahis ? " · " + esc(e.sahis) : ""}</div>
+        ${e.aciklama ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : ""}
+      </div>
+      <div class="tx-right">
+        ${e.giren ? `<div class="tx-amt in">+${fmtTRY(parseNum(e.giren))}</div>` : ""}
+        ${e.cikan ? `<div class="tx-amt out">−${fmtTRY(parseNum(e.cikan))}</div>` : ""}
+        <div class="tx-bal">Bakiye ${fmtTRY(bakiye)}</div>
+      </div>
+    </button>`;
+  const cariCard = ({ e, bakiye }) => `
+    <button class="tx-card" data-edit="${e.id}">
+      <div class="tx-left">
+        <div class="tx-title">${esc(e.sahis || e.aciklama || "Hareket")}</div>
+        <div class="tx-sub">${fmtDate(e.date)} · Cari ${esc(String(e.cariNo ?? "—"))} · No ${esc(String(e.islemNo ?? "—"))}</div>
+        ${e.aciklama && e.sahis ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : ""}
+        ${(e.faturaTuru || e.faturaNo) ? `<div class="tx-tag">🧾 ${esc(e.faturaTuru || "")}${e.faturaNo ? " · " + esc(e.faturaNo) : ""}</div>` : ""}
+      </div>
+      <div class="tx-right">
+        ${e.borc ? `<div class="tx-amt out">Borç ${fmtTRY(parseNum(e.borc))}</div>` : ""}
+        ${e.alacak ? `<div class="tx-amt in">Alacak ${fmtTRY(parseNum(e.alacak))}</div>` : ""}
+        <div class="tx-bal">Bakiye ${fmtTRY(bakiye)}</div>
+      </div>
+    </button>`;
+
   const backBar = `
     <div class="toolbar">
       <a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a>
@@ -1327,7 +1362,8 @@ async function viewAccountLedger(c) {
       </div>
       <div class="card">
         <div class="card-head"><h3>Cari Hareketler</h3><span class="hint">${list.length} hareket</span></div>
-        <div class="table-wrap"><table class="data">
+        <div class="ledger-cards">${rows.length ? rows.map(cariCard).join("") : ledgerEmpty}</div>
+        <div class="table-wrap ledger-table"><table class="data">
           <thead><tr>
             <th>İşlem No</th><th>Cari No</th><th>Tarih</th><th>Şahıs</th><th>Açıklama</th>
             <th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>
@@ -1367,7 +1403,8 @@ async function viewAccountLedger(c) {
       </div>
       <div class="card">
         <div class="card-head"><h3>Hareketler</h3><span class="hint">${list.length} hareket</span></div>
-        <div class="table-wrap"><table class="data">
+        <div class="ledger-cards">${rows.length ? rows.map(kasaCard).join("") : ledgerEmpty}</div>
+        <div class="table-wrap ledger-table"><table class="data">
           <thead><tr>
             <th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
             <th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th>
