@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.12";
+} from "./local-backend.js?v=2026.13";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.12";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.13";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -272,8 +272,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.12";
+const APP_VERSION = "2026.13";
 const CHANGELOG = [
+  { version: "2026.13", date: "2026-08-04", items: [
+    "Hesap listesi sağ tarafı hizalandı: bakiye ve [＋][✎][›] ikonları sabit sütunlarda",
+    "Alt hesap girintisi solda korunuyor (alt hesap olduğu belli), sağ taraf kaymıyor",
+  ]},
   { version: "2026.12", date: "2026-08-04", items: [
     "Hesap listesi renkleri düzeltildi: alt hesaplar beyaz + soldan altın rehber çizgisi",
     "Açık ana hesap hafif altın vurguyla grup başlığı gibi görünüyor",
@@ -1086,9 +1090,9 @@ async function viewHesaplar(c) {
       </div>
       <span class="bal" style="color:${bal<0?'var(--danger)':'inherit'}">${fmtTRY(bal)}</span>
       <span class="acts">
-        ${parent ? `<button class="ic" data-addsub="${a.id}" title="Alt hesap ekle">＋</button>` : ""}
-        <button class="ic" data-edit="${a.id}" title="Düzenle">✎</button>
-        ${!parent ? `<span class="go" aria-hidden="true">›</span>` : ""}
+        <span class="slot">${parent ? `<button class="ic" data-addsub="${a.id}" title="Alt hesap ekle">＋</button>` : ""}</span>
+        <span class="slot"><button class="ic" data-edit="${a.id}" title="Düzenle">✎</button></span>
+        <span class="slot go" aria-hidden="true">${parent ? "" : "›"}</span>
       </span>
     </div>`;
   };

@@ -286,19 +286,22 @@ table.data input.num { text-align: right; }
 .acc-row .info .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
 .acc-row.sub .info .name { font-size: 13px; }
 .acc-row .info .name em { color: var(--ink-faint); font-style: normal; font-size: 11px; }
-.acc-row .bal { flex-shrink: 0; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.acc-row .acts { flex-shrink: 0; display: flex; align-items: center; gap: 1px; }
+.acc-row .bal { flex-shrink: 0; min-width: 86px; text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+/* Sağ taraf sabit sütunlar: [＋][✎][›] — her satırda aynı hizada */
+.acc-row .acts { flex-shrink: 0; display: flex; align-items: center; }
+.acc-row .acts .slot { width: 34px; display: inline-flex; align-items: center; justify-content: center; }
 .acc-row .acts .ic {
   border: none; background: transparent; cursor: pointer; font-size: 15px;
-  padding: 7px 8px; border-radius: 7px; color: var(--ink-soft); line-height: 1;
+  width: 30px; height: 30px; padding: 0; display: inline-flex; align-items: center; justify-content: center;
+  border-radius: 7px; color: var(--ink-soft); line-height: 1;
 }
 .acc-row .acts .ic:hover { background: rgba(51,41,28,.08); color: var(--ink); }
-.acc-row .acts .go { color: var(--ink-faint); font-size: 20px; padding: 0 2px 0 4px; }
+.acc-row .acts .go { color: var(--ink-faint); font-size: 20px; }
 @media (max-width: 480px) {
-  .acc-row { padding: 12px; gap: 8px; }
-  .acc-row.sub { padding-left: 30px; }
-  .acc-row .bal { font-size: 13px; }
-  .acc-row .acts .ic { font-size: 16px; padding: 8px 7px; }
+  .acc-row { padding: 12px 8px; gap: 6px; }
+  .acc-row.sub { padding-left: 26px; }
+  .acc-row .bal { min-width: 74px; font-size: 13px; }
+  .acc-row .acts .slot { width: 30px; }
 }
 
 .empty { text-align: center; color: var(--ink-faint); padding: 40px 20px; }
