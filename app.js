@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.21";
+} from "./local-backend.js?v=2026.22";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.21";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.22";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -153,6 +153,21 @@ async function logAction(action, entity, label) {
 // ---------------------------------------------------------------------------
 let currentUser = null;      // { uid, email, displayName, role }
 const isAdmin = () => currentUser && currentUser.role === "admin";
+
+// Aktarım sonrası cari inceleme turu
+let reviewQueue = null;       // { ids: [...], index: 0 }
+let reviewKeyHandler = null;  // Enter dinleyicisi
+function advanceReview() {
+  if (!reviewQueue) return;
+  reviewQueue.index++;
+  if (reviewQueue.index >= reviewQueue.ids.length) {
+    reviewQueue = null;
+    toast("Tüm cari hesaplar incelendi. ✔", "ok");
+    location.hash = "#/hesaplar";
+  } else {
+    location.hash = "#/hesap-detay?id=" + reviewQueue.ids[reviewQueue.index];
+  }
+}
 
 // ---------------------------------------------------------------------------
 //  KİMLİK DOĞRULAMA (AUTH)
@@ -304,8 +319,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.21";
+const APP_VERSION = "2026.22";
 const CHANGELOG = [
+  { version: "2026.22", date: "2026-08-04", items: [
+    "İçe aktarılan faturalarda Açıklama artık 'Fatura' yazıyor",
+    "Aktarımdan sonra inceleme turu: işlenen carilere tek tek gidilir",
+    "'‹Cari› bakıldı, bir sonrakine bakılsın mı?' — Enter ile sonrakine geçilir",
+  ]},
   { version: "2026.21", date: "2026-08-04", items: [
     "Excel okuma düzeltildi (raw): tutarlar artık doğru (Amerikan/Türkçe format karışıklığı giderildi)",
     "Fatura önizleme: Başlama/Bitiş/Süre/Belge Sayısı gibi özet satırları elenir",
@@ -501,6 +521,7 @@ async function route() {
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
   const r = ROUTES[path] || ROUTES["dashboard"];
   closeDrawer(); // mobilde gezinince menüyü kapat
+  if (reviewKeyHandler) { document.removeEventListener("keydown", reviewKeyHandler); reviewKeyHandler = null; }
   const navPath = path === "hesap-detay" ? "hesaplar" : path;
   $$("#nav .nav-item").forEach((a) =>
     a.classList.toggle("active", a.dataset.path === navPath));
@@ -1415,7 +1436,18 @@ async function viewAccountLedger(c) {
       </div>
     </button>`;
 
-  const backBar = `
+  // Aktarım sonrası inceleme turu bandı (bu hesap sıradaysa)
+  const inReview = reviewQueue && reviewQueue.ids[reviewQueue.index] === acc.id;
+  const reviewBar = inReview ? `
+    <div class="notice info" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <span><b>${esc(acc.name || "")}</b> cari hesabına bakıldı. Bir sonrakine bakılsın mı?
+        <span style="color:var(--ink-faint)">(${reviewQueue.index + 1}/${reviewQueue.ids.length})</span></span>
+      <div class="grow"></div>
+      <button class="btn btn-sm" id="rev-finish">Bitir</button>
+      <button class="btn btn-primary btn-sm" id="rev-next">Sonraki ↵</button>
+    </div>` : "";
+
+  const backBar = reviewBar + `
     <div class="toolbar">
       <a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a>
       <div class="grow"></div>
@@ -1507,6 +1539,20 @@ async function viewAccountLedger(c) {
   $("#add-entry").onclick = () => entryModal(acc, null, { nextNo, nextCariNo });
   $$("[data-edit]", c).forEach((b) => b.onclick = () =>
     entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo }));
+
+  // İnceleme turu: Sonraki / Bitir + Enter kısayolu
+  if (inReview) {
+    $("#rev-next").onclick = advanceReview;
+    $("#rev-finish").onclick = () => { reviewQueue = null; location.hash = "#/hesaplar"; };
+    reviewKeyHandler = (e) => {
+      if (e.key !== "Enter") return;
+      if ($("#modal-root").children.length) return;               // pencere açıksa karışma
+      if (/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;  // yazarken karışma
+      e.preventDefault();
+      advanceReview();
+    };
+    document.addEventListener("keydown", reviewKeyHandler);
+  }
 }
 
 function entryModal(acc, entry, opts) {
@@ -1799,7 +1845,7 @@ async function viewCariHareket(c) {
           islemNo: gno, cariNo: cno,
           date: it.date || todayISO(),
           sahis: it.ad || "", vkn: it.vkn || "",
-          aciklama: it.vkn ? "VKN: " + it.vkn : "",
+          aciklama: "Fatura",
           borc: kind === "satis" ? it.amount : 0,
           alacak: kind === "alis" ? it.amount : 0,
           faturaTuru, faturaNo: it.faturaNo || "",
@@ -1810,8 +1856,11 @@ async function viewCariHareket(c) {
       try {
         await batchAdd(C.accountEntries, docs);
         await logAction("İçe Aktarma", "Cari Fatura", `${main.code} ${main.name} · ${docs.length} ${faturaTuru}`);
-        editor.innerHTML = `<div class="notice info">✔ <b>${docs.length}</b> fatura işlendi.${sDup ? ` ${sDup} zaten vardı (atlandı).` : ""}${sNo ? ` ${sNo} cari bulunamadı (atlandı).` : ""}</div>
-          <div class="toolbar"><a class="btn btn-primary" href="#/hesap-detay?id=${main.id}">${esc(main.name)} Hesabını Görüntüle →</a></div>`;
+        toast(`${docs.length} fatura işlendi. İnceleme turu başlıyor…`, "ok");
+        // İşlenen carilere tek tek gidilecek inceleme turu
+        const affected = [...new Set(docs.map((d) => d.accountId))];
+        reviewQueue = { ids: affected, index: 0 };
+        location.hash = "#/hesap-detay?id=" + affected[0];
       } catch (e) { toast("Hata: " + e.message, "err"); sendBtn.disabled = false; }
     }
 
