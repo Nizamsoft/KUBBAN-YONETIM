@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.14";
+} from "./local-backend.js?v=2026.15";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.14";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.15";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -272,8 +272,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.14";
+const APP_VERSION = "2026.15";
 const CHANGELOG = [
+  { version: "2026.15", date: "2026-08-04", items: [
+    "Mobil: özet kartları 2x2 kompakt ızgara, daha küçük yazı/boşluk (daha az yer kaplıyor)",
+  ]},
   { version: "2026.14", date: "2026-08-04", items: [
     "Alt hesaplar ana hesaplarla aynı hizada (fazla girinti kaldırıldı); soldaki altın çizgi ile ayrışıyor",
   ]},

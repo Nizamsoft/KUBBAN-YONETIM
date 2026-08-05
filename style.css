@@ -426,8 +426,16 @@ table.data input.num { text-align: right; }
 }
 
 @media (max-width: 480px) {
-  .grid.cols-4, .grid.cols-3, .grid.cols-2 { grid-template-columns: 1fr; }
-  .stat .value { font-size: 21px; }
+  /* Özet kartları 2x2, kompakt */
+  .grid { gap: 10px; }
+  .grid.cols-4, .grid.cols-3 { grid-template-columns: repeat(2, 1fr); }
+  .grid.cols-2 { grid-template-columns: 1fr; }
+  .stat { padding: 12px; border-left-width: 3px; }
+  .stat .label { font-size: 10.5px; }
+  .stat .value { font-size: 18px; margin-top: 3px; }
+  .stat .foot { font-size: 10px; margin-top: 2px; }
+  .card { padding: 14px; }
+  .card + .card { margin-top: 14px; }
   .toolbar { gap: 8px; }
   .toolbar .seg { width: 100%; }
   .toolbar .seg button { flex: 1; }
