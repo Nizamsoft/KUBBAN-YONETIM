@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.22";
+} from "./local-backend.js?v=2026.23";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.22";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.23";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.22";
+const APP_VERSION = "2026.23";
 const CHANGELOG = [
+  { version: "2026.23", date: "2026-08-04", items: [
+    "Cari defter üst kartları sadeleşti: Hesap adı + Güncel Bakiye",
+    "Hesaplar: satırlardaki ✎/＋ kaldırıldı; üstte 'Hesapları Düzenle' modu geldi",
+    "Hesap kodu küçültüldü; asıl vurgu hesap adı ve güncel bakiye",
+    "Satış faturası önizlemesinde satır satır Açık/Kapalı; Kapalı ise tutar Alacağa da yazılır",
+  ]},
   { version: "2026.22", date: "2026-08-04", items: [
     "İçe aktarılan faturalarda Açıklama artık 'Fatura' yazıyor",
     "Aktarımdan sonra inceleme turu: işlenen carilere tek tek gidilir",
@@ -1188,9 +1194,9 @@ async function viewHesaplar(c) {
       </div>
       <span class="bal" style="color:${bal<0?'var(--danger)':'inherit'}">${fmtTRY(bal)}</span>
       <span class="acts">
-        <span class="slot">${parent ? `<button class="ic" data-addsub="${a.id}" title="Alt hesap ekle">＋</button>` : ""}</span>
-        <span class="slot"><button class="ic" data-edit="${a.id}" title="Düzenle">✎</button></span>
         <span class="slot go" aria-hidden="true">${parent ? "" : "›"}</span>
+        <span class="slot add">${parent ? `<button class="ic" data-addsub="${a.id}" title="Alt hesap ekle">＋</button>` : ""}</span>
+        <span class="slot edit"><button class="ic" data-edit="${a.id}" title="Düzenle">✎</button></span>
       </span>
     </div>`;
   };
@@ -1202,7 +1208,8 @@ async function viewHesaplar(c) {
     <div class="toolbar">
       <div class="grow"></div>
       <button class="btn btn-sm" id="toggle-all">Tümünü Aç / Kapat</button>
-      <button class="btn btn-primary btn-sm" id="acc-add">+ Yeni Hesap</button>
+      <button class="btn btn-sm" id="acc-add" style="display:none">+ Yeni Hesap</button>
+      <button class="btn btn-primary btn-sm" id="edit-toggle">✏️ Hesapları Düzenle</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
       <div class="card-head" style="padding:16px 16px 12px"><h3>Hesap Planı</h3><span class="hint">${roots.length} ana hesap · Genel Toplam ${fmtTRY(grand)}</span></div>
@@ -1273,6 +1280,15 @@ async function viewHesaplar(c) {
   };
 
   $("#acc-add").onclick = openNewChooser;
+  // "Hesapları Düzenle" modu: düzenle/alt ekle ikonları görünür olur
+  $("#edit-toggle").onclick = () => {
+    const list = $(".acc-list", c);
+    const on = list.classList.toggle("edit-mode");
+    const btn = $("#edit-toggle", c);
+    btn.textContent = on ? "✓ Bitir" : "✏️ Hesapları Düzenle";
+    btn.classList.toggle("btn-primary", !on);
+    $("#acc-add", c).style.display = on ? "" : "none";
+  };
   $$("[data-addsub]", c).forEach((b) => b.onclick = () => {
     const p = byId.get(b.dataset.addsub);
     accModal(null, p, { nextCode: nextSubCode(p, kids.get(p.id) || []) });
@@ -1458,10 +1474,8 @@ async function viewAccountLedger(c) {
     const totBorc = list.reduce((s, e) => s + parseNum(e.borc), 0);
     const totAlacak = list.reduce((s, e) => s + parseNum(e.alacak), 0);
     c.innerHTML = backBar + `
-      <div class="grid cols-4" style="margin-bottom:18px">
-        <div class="stat"><div class="label">Cari Hesap</div><div class="value" style="font-size:19px">${esc(acc.code || "")}</div><div class="foot">${esc(acc.name || "")}</div></div>
-        <div class="stat"><div class="label">Toplam Borç</div><div class="value">${fmtTRY(totBorc)}</div></div>
-        <div class="stat"><div class="label">Toplam Alacak</div><div class="value">${fmtTRY(totAlacak)}</div></div>
+      <div class="grid cols-2" style="margin-bottom:18px">
+        <div class="stat"><div class="label">Hesap</div><div class="value" style="font-size:17px">${esc(acc.name || "")}</div><div class="foot">${esc(acc.code || "")}</div></div>
         <div class="stat"><div class="label">Güncel Bakiye</div><div class="value" style="color:${run<0?'var(--danger)':'inherit'}">${fmtTRY(Math.abs(run))}</div><div class="foot">${run>=0?"Borç":"Alacak"} bakiye</div></div>
       </div>
       <div class="card">
@@ -1731,6 +1745,7 @@ async function viewCariHareket(c) {
       ad: String(r[col.ad] ?? "").trim(),
       vkn: String(r[col.vkn] ?? "").trim(),
       amount: parseNum(r[col.amount]),
+      durum: "acik", // satışta: açık = sadece borç, kapalı = borç + alacak
     })).filter((it) =>
       // Gerçek fatura satırı: fatura no rakam içerir ve VKN ya da tutar var
       // (Başlama/Bitiş/Süre/Belge Sayısı gibi özet satırları elenir)
@@ -1766,19 +1781,27 @@ async function viewCariHareket(c) {
       const ready = st.filter((s) => s.code === "ready").length;
       const dups = st.filter((s) => s.code === "dup").length;
       const noc = st.filter((s) => s.code === "nocari").length;
-      const amtLabel = kind === "alis" ? "Alacak" : "Borç";
+      const satis = kind === "satis";
+      const badgeOf = (s, i) => s.code === "ready" ? `<span class="tag ok">${esc(s.acc.code)} · ${esc(s.acc.name)}</span>`
+        : s.code === "dup" ? `<span class="tag warn">Zaten var (atlanır)</span>`
+        : `<span class="tag red">Cari yok</span> <button class="btn btn-sm" data-addcari="${i}">+ Cari Ekle</button>`;
       const rowsHtml = items.map((it, i) => {
-        const s = st[i];
-        const badge = s.code === "ready" ? `<span class="tag ok">${esc(s.acc.code)} · ${esc(s.acc.name)}</span>`
-          : s.code === "dup" ? `<span class="tag warn">Zaten var (atlanır)</span>`
-          : `<span class="tag red">Cari yok</span> <button class="btn btn-sm" data-addcari="${i}">+ Cari Ekle</button>`;
+        const borc = satis ? it.amount : 0;
+        const alacak = satis ? (it.durum === "kapali" ? it.amount : 0) : it.amount;
+        const durumCell = satis ? `<td>
+          <select data-durum="${i}">
+            <option value="acik" ${it.durum === "acik" ? "selected" : ""}>Açık</option>
+            <option value="kapali" ${it.durum === "kapali" ? "selected" : ""}>Kapalı</option>
+          </select></td>` : "";
         return `<tr>
           <td>${esc(it.faturaNo)}</td>
           <td>${fmtDate(it.date)}</td>
           <td>${esc(it.ad)}</td>
           <td>${esc(it.vkn)}</td>
-          <td class="num">${fmtTRY(it.amount)}</td>
-          <td>${badge}</td>
+          <td class="num">${borc ? fmtTRY(borc) : "—"}</td>
+          <td class="num">${alacak ? fmtTRY(alacak) : "—"}</td>
+          ${durumCell}
+          <td>${badgeOf(st[i], i)}</td>
         </tr>`;
       }).join("");
 
@@ -1791,11 +1814,13 @@ async function viewCariHareket(c) {
             <span class="tag warn">${dups} zaten var</span>
             <span class="tag red">${noc} cari yok</span>
             <div class="grow"></div>
+            ${satis ? `<button class="btn btn-sm" id="all-durum">Tümü Açık / Kapalı</button>` : ""}
             ${noc ? `<button class="btn btn-sm" id="add-all-cari">Eksik carileri oluştur</button>` : ""}
           </div>
+          ${satis ? `<div class="notice info" style="margin:0 0 12px">Satış faturasında <b>Açık</b> = yalnızca Borç; <b>Kapalı</b> = aynı tutar Alacağa da yazılır (tahsil edilmiş).</div>` : ""}
           <div class="table-wrap"><table class="data">
             <thead><tr><th>Fatura No</th><th>Fatura Tarihi</th><th>Cari Adı</th><th>VKN/TCKN</th>
-              <th class="num">${amtLabel} (Tutar)</th><th>Cari Hesap</th></tr></thead>
+              <th class="num">Borç</th><th class="num">Alacak</th>${satis ? "<th>Durum</th>" : ""}<th>Cari Hesap</th></tr></thead>
             <tbody>${rowsHtml}</tbody>
           </table></div>
           <div class="toolbar" style="margin-top:14px">
@@ -1804,6 +1829,15 @@ async function viewCariHareket(c) {
           </div>
         </div>`;
 
+      $$("[data-durum]", editor).forEach((sel) => sel.onchange = () => {
+        items[+sel.dataset.durum].durum = sel.value; draw();
+      });
+      const allDurum = $("#all-durum", editor);
+      if (allDurum) allDurum.onclick = () => {
+        const anyOpen = items.some((it) => it.durum === "acik");
+        items.forEach((it) => it.durum = anyOpen ? "kapali" : "acik");
+        draw();
+      };
       $$("[data-addcari]", editor).forEach((b) => b.onclick = () => createCari(items[+b.dataset.addcari]));
       const addAll = $("#add-all-cari", editor);
       if (addAll) addAll.onclick = async () => {
@@ -1847,7 +1881,7 @@ async function viewCariHareket(c) {
           sahis: it.ad || "", vkn: it.vkn || "",
           aciklama: "Fatura",
           borc: kind === "satis" ? it.amount : 0,
-          alacak: kind === "alis" ? it.amount : 0,
+          alacak: kind === "alis" ? it.amount : (it.durum === "kapali" ? it.amount : 0),
           faturaTuru, faturaNo: it.faturaNo || "",
           source: "fatura-import", createdAt: serverTimestamp(), createdBy: currentUser.email,
         });

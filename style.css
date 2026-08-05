@@ -290,11 +290,12 @@ table.data input.num { text-align: right; }
 .acc-row.sub:hover { background: var(--surface-2); }
 .acc-row.sub:last-child { border-bottom: 2px solid var(--warn-bg); }
 .acc-row .chev { width: 14px; flex-shrink: 0; text-align: center; color: var(--gold-dark); font-size: 11px; user-select: none; }
-.acc-row .info { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 9px; }
-.acc-row .info .code { flex-shrink: 0; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--ink); }
-.acc-row.sub .info .code { font-weight: 600; color: var(--ink-soft); font-size: 13px; }
-.acc-row .info .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
-.acc-row.sub .info .name { font-size: 13px; }
+.acc-row .info { flex: 1; min-width: 0; display: flex; align-items: baseline; gap: 8px; }
+/* Kod küçük ve soluk; asıl vurgu hesap adı ve bakiye */
+.acc-row .info .code { flex-shrink: 0; font-weight: 600; font-size: 11.5px; font-variant-numeric: tabular-nums; color: var(--ink-faint); min-width: 30px; }
+.acc-row.sub .info .code { font-size: 11px; }
+.acc-row .info .name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); font-weight: 600; font-size: 15px; }
+.acc-row.sub .info .name { font-size: 13.5px; font-weight: 500; }
 .acc-row .info .name em { color: var(--ink-faint); font-style: normal; font-size: 11px; }
 .acc-row .bal { flex-shrink: 0; min-width: 86px; text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 /* Sağ taraf sabit sütunlar: [＋][✎][›] — her satırda aynı hizada */
@@ -307,6 +308,10 @@ table.data input.num { text-align: right; }
 }
 .acc-row .acts .ic:hover { background: rgba(51,41,28,.08); color: var(--ink); }
 .acc-row .acts .go { color: var(--ink-faint); font-size: 20px; }
+/* Düzenle modu: normalde › görünür, ✎/＋ gizli; modda tam tersi */
+.acc-list .slot.add, .acc-list .slot.edit { display: none; }
+.acc-list.edit-mode .slot.go { display: none; }
+.acc-list.edit-mode .slot.add, .acc-list.edit-mode .slot.edit { display: inline-flex; }
 @media (max-width: 480px) {
   .acc-row { padding: 12px 8px; gap: 6px; }
   .acc-row .bal { min-width: 74px; font-size: 13px; }
