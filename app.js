@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.29";
+} from "./local-backend.js?v=2026.30";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.29";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.30";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,18 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.29";
+const APP_VERSION = "2026.30";
 const CHANGELOG = [
+  { version: "2026.30", date: "2026-08-06", items: [
+    "Gün Sonu Aktarım'a 3. adım eklendi: Cari Kayıtlar",
+    "Bölüm 1 – Cari İşlemler: rapordaki 'Kredili Satışlar' şahıs satırları (düzenlenebilir liste)",
+    "Bölüm 2 – Cari Tahsilatlar: rapordaki 'Tahsilatlar' şahıs satırları (düzenlenebilir liste)",
+    "Bölüm 3 – Blokeye Aktarımlar: kasa 'Gerçekleşen' tutarları 108 bloke hesaplarına Borç yazılır",
+    "Garanti: Kredi Kartı ve Debit Kartı elle; Yurt Dışı otomatik (Gerçekleşen − Kredi − Debit)",
+    "108 bloke hesapları eklendi: Edenred, Multinet, Pluxee, Metropol, Set Kurumsal",
+    "108 hesap defterleri artık Borç/Alacak sütunlarıyla (cari düzen) gösteriliyor",
+    "İşlem/Valör tarihi düzenlenebilir (varsayılan gün sonu +1)",
+  ]},
   { version: "2026.29", date: "2026-08-04", items: [
     "Kasa Kapanış tepe özeti tek sütun, satır satır: Tarih · Brüt Satış · İskonto · İkram · X · Net Satış",
   ]},
@@ -902,10 +912,117 @@ function gsExtractTotals(aoa) {
     ikram: num(find("ikram"), 2),
   };
 }
+// Bir satırdaki tutarı bul: önce tercih edilen sütun, yoksa son dolu sayısal hücre
+const gsRowAmount = (r, prefCol) => {
+  const p = parseNum(r[prefCol]); if (p) return p;
+  for (let c = r.length - 1; c >= 1; c--) { const v = parseNum(r[c]); if (v) return v; }
+  return 0;
+};
+// Bir başlıktan "------" ayracına kadar olan şahıs satırlarını çıkarır.
+//   marker  : başlık anahtar kelimesi (normTr ile eşleşir)
+//   amtCol  : tutarın bulunduğu sütun indeksi (yoksa son dolu sayısal alınır)
+//   skipArrow: "-> Nakit" gibi özet satırlarını atla
+function gsExtractSection(aoa, marker, amtCol, skipArrow) {
+  const idx = aoa.findIndex((r) => normTr(r[0]).includes(marker));
+  const out = [];
+  if (idx < 0) return out;
+  for (let i = idx + 1; i < aoa.length; i++) {
+    const raw = String(aoa[i][0] || "").trim();
+    if (!raw) continue;
+    if (/^[=_-]{3,}/.test(raw)) break;          // ayraç → bölüm bitti
+    if (skipArrow && /^-+>/.test(raw)) continue; // "-> Nakit" özet satırı
+    const sahis = raw.replace(/\s*\([^)]*\)\s*$/, "").trim(); // sondaki (…) etiketi atılır
+    const tutar = gsRowAmount(aoa[i], amtCol);
+    if (!sahis || !tutar) continue;
+    out.push({ sahis, tutar });
+  }
+  return out;
+}
+// Bölüm 1 – Cari İşlemler ("Kredili Satislar Toplami (-)", tutar 3. sütun)
+const gsExtractCariIslem = (aoa) => gsExtractSection(aoa, "kredili satis", 2, false);
+// Bölüm 2 – Cari Tahsilatlar ("Tahsilatlar Toplami (+)", tutar 2. sütun, özet satırları atla)
+const gsExtractCariTahsilat = (aoa) => gsExtractSection(aoa, "tahsilatlar toplami", 1, true);
+
+// Bölüm 3 – Blokeye Aktarım eşleştirmesi (ödeme yöntemi → 108 bloke hesabı)
+const GS_BLOKE_MAP = [
+  { method: "Garanti Bankası", code: "108.01", garanti: true },
+  { method: "T.Finans Banka",  code: "108.02" },
+  { method: "Yemek Sepeti",    code: "108.03" },
+  { method: "Getir Yemek",     code: "108.04" },
+  { method: "Trendyol",        code: "108.05" },
+  { method: "Ticket",          code: "108.06" }, // Edenred
+  { method: "Multinet",        code: "108.07" }, // Multinet
+  { method: "Sodexho",         code: "108.08" }, // Pluxee
+  { method: "Metropol Card",   code: "108.09" }, // Metropol
+  { method: "Set Kurumsal",    code: "108.10" }, // Set Kurumsal
+];
+// Kasa "Gerçekleşen" tutarlarından bloke satırlarını üretir.
+//   Garanti → Kredi Kartı (elle) · Debit Kartı (elle) · Yurt Dışı (otomatik)
+//   Diğerleri → tek satır (Gerçekleşen tutar)
+function gsComputeBlokeRows(state, codeToName) {
+  const bl = state.bloke || {};
+  const gerMap = {};
+  (state.kasa || []).forEach((r) => {
+    gerMap[r.yontem] = (r.gerceklesen === "" || r.gerceklesen == null) ? 0 : parseNum(r.gerceklesen);
+  });
+  const out = [];
+  for (const m of GS_BLOKE_MAP) {
+    const ger = gerMap[m.method] || 0;
+    const name = (codeToName && codeToName[m.code]) || m.method;
+    if (m.garanti) {
+      const kredi = parseNum(bl.garantiKredi), debit = parseNum(bl.garantiDebit);
+      out.push({ code: m.code, name, aciklama: "Kredi Kartı", tip: "kredi", manual: true, borc: kredi, ger });
+      out.push({ code: m.code, name, aciklama: "Debit Kartı", tip: "debit", manual: true, borc: debit, ger });
+      out.push({ code: m.code, name, aciklama: "Yurt Dışı", tip: "yurtdisi", manual: false, borc: ger - kredi - debit, ger });
+    } else {
+      out.push({ code: m.code, name, aciklama: "", tip: "tek", manual: false, borc: ger, ger });
+    }
+  }
+  return out;
+}
+
+// 108 altında yeni eklenen bloke hesapları (yemek kartları)
+const GS_BLOKE_EXTRA = [
+  { code: "108.06", name: "Edenred" },
+  { code: "108.07", name: "Multinet" },
+  { code: "108.08", name: "Pluxee" },
+  { code: "108.09", name: "Metropol" },
+  { code: "108.10", name: "Set Kurumsal" },
+];
+// Eksik 108 bloke alt hesaplarını tamamla (mevcutları korur)
+async function ensureBlokeAccounts() {
+  const accounts = await fetchAll(C.accounts).catch(() => []);
+  const byCode = new Map(accounts.map((a) => [String(a.code), a]));
+  let parent = byCode.get("108");
+  if (!parent) {
+    const ref = await addDoc(C.accounts(), {
+      code: "108", name: "Blokeli Hesaplar", type: "diger",
+      parentId: null, parentCode: null, openingBalance: 0, createdAt: serverTimestamp(),
+    });
+    parent = { id: ref.id, code: "108" }; byCode.set("108", parent);
+  }
+  for (const s of GS_BLOKE_EXTRA) {
+    if (byCode.has(s.code)) continue;
+    const ref = await addDoc(C.accounts(), {
+      code: s.code, name: s.name, type: "diger",
+      parentId: parent.id, parentCode: "108", openingBalance: 0, createdAt: serverTimestamp(),
+    });
+    byCode.set(s.code, { id: ref.id });
+  }
+  return await fetchAll(C.accounts).catch(() => []);
+}
+// Gün sonu tarihinden bir sonraki güne geç (valör için varsayılan)
+function nextDayISO(iso) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso || todayISO();
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
 
 // Çok adımlı Gün Sonu Aktarım durumu (adımlar arası korunur)
 let gsState = null; // { step, date, kasa:[{yontem,sistem,gerceklesen}], recordId? }
-const GS_STEPS = ["Dosya Yükle", "Kasa Kapanış Kontrolü"];
+const GS_STEPS = ["Dosya Yükle", "Kasa Kapanış Kontrolü", "Cari Kayıtlar"];
 
 async function viewGunSonuAktarim(c) {
   if (!gsState) gsState = { step: 0, date: todayISO(), kasa: null };
@@ -924,7 +1041,8 @@ async function viewGunSonuAktarim(c) {
   function render() {
     c.innerHTML = stepper() + `<div id="gs-body"></div>`;
     $$(".step", c).forEach((el) => el.onclick = () => goto(+el.dataset.step));
-    (gsState.step === 0 ? renderUpload : renderKasa)($("#gs-body", c));
+    const renderers = [renderUpload, renderKasa, renderCari];
+    (renderers[gsState.step] || renderUpload)($("#gs-body", c));
   }
 
   function renderUpload(body) {
@@ -942,6 +1060,8 @@ async function viewGunSonuAktarim(c) {
         gsState.brut = t.brut; gsState.iskonto = t.iskonto; gsState.ikram = t.ikram;
         if (gsState.x == null) gsState.x = "";
         gsState.date = gsExtractDate(aoa);
+        gsState.cariIslem = gsExtractCariIslem(aoa);
+        gsState.cariTahsilat = gsExtractCariTahsilat(aoa);
         toast("Rapor okundu.", "ok");
         goto(1);
       } catch (e) { toast("Okunamadı: " + e.message, "err"); }
@@ -1003,7 +1123,7 @@ async function viewGunSonuAktarim(c) {
       <div class="toolbar" style="margin-top:14px">
         <button class="btn" id="gs-back">← Geri</button>
         <div class="grow"></div>
-        <button class="btn btn-primary" id="gs-save">💾 Kaydet</button>
+        <button class="btn btn-primary" id="gs-next2">İleri →</button>
       </div>`;
 
     const recompute = () => {
@@ -1054,12 +1174,146 @@ async function viewGunSonuAktarim(c) {
     xInp.addEventListener("input", recomputeTop);
     xInp.addEventListener("blur", () => { if (xInp.value.trim() !== "") xInp.value = fmtNum(parseNum(xInp.value)); });
 
+    const dInp = $("#gs-date", body);
+    if (dInp) dInp.addEventListener("change", () => { gsState.date = dInp.value || gsState.date; });
+
     $("#gs-back", body).onclick = () => goto(0);
+    $("#gs-next2", body).onclick = () => { if (dInp) gsState.date = dInp.value || gsState.date; goto(2); };
+  }
+
+  // ---- Adım 3: Cari Kayıtlar (Cari İşlemler · Cari Tahsilatlar · Blokeye Aktarımlar) ----
+  async function renderCari(body) {
+    body.innerHTML = `<div class="empty" style="padding:28px"><div class="spinner" style="margin:0 auto"></div></div>`;
+    gsState.cariIslem = gsState.cariIslem || [];
+    gsState.cariTahsilat = gsState.cariTahsilat || [];
+    const bl = gsState.bloke = gsState.bloke || {};
+    if (!bl.tarih) bl.tarih = nextDayISO(gsState.date);
+    if (!bl.valor) bl.valor = nextDayISO(gsState.date);
+    if (bl.garantiKredi == null) bl.garantiKredi = "";
+    if (bl.garantiDebit == null) bl.garantiDebit = "";
+
+    const accounts = await ensureBlokeAccounts();
+    const codeToName = {};
+    accounts.forEach((a) => { if (a.code) codeToName[String(a.code)] = a.name; });
+    const money = (v) => (v === "" || v == null) ? "" : fmtNum(parseNum(v));
+
+    const listCard = (title, hint, key) => {
+      const rows = gsState[key];
+      const tot = rows.reduce((s, r) => s + parseNum(r.tutar), 0);
+      const rowsHtml = rows.map((r, i) => `
+        <div class="cari-row">
+          <input class="ci-sahis" data-key="${key}" data-i="${i}" value="${esc(r.sahis)}" placeholder="Şahıs / Cari" />
+          <div class="money-wrap sm">
+            <input class="num ci-tutar" data-key="${key}" data-i="${i}" inputmode="decimal" value="${esc(money(r.tutar))}" placeholder="0,00" />
+            <span class="cur">₺</span>
+          </div>
+          <button class="btn btn-sm btn-danger ci-del" data-key="${key}" data-i="${i}" title="Sil">✕</button>
+        </div>`).join("");
+      return `<div class="card">
+        <div class="card-head"><h3>${esc(title)}</h3><span class="hint">${esc(hint)}</span></div>
+        <div class="cari-list">${rowsHtml || `<div class="empty" style="padding:14px"><p>Kayıt yok.</p></div>`}</div>
+        <div class="toolbar" style="margin-top:10px">
+          <button class="btn btn-sm" data-add="${key}">+ Satır Ekle</button>
+          <div class="grow"></div>
+          <div style="font-weight:800">Toplam <span data-tot="${key}">${fmtTRY(tot)}</span></div>
+        </div>
+      </div>`;
+    };
+
+    const blokeRowHtml = (r) => `
+      <div class="bloke-row">
+        <div class="bl-main">
+          <div class="bl-name">${esc(r.name)}${r.aciklama ? ` · <span class="bl-tag">${esc(r.aciklama)}</span>` : ""}</div>
+          <div class="bl-sub">${esc(r.code)} · BLOKEYE ALMA</div>
+        </div>
+        <div class="bl-amt">
+          ${r.manual
+            ? `<div class="money-wrap sm"><input class="num bl-input" data-tip="${r.tip}" inputmode="decimal" value="${esc(money(r.tip === "kredi" ? bl.garantiKredi : bl.garantiDebit))}" placeholder="0,00" /><span class="cur">₺</span></div>`
+            : `<b class="bl-val" data-tip="${r.tip}">${fmtTRY(r.borc)}</b>`}
+        </div>
+      </div>`;
+
+    const blokeCard = () => {
+      const rows = gsComputeBlokeRows(gsState, codeToName);
+      const tot = rows.reduce((s, r) => s + parseNum(r.borc), 0);
+      return `<div class="card">
+        <div class="card-head"><h3>Blokeye Aktarımlar</h3><span class="hint">Kasa "Gerçekleşen" tutarları 108 bloke hesaplarına Borç yazılır</span></div>
+        <div class="grid cols-2" style="margin-bottom:12px">
+          <div class="field" style="margin:0"><label>İşlem Tarihi</label><input type="date" id="bl-tarih" value="${esc(bl.tarih)}" /></div>
+          <div class="field" style="margin:0"><label>Valör Tarihi</label><input type="date" id="bl-valor" value="${esc(bl.valor)}" /></div>
+        </div>
+        <div class="bloke-list">${rows.map(blokeRowHtml).join("")}</div>
+        <div class="gs-total"><span>TOPLAM BLOKE</span><span class="tt">Borç <b id="bl-tot">${fmtTRY(tot)}</b></span></div>
+        <div style="font-size:12px;color:var(--ink-faint);margin-top:8px">
+          Garanti için <b>Kredi Kartı</b> ve <b>Debit Kartı</b> tutarlarını elle girin; <b>Yurt Dışı</b> otomatik
+          hesaplanır (Garanti Gerçekleşen − Kredi − Debit).
+        </div>
+      </div>`;
+    };
+
+    body.innerHTML = `
+      ${listCard("Cari İşlemler", "Kredili satışlar → cari borç", "cariIslem")}
+      ${listCard("Cari Tahsilatlar", "Tahsilatlar → cari alacak", "cariTahsilat")}
+      ${blokeCard()}
+      <div class="toolbar" style="margin-top:14px">
+        <button class="btn" id="gs-back2">← Geri</button>
+        <div class="grow"></div>
+        <button class="btn btn-primary" id="gs-save">💾 Kaydet</button>
+      </div>`;
+
+    // Cari liste düzenleme
+    const refreshTot = (key) => {
+      const tot = gsState[key].reduce((s, r) => s + parseNum(r.tutar), 0);
+      const el = $(`[data-tot="${key}"]`, body); if (el) el.textContent = fmtTRY(tot);
+    };
+    $$(".ci-sahis", body).forEach((inp) => inp.addEventListener("input", () => {
+      gsState[inp.dataset.key][+inp.dataset.i].sahis = inp.value;
+    }));
+    $$(".ci-tutar", body).forEach((inp) => {
+      inp.addEventListener("input", () => {
+        gsState[inp.dataset.key][+inp.dataset.i].tutar = parseNum(inp.value);
+        refreshTot(inp.dataset.key);
+      });
+      inp.addEventListener("blur", () => { const n = parseNum(inp.value); inp.value = n ? fmtNum(n) : ""; });
+      inp.addEventListener("focus", () => inp.select());
+    });
+    $$(".ci-del", body).forEach((b) => b.onclick = () => {
+      gsState[b.dataset.key].splice(+b.dataset.i, 1); renderCari(body);
+    });
+    $$("[data-add]", body).forEach((b) => b.onclick = () => {
+      gsState[b.dataset.add].push({ sahis: "", tutar: 0 }); renderCari(body);
+    });
+
+    // Bloke tarih / valör
+    $("#bl-tarih", body).addEventListener("change", (e) => { bl.tarih = e.target.value || bl.tarih; });
+    $("#bl-valor", body).addEventListener("change", (e) => { bl.valor = e.target.value || bl.valor; });
+
+    // Garanti Kredi/Debit → Yurt Dışı + toplam canlı
+    const recomputeBloke = () => {
+      $$(".bl-input", body).forEach((inp) => {
+        const v = inp.value.trim() === "" ? "" : parseNum(inp.value);
+        if (inp.dataset.tip === "kredi") bl.garantiKredi = v; else if (inp.dataset.tip === "debit") bl.garantiDebit = v;
+      });
+      const rows = gsComputeBlokeRows(gsState, codeToName);
+      const yd = rows.find((r) => r.tip === "yurtdisi");
+      const ydEl = $('.bl-val[data-tip="yurtdisi"]', body);
+      if (ydEl && yd) { ydEl.textContent = fmtTRY(yd.borc); ydEl.style.color = yd.borc < 0 ? "var(--danger)" : ""; }
+      const totEl = $("#bl-tot", body);
+      if (totEl) totEl.textContent = fmtTRY(rows.reduce((s, r) => s + parseNum(r.borc), 0));
+    };
+    $$(".bl-input", body).forEach((inp) => {
+      inp.addEventListener("input", recomputeBloke);
+      inp.addEventListener("blur", () => { const n = parseNum(inp.value); inp.value = n ? fmtNum(n) : ""; });
+      inp.addEventListener("focus", () => inp.select());
+    });
+    recomputeBloke();
+
+    $("#gs-back2", body).onclick = () => goto(1);
     $("#gs-save", body).onclick = () => saveGunSonu();
   }
 
   async function saveGunSonu() {
-    const date = $("#gs-date", c)?.value || gsState.date;
+    const date = gsState.date || todayISO();
     gsState.date = date;
     const rows = gsState.kasa.map((r) => ({
       yontem: r.yontem, sistem: parseNum(r.sistem),
@@ -1069,11 +1323,27 @@ async function viewGunSonuAktarim(c) {
     const x = parseNum(gsState.x);
     const ikramNet = parseNum(gsState.ikram) - x;
     const netSatis = parseNum(gsState.brut) - parseNum(gsState.iskonto) - ikramNet;
+
+    // Bölüm 1 & 2 — temizlenmiş cari listeleri
+    const cleanList = (arr) => (arr || [])
+      .map((r) => ({ sahis: String(r.sahis || "").trim(), tutar: parseNum(r.tutar) }))
+      .filter((r) => r.sahis || r.tutar);
+    const cariIslem = cleanList(gsState.cariIslem);
+    const cariTahsilat = cleanList(gsState.cariTahsilat);
+    const bl = gsState.bloke || {};
+    const blokePayload = {
+      tarih: bl.tarih || nextDayISO(date), valor: bl.valor || nextDayISO(date),
+      garantiKredi: parseNum(bl.garantiKredi), garantiDebit: parseNum(bl.garantiDebit),
+    };
+
     const payload = {
       type: "gunsonu", date, kasa: rows,
       brut: parseNum(gsState.brut), iskonto: parseNum(gsState.iskonto),
       ikram: parseNum(gsState.ikram), x: gsState.x === "" || gsState.x == null ? "" : x,
       ikramNet, netSatis,
+      cariIslem, cariTahsilat, bloke: blokePayload,
+      cariIslemTotal: cariIslem.reduce((s, r) => s + r.tutar, 0),
+      cariTahsilatTotal: cariTahsilat.reduce((s, r) => s + r.tutar, 0),
       total: rows.reduce((s, r) => s + parseNum(r.sistem), 0),
       rowCount: rows.length, status: "aktarildi",
       updatedAt: serverTimestamp(), updatedBy: currentUser.email,
@@ -1087,11 +1357,49 @@ async function viewGunSonuAktarim(c) {
         if (same) { await updateDoc(doc(db, "dayEndRecords", same.id), payload); editing = true; }
         else await addDoc(C.dayEndRecords(), { ...payload, notes: [], createdAt: serverTimestamp(), createdBy: currentUser.email });
       }
+      // Bölüm 3 — bloke hesaplarına tek taraflı (Borç) hareket yaz (idempotent)
+      await postBlokeEntries(date, blokePayload);
       await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
       toast("Gün sonu kaydedildi.", "ok");
       gsState = null;
       location.hash = "#/gunsonu-kayitlar";
     } catch (e) { toast("Kaydedilemedi: " + e.message, "err"); }
+  }
+
+  // Bloke satırlarını 108 hesap defterlerine yazar; aynı güne ait öncekileri siler.
+  async function postBlokeEntries(date, blokePayload) {
+    const accounts = await ensureBlokeAccounts();
+    const codeToId = {}, codeToName = {};
+    accounts.forEach((a) => { if (a.code) { codeToId[String(a.code)] = a.id; codeToName[String(a.code)] = a.name; } });
+
+    const existing = await fetchAll(C.accountEntries).catch(() => []);
+    const isStale = (e) => e.source === "gunsonu-bloke" && e.gunSonuKey === date;
+    for (const e of existing.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
+    const remaining = existing.filter((e) => !isStale(e));
+
+    const blokeRows = gsComputeBlokeRows(gsState, codeToName).filter((r) => parseNum(r.borc));
+    let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+    const cnoMap = new Map();
+    const docs = blokeRows.map((r) => {
+      const accId = codeToId[r.code];
+      if (!accId) return null;
+      if (!cnoMap.has(accId))
+        cnoMap.set(accId, remaining.filter((e) => e.accountId === accId).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
+      const cno = cnoMap.get(accId) + 1; cnoMap.set(accId, cno);
+      gno++;
+      return {
+        accountId: accId, accountCode: r.code,
+        islemNo: gno, cariNo: cno,
+        date: blokePayload.tarih, valor: blokePayload.valor,
+        islemAdi: "BLOKEYE ALMA", sahis: r.name,
+        aciklama: r.aciklama || "", rapor: "",
+        borc: parseNum(r.borc), alacak: 0,
+        faturaTuru: "", faturaNo: fmtDate(blokePayload.valor),
+        source: "gunsonu-bloke", gunSonuKey: date,
+        createdAt: serverTimestamp(), createdBy: currentUser.email,
+      };
+    }).filter(Boolean);
+    if (docs.length) await batchAdd(C.accountEntries, docs);
   }
 
   render();
@@ -1131,6 +1439,9 @@ async function viewGunSonuKayitlar(c) {
       kasa: (rec.kasa || []).map((r) => ({ ...r })),
       brut: rec.brut || 0, iskonto: rec.iskonto || 0, ikram: rec.ikram || 0,
       x: rec.x == null ? "" : rec.x,
+      cariIslem: (rec.cariIslem || []).map((r) => ({ ...r })),
+      cariTahsilat: (rec.cariTahsilat || []).map((r) => ({ ...r })),
+      bloke: rec.bloke ? { ...rec.bloke } : null,
       recordId: rec.id,
     };
     location.hash = "#/gunsonu-aktarim";
@@ -1323,6 +1634,11 @@ const DEFAULT_CHART = [
     { code: "108.03", name: "Yemek Sepeti" },
     { code: "108.04", name: "Getir Yemek" },
     { code: "108.05", name: "Trendyol" },
+    { code: "108.06", name: "Edenred" },
+    { code: "108.07", name: "Multinet" },
+    { code: "108.08", name: "Pluxee" },
+    { code: "108.09", name: "Metropol" },
+    { code: "108.10", name: "Set Kurumsal" },
   ]},
   { code: "120", name: "Alıcı Hesaplar (Müşteriler)", type: "musteri" },
   { code: "320", name: "Tedarikçiler", type: "tedarikci" },
@@ -1648,7 +1964,7 @@ async function viewAccountLedger(c) {
     c.innerHTML = `<div class="notice warn">Hesap bulunamadı. <a href="#/hesaplar">← Hesaplara dön</a></div>`;
     return;
   }
-  const cari = isCari(acc.type);
+  const cari = isCari(acc.type) || String(acc.code || "").startsWith("108");
   const list = entries.filter((e) => e.accountId === id)
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.islemNo || 0) - (b.islemNo || 0));
   const opening = acc.openingBalance ?? acc.balance ?? 0;
