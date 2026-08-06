@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.28";
+} from "./local-backend.js?v=2026.29";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.28";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.29";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.28";
+const APP_VERSION = "2026.29";
 const CHANGELOG = [
+  { version: "2026.29", date: "2026-08-04", items: [
+    "Kasa Kapanış tepe özeti tek sütun, satır satır: Tarih · Brüt Satış · İskonto · İkram · X · Net Satış",
+  ]},
   { version: "2026.28", date: "2026-08-04", items: [
     "Kasa Kapanış: tepede Brüt Satış · İskonto · İkram · X · Net Satış (rapordan, salt-okunur)",
     "X ödeme yöntemlerinden çıkarıldı; X yazınca İkram'dan otomatik düşer, Net Satış güncellenir",
@@ -980,16 +983,13 @@ async function viewGunSonuAktarim(c) {
 
     body.innerHTML = `
       <div class="card">
-        <div class="field" style="max-width:240px;margin:0 0 16px">
-          <label>Gün Sonu Tarihi</label>
-          <input type="date" id="gs-date" value="${esc(gsState.date)}" />
-        </div>
         <div class="gs-summary">
-          <div class="cell"><span class="lab">Brüt Satış</span><span class="val">${fmtNum(brut)} ₺</span></div>
-          <div class="cell"><span class="lab">İskonto</span><span class="val">${fmtNum(iskonto)} ₺</span></div>
-          <div class="cell"><span class="lab">İkram</span><span class="val" id="gs-ikram">${fmtNum(ikramNet0)} ₺</span></div>
-          <div class="cell"><span class="lab">X (İkram'dan düşülür)</span><input id="gs-x" inputmode="decimal" value="${gsState.x === "" || gsState.x == null ? "" : fmtNum(xInit)}" placeholder="0,00" /></div>
-          <div class="cell net"><span class="lab">Net Satış</span><span class="val" id="gs-net">${fmtNum(netSatis0)} ₺</span></div>
+          <div class="row"><span class="lab">Gün Sonu Tarihi</span><input type="date" id="gs-date" value="${esc(gsState.date)}" /></div>
+          <div class="row"><span class="lab">Brüt Satış</span><span class="val">${fmtNum(brut)} ₺</span></div>
+          <div class="row"><span class="lab">İskonto</span><span class="val">${fmtNum(iskonto)} ₺</span></div>
+          <div class="row"><span class="lab">İkram</span><span class="val" id="gs-ikram">${fmtNum(ikramNet0)} ₺</span></div>
+          <div class="row"><span class="lab">X <small>(İkram'dan düşülür)</small></span><input id="gs-x" inputmode="decimal" value="${gsState.x === "" || gsState.x == null ? "" : fmtNum(xInit)}" placeholder="0,00" /></div>
+          <div class="row net"><span class="lab">Net Satış</span><span class="val" id="gs-net">${fmtNum(netSatis0)} ₺</span></div>
         </div>
         <div class="card-head"><h3>Kasa Kapanış Kontrolü</h3><span class="hint">Gerçekleşen (sayım) tutarlarını girin</span></div>
         ${GS_GROUPS.map(groupHtml).join("")}

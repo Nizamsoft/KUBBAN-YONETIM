@@ -345,15 +345,18 @@ table.data input.num { text-align: right; }
 .gs-cells input { width: 100%; height: 40px; padding: 0 10px; text-align: right; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 16px; font-variant-numeric: tabular-nums; }
 .gs-cells input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(166,123,46,.15); }
 
-/* Tepe özet: Brüt Satış / İskonto / İkram / X / Net Satış */
-.gs-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 18px; }
-.gs-summary .cell { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; }
-.gs-summary .cell.net { background: var(--warn-bg); border-color: #eddcb4; }
-.gs-summary .lab { font-size: 10.5px; text-transform: uppercase; letter-spacing: .3px; color: var(--ink-faint); }
-.gs-summary .val { font-weight: 700; font-size: 15px; font-variant-numeric: tabular-nums; }
-.gs-summary .cell.net .val { color: var(--gold-dark); }
-.gs-summary input { width: 100%; padding: 7px 8px; text-align: right; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 16px; background: #fff; }
+/* Tepe özet: tek sütun, satır satır (Tarih → Net Satış) */
+.gs-summary { display: flex; flex-direction: column; margin-bottom: 18px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.gs-summary .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 11px 14px; border-top: 1px solid var(--line); }
+.gs-summary .row:first-child { border-top: none; }
+.gs-summary .lab { color: var(--ink-soft); font-size: 13px; font-weight: 600; }
+.gs-summary .lab small { color: var(--ink-faint); font-weight: 500; font-size: 11px; }
+.gs-summary .val { font-weight: 700; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gs-summary input { width: 160px; max-width: 50%; text-align: right; padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 16px; font-variant-numeric: tabular-nums; }
 .gs-summary input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(166,123,46,.15); }
+.gs-summary .row.net { background: var(--warn-bg); border-top: 2px solid var(--gold-light); }
+.gs-summary .row.net .lab { color: var(--gold-dark); font-weight: 700; }
+.gs-summary .row.net .val { color: var(--gold-dark); font-size: 16px; }
 .gs-total { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 6px; padding: 12px 14px; border-radius: 12px; background: var(--sidebar); color: var(--on-dark); font-weight: 700; }
 .gs-total .tt { font-size: 13px; font-weight: 600; color: #cbb78e; }
 .gs-total .tt b { color: #fff; margin-left: 4px; }
