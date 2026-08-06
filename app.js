@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.27";
+} from "./local-backend.js?v=2026.28";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.27";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.28";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.27";
+const APP_VERSION = "2026.28";
 const CHANGELOG = [
+  { version: "2026.28", date: "2026-08-04", items: [
+    "Kasa Kapanış: tepede Brüt Satış · İskonto · İkram · X · Net Satış (rapordan, salt-okunur)",
+    "X ödeme yöntemlerinden çıkarıldı; X yazınca İkram'dan otomatik düşer, Net Satış güncellenir",
+    "3 sütun (Sistem/Gerçekleşen/Fark) aynı hizada gösteriliyor",
+    "Türkçe I/İ eşleştirme hatası düzeltildi (İskonto/İkram doğru okunuyor)",
+  ]},
   { version: "2026.27", date: "2026-08-04", items: [
     "Kasa Kapanış Kontrolü mobil-dostu, gruplu düzene geçti (tablo taşması giderildi)",
     "Gruplar: Banka ve Nakit · Yemek Platformları · Yemek Kartları (grup + genel toplam/fark)",
@@ -815,7 +821,6 @@ function monthlyEquivalent(item) {
 // ===========================================================================
 // ---- Kasa Sayımları: sabit ödeme yöntemleri (istenen sıra) ----
 const GS_PAY_METHODS = [
-  { key: "X",                  alias: ["x"] },
   { key: "Nakit",              alias: ["nakit"] },
   { key: "Garanti Bankası",    alias: ["garanti bbva", "garanti banka", "garanti bankası"] },
   { key: "Garanti Sanal",      alias: ["sanal pos", "garanti sanal"] },
@@ -834,17 +839,22 @@ const GS_PAY_METHODS = [
 ];
 // Ödeme yöntemi grupları (sıra korunur)
 const GS_GROUPS = [
-  { name: "Banka ve Nakit", methods: ["X", "Nakit", "Garanti Bankası", "Garanti Sanal", "T.Finans Banka", "T.Finans Qr", "Havale"] },
+  { name: "Banka ve Nakit", methods: ["Nakit", "Garanti Bankası", "Garanti Sanal", "T.Finans Banka", "T.Finans Qr", "Havale"] },
   { name: "Yemek Platformları", methods: ["Yemek Sepeti", "Getir Yemek", "Trendyol", "Trendyol E-Ticaret"] },
   { name: "Yemek Kartları", methods: ["Metropol Card", "Ticket", "Multinet", "Sodexho", "Set Kurumsal"] },
 ];
-const normTr = (s) => String(s || "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim();
+// Türkçe karakterleri ASCII'ye katlayarak normalize (I/İ/ı → i vb.) — eşleştirme için
+const normTr = (s) => String(s || "")
+  .replace(/[İIı]/g, "i").replace(/[Şş]/g, "s").replace(/[Çç]/g, "c")
+  .replace(/[Ğğ]/g, "g").replace(/[Öö]/g, "o").replace(/[Üü]/g, "u")
+  .toLowerCase().replace(/\s+/g, " ").trim();
 function gsMatchMethod(label) {
   const lab = normTr(label);
   let best = null, bestLen = 0;
   for (const m of GS_PAY_METHODS) for (const al of m.alias) {
-    const hit = al.length <= 1 ? lab === al : (lab === al || lab.includes(al));
-    if (hit && al.length > bestLen) { best = m.key; bestLen = al.length; }
+    const a = normTr(al);
+    const hit = a.length <= 1 ? lab === a : (lab === a || lab.includes(a));
+    if (hit && a.length > bestLen) { best = m.key; bestLen = a.length; }
   }
   return best;
 }
@@ -873,6 +883,21 @@ function gsExtractKasa(aoa) {
     if (key) values[key] = (values[key] || 0) + parseNum(aoa[i][1]);
   }
   return GS_PAY_METHODS.map((m) => ({ yontem: m.key, sistem: values[m.key] || 0, gerceklesen: "" }));
+}
+// Raporun tepesindeki özet: Brüt Satış, İskonto, İkram
+function gsExtractTotals(aoa) {
+  const find = (kw) => aoa.find((r) => normTr(r[0]).includes(kw));
+  const num = (r, prefCol) => {
+    if (!r) return 0;
+    if (prefCol != null && parseNum(r[prefCol])) return parseNum(r[prefCol]);
+    for (let c = r.length - 1; c >= 1; c--) { const v = parseNum(r[c]); if (v) return v; }
+    return 0;
+  };
+  return {
+    brut: num(find("brut satis"), 3),
+    iskonto: num(find("iskonto"), 2),
+    ikram: num(find("ikram"), 2),
+  };
 }
 
 // Çok adımlı Gün Sonu Aktarım durumu (adımlar arası korunur)
@@ -910,8 +935,11 @@ async function viewGunSonuAktarim(c) {
       try {
         const aoa = await parseSheetAOA(file);
         gsState.kasa = gsExtractKasa(aoa);
+        const t = gsExtractTotals(aoa);
+        gsState.brut = t.brut; gsState.iskonto = t.iskonto; gsState.ikram = t.ikram;
+        if (gsState.x == null) gsState.x = "";
         gsState.date = gsExtractDate(aoa);
-        toast("Kasa sayımları okundu.", "ok");
+        toast("Rapor okundu.", "ok");
         goto(1);
       } catch (e) { toast("Okunamadı: " + e.message, "err"); }
     }, ".xlsx,.xls,.csv", true));
@@ -945,12 +973,23 @@ async function viewGunSonuAktarim(c) {
       </div>`;
     };
     const totSistem = rows.reduce((s, r) => s + parseNum(r.sistem), 0);
+    const brut = parseNum(gsState.brut), iskonto = parseNum(gsState.iskonto), ikramRep = parseNum(gsState.ikram);
+    const xInit = parseNum(gsState.x);
+    const ikramNet0 = ikramRep - xInit;
+    const netSatis0 = brut - iskonto - ikramNet0;
 
     body.innerHTML = `
       <div class="card">
         <div class="field" style="max-width:240px;margin:0 0 16px">
           <label>Gün Sonu Tarihi</label>
           <input type="date" id="gs-date" value="${esc(gsState.date)}" />
+        </div>
+        <div class="gs-summary">
+          <div class="cell"><span class="lab">Brüt Satış</span><span class="val">${fmtNum(brut)} ₺</span></div>
+          <div class="cell"><span class="lab">İskonto</span><span class="val">${fmtNum(iskonto)} ₺</span></div>
+          <div class="cell"><span class="lab">İkram</span><span class="val" id="gs-ikram">${fmtNum(ikramNet0)} ₺</span></div>
+          <div class="cell"><span class="lab">X (İkram'dan düşülür)</span><input id="gs-x" inputmode="decimal" value="${gsState.x === "" || gsState.x == null ? "" : fmtNum(xInit)}" placeholder="0,00" /></div>
+          <div class="cell net"><span class="lab">Net Satış</span><span class="val" id="gs-net">${fmtNum(netSatis0)} ₺</span></div>
         </div>
         <div class="card-head"><h3>Kasa Kapanış Kontrolü</h3><span class="hint">Gerçekleşen (sayım) tutarlarını girin</span></div>
         ${GS_GROUPS.map(groupHtml).join("")}
@@ -1000,6 +1039,21 @@ async function viewGunSonuAktarim(c) {
       if (inp.value.trim() !== "") inp.value = fmtNum(parseNum(inp.value));
     }));
     recompute();
+
+    // Tepe: X → İkram (canlı düşer) ve Net Satış
+    const xInp = $("#gs-x", body);
+    const recomputeTop = () => {
+      const v = xInp.value.trim();
+      gsState.x = v === "" ? "" : parseNum(v);
+      const x = parseNum(gsState.x);
+      const ikramNet = ikramRep - x;
+      const netSatis = brut - iskonto - ikramNet;
+      $("#gs-ikram", body).textContent = fmtNum(ikramNet) + " ₺";
+      $("#gs-net", body).textContent = fmtNum(netSatis) + " ₺";
+    };
+    xInp.addEventListener("input", recomputeTop);
+    xInp.addEventListener("blur", () => { if (xInp.value.trim() !== "") xInp.value = fmtNum(parseNum(xInp.value)); });
+
     $("#gs-back", body).onclick = () => goto(0);
     $("#gs-save", body).onclick = () => saveGunSonu();
   }
@@ -1012,8 +1066,14 @@ async function viewGunSonuAktarim(c) {
       gerceklesen: r.gerceklesen === "" || r.gerceklesen == null ? "" : parseNum(r.gerceklesen),
       fark: r.gerceklesen === "" || r.gerceklesen == null ? "" : parseNum(r.gerceklesen) - parseNum(r.sistem),
     }));
+    const x = parseNum(gsState.x);
+    const ikramNet = parseNum(gsState.ikram) - x;
+    const netSatis = parseNum(gsState.brut) - parseNum(gsState.iskonto) - ikramNet;
     const payload = {
       type: "gunsonu", date, kasa: rows,
+      brut: parseNum(gsState.brut), iskonto: parseNum(gsState.iskonto),
+      ikram: parseNum(gsState.ikram), x: gsState.x === "" || gsState.x == null ? "" : x,
+      ikramNet, netSatis,
       total: rows.reduce((s, r) => s + parseNum(r.sistem), 0),
       rowCount: rows.length, status: "aktarildi",
       updatedAt: serverTimestamp(), updatedBy: currentUser.email,
@@ -1066,7 +1126,13 @@ async function viewGunSonuKayitlar(c) {
 
   const byId = (id) => records.find((r) => r.id === id);
   const openGunSonu = (rec) => {
-    gsState = { step: 1, date: rec.date || todayISO(), kasa: (rec.kasa || []).map((r) => ({ ...r })), recordId: rec.id };
+    gsState = {
+      step: 1, date: rec.date || todayISO(),
+      kasa: (rec.kasa || []).map((r) => ({ ...r })),
+      brut: rec.brut || 0, iskonto: rec.iskonto || 0, ikram: rec.ikram || 0,
+      x: rec.x == null ? "" : rec.x,
+      recordId: rec.id,
+    };
     location.hash = "#/gunsonu-aktarim";
   };
   $$("[data-view]", c).forEach((b) => b.onclick = () => {
