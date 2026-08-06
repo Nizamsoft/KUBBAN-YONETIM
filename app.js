@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.30";
+} from "./local-backend.js?v=2026.31";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.30";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.31";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.30";
+const APP_VERSION = "2026.31";
 const CHANGELOG = [
+  { version: "2026.31", date: "2026-08-06", items: [
+    "Hesaplar ekranı yenilendi: altın 'Genel Toplam' banner'ı ve dekoratif düzen",
+    "Her hesaba türüne/markasına göre emoji rozeti (💵 Kasa · 🏦 Banka · 🔒 Bloke · 👥 Alıcı · 🚚 Tedarikçi · 🍽️🛵🛒 platformlar)",
+  ]},
   { version: "2026.30", date: "2026-08-06", items: [
     "Gün Sonu Aktarım'a 3. adım eklendi: Cari Kayıtlar",
     "Bölüm 1 – Cari İşlemler: rapordaki 'Kredili Satışlar' şahıs satırları (düzenlenebilir liste)",
@@ -1591,6 +1595,35 @@ const ACCOUNT_TYPES = [
 ];
 const accTypeLabel = (v) => (ACCOUNT_TYPES.find((t) => t.value === v)?.label || v || "—");
 
+// Hesap için dekoratif emoji (marka → kod → tür sırasıyla)
+function accEmoji(a) {
+  const code = String(a.code || "");
+  const name = normTr(a.name || "");
+  if (name.includes("yemek sepeti")) return "🍽️";
+  if (name.includes("getir")) return "🛵";
+  if (name.includes("trendyol")) return "🛒";
+  if (name.includes("garanti")) return "🟢";
+  if (name.includes("finans")) return "🔵";
+  if (name.includes("ziraat")) return "🌾";
+  if (name.includes("edenred") || name.includes("ticket")) return "🎟️";
+  if (name.includes("multinet")) return "💠";
+  if (name.includes("pluxee") || name.includes("sodex")) return "🍔";
+  if (name.includes("metropol")) return "🏙️";
+  if (name.includes("set kurumsal")) return "🏢";
+  if (code.startsWith("100")) return "💵";
+  if (code.startsWith("102")) return "🏦";
+  if (code.startsWith("108")) return "🔒";
+  if (code.startsWith("120")) return "👥";
+  if (code.startsWith("320")) return "🚚";
+  const t = a.type;
+  if (t === "kasa") return "💵";
+  if (t === "banka") return "🏦";
+  if (t === "musteri") return "👥";
+  if (t === "tedarikci") return "🚚";
+  if (t === "gider") return "🧾";
+  return "📁";
+}
+
 // Hesap bakiyelerini hareketlerden OTOMATİK hesapla:
 //   güncel = açılış bakiyesi + hesap hareketleri + cari + banka
 //   · hesap hareketleri (accountEntries): giren − çıkan, accountId'ye göre
@@ -1732,6 +1765,7 @@ async function viewHesaplar(c) {
     const cls = sub ? "sub" : (parent ? "parent" : "leaf");
     return `<div class="acc-row ${cls}" data-id="${a.id}"${sub ? ` data-parent="${a.parentId}" style="display:none"` : ""}>
       <span class="chev">${parent ? "▸" : ""}</span>
+      <span class="acc-ico">${accEmoji(a)}</span>
       <div class="info">
         <span class="code">${esc(a.code || "—")}</span>
         <span class="name">${esc(a.name || "")}${parent ? ` <em>(${childCount(a)} alt)</em>` : ""}</span>
@@ -1747,17 +1781,26 @@ async function viewHesaplar(c) {
   const renderMain = (a) =>
     rowHtml(a, false) + (kids.get(a.id) || []).map((s) => rowHtml(s, true)).join("");
 
+  const subCount = accounts.length - roots.length;
   c.innerHTML = `
-    <div class="notice info" style="margin-bottom:16px">ℹ️ <b>Ana hesap → alt hesap</b> yapısı. Ana hesabın bakiyesi, alt hesaplarının toplamıdır. Hesaba dokununca hareketleri açılır.</div>
+    <div class="acc-hero">
+      <div class="acc-hero-ico">💼</div>
+      <div class="acc-hero-main">
+        <div class="acc-hero-label">Genel Toplam</div>
+        <div class="acc-hero-total" style="${grand < 0 ? "color:#ffd9d0" : ""}">${fmtTRY(grand)}</div>
+        <div class="acc-hero-sub">🗂️ ${roots.length} ana hesap · 🧾 ${accounts.length} hesap${subCount ? ` · 🔖 ${subCount} alt` : ""}</div>
+      </div>
+    </div>
+    <div class="notice info acc-note">ℹ️ <b>Ana hesap → alt hesap</b> yapısı. Ana hesabın bakiyesi alt hesaplarının toplamıdır. 👆 Hesaba dokununca hareketleri açılır.</div>
     <div class="toolbar">
       <div class="grow"></div>
-      <button class="btn btn-sm" id="toggle-all">Tümünü Aç / Kapat</button>
+      <button class="btn btn-sm" id="toggle-all">🔽 Tümünü Aç / Kapat</button>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
-      <button class="btn btn-sm" id="acc-add" style="display:none">+ Yeni Hesap</button>
+      <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
       <button class="btn btn-primary btn-sm" id="edit-toggle">✏️ Hesapları Düzenle</button>
     </div>
     <div class="card" style="padding:0;overflow:hidden">
-      <div class="card-head" style="padding:16px 16px 12px"><h3>Hesap Planı</h3><span class="hint">${roots.length} ana hesap · Genel Toplam ${fmtTRY(grand)}</span></div>
+      <div class="acc-plan-head"><span class="ttl">📋 Hesap Planı</span><span class="hint">${roots.length} ana hesap</span></div>
       <div class="acc-list">${roots.map(renderMain).join("")}</div>
     </div>`;
 

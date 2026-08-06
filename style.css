@@ -272,6 +272,50 @@ table.data input.num { text-align: right; }
 .row-del { color: var(--danger); cursor: pointer; border: none; background: none; font-size: 15px; padding: 2px 6px; }
 
 /* Hesap planı — liste görünümü (mobil + masaüstü uyumlu) */
+/* Hesaplar — dekoratif üst başlık (altın banner) */
+.acc-hero {
+  display: flex; align-items: center; gap: 16px;
+  padding: 20px 22px; border-radius: var(--radius); margin-bottom: 14px;
+  background: linear-gradient(135deg, var(--gold-dark), var(--gold) 58%, var(--gold-light));
+  color: #fff; box-shadow: 0 10px 24px rgba(122, 90, 32, .28);
+  position: relative; overflow: hidden;
+}
+.acc-hero::after {
+  content: ""; position: absolute; right: -34px; top: -34px; width: 150px; height: 150px;
+  border-radius: 50%; background: rgba(255, 255, 255, .12);
+}
+.acc-hero::before {
+  content: ""; position: absolute; right: 40px; bottom: -50px; width: 90px; height: 90px;
+  border-radius: 50%; background: rgba(255, 255, 255, .08);
+}
+.acc-hero-ico {
+  flex: 0 0 auto; width: 56px; height: 56px; border-radius: 16px;
+  display: flex; align-items: center; justify-content: center; font-size: 30px;
+  background: rgba(255, 255, 255, .2); position: relative; z-index: 1;
+}
+.acc-hero-main { position: relative; z-index: 1; min-width: 0; }
+.acc-hero-label { font-size: 11.5px; letter-spacing: 1.6px; text-transform: uppercase; opacity: .88; font-weight: 700; }
+.acc-hero-total { font-size: 30px; font-weight: 800; line-height: 1.08; margin: 3px 0 5px; font-variant-numeric: tabular-nums; }
+.acc-hero-sub { font-size: 12.5px; opacity: .92; font-weight: 600; }
+.acc-note { margin-bottom: 14px; }
+
+/* Hesap planı kart başlığı */
+.acc-plan-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 16px 16px 12px; border-bottom: 1px solid var(--line);
+}
+.acc-plan-head .ttl { font-weight: 800; font-size: 16px; color: var(--gold-dark); }
+.acc-plan-head .hint { font-size: 12px; color: var(--ink-faint); }
+
+/* Satır emoji rozeti */
+.acc-row .acc-ico {
+  flex: 0 0 auto; width: 34px; height: 34px; border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; font-size: 18px;
+  background: var(--surface-2); border: 1px solid var(--line);
+}
+.acc-row.sub .acc-ico { width: 28px; height: 28px; font-size: 15px; border-radius: 8px; }
+.acc-row.parent[data-open="1"] .acc-ico { background: #fff; border-color: var(--gold-light); }
+
 .acc-list { display: flex; flex-direction: column; }
 .acc-row {
   display: flex; align-items: center; gap: 10px;
@@ -316,6 +360,11 @@ table.data input.num { text-align: right; }
   .acc-row { padding: 12px 8px; gap: 6px; }
   .acc-row .bal { min-width: 74px; font-size: 13px; }
   .acc-row .acts .slot { width: 30px; }
+  .acc-hero { padding: 16px; gap: 13px; }
+  .acc-hero-ico { width: 48px; height: 48px; font-size: 26px; border-radius: 14px; }
+  .acc-hero-total { font-size: 25px; }
+  .acc-row .acc-ico { width: 30px; height: 30px; font-size: 16px; }
+  .acc-row.sub .acc-ico { width: 26px; height: 26px; font-size: 14px; }
 }
 
 /* Adım göstergesi (stepper) */
