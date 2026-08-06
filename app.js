@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.25";
+} from "./local-backend.js?v=2026.26";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.25";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.26";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,15 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.25";
+const APP_VERSION = "2026.26";
 const CHANGELOG = [
+  { version: "2026.26", date: "2026-08-04", items: [
+    "Gün Sonu Aktarım çok adımlı yapıldı: tepede ilerleme çubuğu, geri/ileri",
+    "Adım 1 – Kasa Kapanış Kontrolü: rapordaki Kasa Sayımları tablosu alınır",
+    "Sabit ödeme yöntemleri (X, Nakit, Garanti, Sanal, T.Finans, QR, Havale, Yemek Sepeti, Getir, Trendyol(+E-Ticaret), kart'lar) — rapor içermese de satır durur",
+    "Sütunlar: Ödeme Yöntemi · Sisteme Girilen (rapordan) · Gerçekleşen (elle) · Fark; en başta tarih",
+    "Kayıt Gün Sonu Kayıtları'na yazılır ve oradan yeniden düzenlenebilir",
+  ]},
   { version: "2026.25", date: "2026-08-04", items: [
     "108 Blokeli Hesaplar altına 5 sabit alt hesap eklendi (Garanti/Türkiye Finans bloke, Yemek Sepeti, Getir Yemek, Trendyol)",
     "Hesapları Düzenle modunda 'Varsayılanları Tamamla': eksik varsayılan hesapları veri kaybı olmadan ekler",
@@ -802,115 +809,194 @@ function monthlyEquivalent(item) {
 //  MODÜL: GÜN SONU — AKTARIM EKRANI
 //  Satış programından indirilen Excel'i içe aktar, düzenle, kayıt olarak gönder.
 // ===========================================================================
-let gsStaging = null; // { date, rows, headers }
-async function viewGunSonuAktarim(c) {
-  c.innerHTML = `
-    <div class="notice info">📥 Satış programından indirdiğiniz <b>Excel</b> dosyasını yükleyin.
-      Satırlar aşağıda düzenlenebilir tablo olarak açılır; kontrol edip <b>Gün Sonu Kaydı</b> olarak aktarın.</div>
-    <div class="card" id="gs-drop-card">
-      <div class="card-head"><h3>1) Dosya Yükle</h3></div>
-      <div id="gs-drop"></div>
-    </div>
-    <div id="gs-editor"></div>`;
-
-  $("#gs-drop").appendChild(fileDrop(async (file) => {
-    try {
-      const { headers, rows } = await parseSpreadsheet(file);
-      if (!rows.length) return toast("Dosyada veri bulunamadı.", "err");
-      gsStaging = { headers, rows, date: todayISO() };
-      renderGsEditor(headers, rows);
-      toast(`${rows.length} satır okundu.`, "ok");
-    } catch (e) { toast("Dosya okunamadı: " + e.message, "err"); }
-  }));
-
-  function renderGsEditor(headers, rows) {
-    const columns = headers.map((h) => ({
-      key: h, label: h,
-      type: /tutar|ciro|toplam|fiyat|adet|miktar|kdv|nakit|kredi|kart/i.test(h) ? "num" : "text",
-    }));
-    const et = editableTable(columns, rows);
-    const editor = $("#gs-editor");
-    editor.innerHTML = `
-      <div class="card">
-        <div class="card-head"><h3>2) Kontrol & Düzenle</h3><span class="hint">${rows.length} satır</span></div>
-        <div class="toolbar">
-          <div class="field" style="margin:0">
-            <label>Gün Sonu Tarihi</label>
-            <input type="date" id="gs-date" value="${todayISO()}" />
-          </div>
-          <div class="field" style="margin:0">
-            <label>Toplanacak Tutar Sütunu</label>
-            <select id="gs-total-col">
-              <option value="">(otomatik)</option>
-              ${headers.map((h) => `<option value="${esc(h)}">${esc(h)}</option>`).join("")}
-            </select>
-          </div>
-          <div class="grow"></div>
-          <button class="btn btn-sm" id="gs-add">+ Satır Ekle</button>
-        </div>
-      </div>`;
-    const tableCard = document.createElement("div");
-    tableCard.className = "card";
-    tableCard.appendChild(et.root);
-    const foot = document.createElement("div");
-    foot.className = "toolbar";
-    foot.style.marginTop = "14px";
-    const totalLbl = document.createElement("div");
-    totalLbl.className = "grow";
-    totalLbl.style.fontWeight = "700";
-    foot.appendChild(totalLbl);
-    const saveBtn = mkBtn("✔ Gün Sonu Kaydı Olarak Aktar", "btn-primary");
-    foot.appendChild(saveBtn);
-    tableCard.appendChild(foot);
-    editor.appendChild(tableCard);
-
-    const totalColGuess = guessCol(headers, ["toplam", "ciro", "tutar", "genel"]);
-    if (totalColGuess) $("#gs-total-col").value = totalColGuess;
-
-    function computeTotal() {
-      const col = $("#gs-total-col").value ||
-        guessCol(headers, ["toplam", "ciro", "tutar", "genel"]) ||
-        headers.find((h) => /tutar|ciro|toplam/i.test(h));
-      const data = et.getData();
-      const total = col ? data.reduce((s, r) => s + parseNum(r[col]), 0) : 0;
-      totalLbl.textContent = "Toplam: " + fmtTRY(total);
-      return { total, data, col };
-    }
-    computeTotal();
-    editor.addEventListener("input", rafThrottle(computeTotal));
-    $("#gs-add").addEventListener("click", () => { et.addRow(); computeTotal(); });
-
-    saveBtn.addEventListener("click", async () => {
-      const { total, data } = computeTotal();
-      const date = $("#gs-date").value || todayISO();
-      saveBtn.disabled = true;
-      try {
-        const existing = await fetchAll(C.dayEndRecords, where("date", "==", date));
-        const payload = {
-          date, rows: data, total, headers,
-          totalColumn: $("#gs-total-col").value || totalColGuess || "",
-          status: "aktarildi",
-          rowCount: data.length,
-          updatedAt: serverTimestamp(),
-          updatedBy: currentUser.email,
-        };
-        if (existing.length) {
-          await updateDoc(doc(db, "dayEndRecords", existing[0].id), payload);
-          toast("Bu tarihe ait kayıt güncellendi.", "ok");
-        } else {
-          await addDoc(C.dayEndRecords(), {
-            ...payload, notes: [], createdAt: serverTimestamp(), createdBy: currentUser.email,
-          });
-          toast("Gün sonu kaydı oluşturuldu.", "ok");
-        }
-        gsStaging = null;
-        location.hash = "#/gunsonu-kayitlar";
-      } catch (e) {
-        toast("Kaydedilemedi: " + e.message, "err");
-        saveBtn.disabled = false;
-      }
-    });
+// ---- Kasa Sayımları: sabit ödeme yöntemleri (istenen sıra) ----
+const GS_PAY_METHODS = [
+  { key: "X",                  alias: ["x"] },
+  { key: "Nakit",              alias: ["nakit"] },
+  { key: "Garanti Bankası",    alias: ["garanti bbva", "garanti banka", "garanti bankası"] },
+  { key: "Garanti Sanal",      alias: ["sanal pos", "garanti sanal"] },
+  { key: "T.Finans Banka",     alias: ["turkiye finans", "türkiye finans", "t.finans banka", "t.finans bankası"] },
+  { key: "T.Finans Qr",        alias: ["t.finans qr", "finans qr", "tfinans qr"] },
+  { key: "Havale",             alias: ["havale"] },
+  { key: "Yemek Sepeti",       alias: ["y.sepeti", "yemek sepeti", "yemeksepeti"] },
+  { key: "Getir Yemek",        alias: ["getir"] },
+  { key: "Trendyol",           alias: ["trendyol online", "trendyol"] },
+  { key: "Trendyol E-Ticaret", alias: ["trendyol e-ticaret", "trendyol eticaret", "e-ticaret", "eticaret"] },
+  { key: "Metropol Card",      alias: ["metropol"] },
+  { key: "Ticket",             alias: ["ticket"] },
+  { key: "Multinet",           alias: ["multinet"] },
+  { key: "Sodexho",            alias: ["sodexho", "sodexo"] },
+  { key: "Set Kurumsal",       alias: ["set kurumsal"] },
+];
+const normTr = (s) => String(s || "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim();
+function gsMatchMethod(label) {
+  const lab = normTr(label);
+  let best = null, bestLen = 0;
+  for (const m of GS_PAY_METHODS) for (const al of m.alias) {
+    const hit = al.length <= 1 ? lab === al : (lab === al || lab.includes(al));
+    if (hit && al.length > bestLen) { best = m.key; bestLen = al.length; }
   }
+  return best;
+}
+async function parseSheetAOA(file) {
+  const XLSX = await loadXLSX();
+  const buf = await file.arrayBuffer();
+  const wb = XLSX.read(buf, { type: "array", cellDates: true });
+  return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: true });
+}
+function gsExtractDate(aoa) {
+  for (const r of aoa.slice(0, 8)) for (const c of r) {
+    const m = String(c || "").match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+    if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+  }
+  return todayISO();
+}
+function gsExtractKasa(aoa) {
+  const idx = aoa.findIndex((r) => normTr(r[0]).includes("kasa sayimlari"));
+  const values = {};
+  if (idx >= 0) for (let i = idx + 1; i < aoa.length; i++) {
+    const raw0 = String(aoa[i][0] || "").trim();
+    if (!raw0 || /^[=_-]{3,}/.test(raw0)) break;
+    const label = raw0.replace(/^-+>?\s*/, "").trim();
+    if (/^toplam/i.test(label)) break;
+    const key = gsMatchMethod(label);
+    if (key) values[key] = (values[key] || 0) + parseNum(aoa[i][1]);
+  }
+  return GS_PAY_METHODS.map((m) => ({ yontem: m.key, sistem: values[m.key] || 0, gerceklesen: "" }));
+}
+
+// Çok adımlı Gün Sonu Aktarım durumu (adımlar arası korunur)
+let gsState = null; // { step, date, kasa:[{yontem,sistem,gerceklesen}], recordId? }
+const GS_STEPS = ["Dosya Yükle", "Kasa Kapanış Kontrolü"];
+
+async function viewGunSonuAktarim(c) {
+  if (!gsState) gsState = { step: 0, date: todayISO(), kasa: null };
+
+  const stepper = () => `<div class="stepper">${GS_STEPS.map((s, i) => `
+    <div class="step ${i === gsState.step ? "active" : ""} ${i < gsState.step ? "done" : ""}" data-step="${i}">
+      <span class="dot">${i < gsState.step ? "✓" : i + 1}</span><span class="lbl">${esc(s)}</span>
+    </div>`).join('<div class="step-line"></div>')}</div>`;
+
+  function goto(i) {
+    if (i < 0 || i >= GS_STEPS.length) return;
+    if (i > 0 && !gsState.kasa) return toast("Önce dosyayı yükleyin.", "err");
+    gsState.step = i; render();
+  }
+
+  function render() {
+    c.innerHTML = stepper() + `<div id="gs-body"></div>`;
+    $$(".step", c).forEach((el) => el.onclick = () => goto(+el.dataset.step));
+    (gsState.step === 0 ? renderUpload : renderKasa)($("#gs-body", c));
+  }
+
+  function renderUpload(body) {
+    body.innerHTML = `
+      <div class="card" style="padding:14px"><div id="gs-drop"></div>
+        ${gsState.kasa ? `<div class="notice info" style="margin-top:12px">✔ Kasa sayımları okundu (${gsState.date ? fmtDate(gsState.date) : ""}). <b>İleri</b> ile devam edin.</div>` : ""}
+      </div>
+      <div class="toolbar" style="margin-top:14px"><div class="grow"></div>
+        <button class="btn btn-primary" id="gs-next" ${gsState.kasa ? "" : "disabled"}>İleri →</button></div>`;
+    $("#gs-drop", body).appendChild(fileDrop(async (file) => {
+      try {
+        const aoa = await parseSheetAOA(file);
+        gsState.kasa = gsExtractKasa(aoa);
+        gsState.date = gsExtractDate(aoa);
+        toast("Kasa sayımları okundu.", "ok");
+        goto(1);
+      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+    }, ".xlsx,.xls,.csv", true));
+    $("#gs-next", body).onclick = () => goto(1);
+  }
+
+  function renderKasa(body) {
+    const rows = gsState.kasa || [];
+    const totSistem = rows.reduce((s, r) => s + parseNum(r.sistem), 0);
+    body.innerHTML = `
+      <div class="card">
+        <div class="field" style="max-width:220px;margin:0 0 16px">
+          <label>Gün Sonu Tarihi</label>
+          <input type="date" id="gs-date" value="${esc(gsState.date)}" />
+        </div>
+        <div class="card-head"><h3>Kasa Kapanış Kontrolü</h3><span class="hint">Gerçekleşen (sayım) tutarlarını girin</span></div>
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Ödeme Yöntemi</th><th class="num">Sisteme Girilen</th><th class="num">Gerçekleşen</th><th class="num">Fark</th></tr></thead>
+          <tbody>${rows.map((r, i) => `<tr>
+            <td><b>${esc(r.yontem)}</b></td>
+            <td class="num">${fmtNum(parseNum(r.sistem))}</td>
+            <td class="num" style="padding:2px"><input class="num gs-real" data-i="${i}" inputmode="decimal" style="text-align:right" value="${r.gerceklesen === "" || r.gerceklesen == null ? "" : fmtNum(parseNum(r.gerceklesen))}" placeholder="0,00" /></td>
+            <td class="num gs-fark" data-i="${i}">—</td>
+          </tr>`).join("")}</tbody>
+          <tfoot><tr style="font-weight:700;background:var(--surface-2)">
+            <td>TOPLAM</td><td class="num">${fmtNum(totSistem)}</td>
+            <td class="num" id="tot-real">—</td><td class="num" id="tot-fark">—</td>
+          </tr></tfoot>
+        </table></div>
+      </div>
+      <div class="toolbar" style="margin-top:14px">
+        <button class="btn" id="gs-back">← Geri</button>
+        <div class="grow"></div>
+        <button class="btn btn-primary" id="gs-save">💾 Kaydet</button>
+      </div>`;
+
+    const recompute = () => {
+      let tr = 0, tf = 0, any = false;
+      $$(".gs-real", body).forEach((inp) => {
+        const i = +inp.dataset.i;
+        const v = inp.value.trim();
+        rows[i].gerceklesen = v === "" ? "" : parseNum(v);
+        const fc = $(`.gs-fark[data-i="${i}"]`, body);
+        if (v === "") { fc.textContent = "—"; fc.style.color = ""; fc.style.fontWeight = ""; }
+        else {
+          const f = parseNum(v) - parseNum(rows[i].sistem);
+          any = true; tr += parseNum(v); tf += f;
+          fc.textContent = fmtNum(f);
+          fc.style.fontWeight = "700";
+          fc.style.color = f < 0 ? "var(--danger)" : f > 0 ? "var(--ok)" : "";
+        }
+      });
+      $("#tot-real", body).textContent = any ? fmtNum(tr) : "—";
+      $("#tot-fark", body).textContent = any ? fmtNum(tf) : "—";
+    };
+    body.addEventListener("input", rafThrottle(recompute));
+    $$(".gs-real", body).forEach((inp) => inp.addEventListener("blur", () => {
+      if (inp.value.trim() !== "") inp.value = fmtNum(parseNum(inp.value));
+    }));
+    recompute();
+    $("#gs-back", body).onclick = () => goto(0);
+    $("#gs-save", body).onclick = () => saveGunSonu();
+  }
+
+  async function saveGunSonu() {
+    const date = $("#gs-date", c)?.value || gsState.date;
+    gsState.date = date;
+    const rows = gsState.kasa.map((r) => ({
+      yontem: r.yontem, sistem: parseNum(r.sistem),
+      gerceklesen: r.gerceklesen === "" || r.gerceklesen == null ? "" : parseNum(r.gerceklesen),
+      fark: r.gerceklesen === "" || r.gerceklesen == null ? "" : parseNum(r.gerceklesen) - parseNum(r.sistem),
+    }));
+    const payload = {
+      type: "gunsonu", date, kasa: rows,
+      total: rows.reduce((s, r) => s + parseNum(r.sistem), 0),
+      rowCount: rows.length, status: "aktarildi",
+      updatedAt: serverTimestamp(), updatedBy: currentUser.email,
+    };
+    try {
+      let editing = !!gsState.recordId;
+      if (gsState.recordId) {
+        await updateDoc(doc(db, "dayEndRecords", gsState.recordId), payload);
+      } else {
+        const same = (await fetchAll(C.dayEndRecords, where("date", "==", date))).find((e) => e.type === "gunsonu");
+        if (same) { await updateDoc(doc(db, "dayEndRecords", same.id), payload); editing = true; }
+        else await addDoc(C.dayEndRecords(), { ...payload, notes: [], createdAt: serverTimestamp(), createdBy: currentUser.email });
+      }
+      await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
+      toast("Gün sonu kaydedildi.", "ok");
+      gsState = null;
+      location.hash = "#/gunsonu-kayitlar";
+    } catch (e) { toast("Kaydedilemedi: " + e.message, "err"); }
+  }
+
+  render();
 }
 
 // ===========================================================================
@@ -941,8 +1027,16 @@ async function viewGunSonuKayitlar(c) {
     </div>`;
 
   const byId = (id) => records.find((r) => r.id === id);
-  $$("[data-view]", c).forEach((b) => b.onclick = () => openRecordModal(byId(b.dataset.view), false));
-  $$("[data-edit]", c).forEach((b) => b.onclick = () => openRecordModal(byId(b.dataset.edit), true));
+  const openGunSonu = (rec) => {
+    gsState = { step: 1, date: rec.date || todayISO(), kasa: (rec.kasa || []).map((r) => ({ ...r })), recordId: rec.id };
+    location.hash = "#/gunsonu-aktarim";
+  };
+  $$("[data-view]", c).forEach((b) => b.onclick = () => {
+    const r = byId(b.dataset.view); r.type === "gunsonu" ? openGunSonu(r) : openRecordModal(r, false);
+  });
+  $$("[data-edit]", c).forEach((b) => b.onclick = () => {
+    const r = byId(b.dataset.edit); r.type === "gunsonu" ? openGunSonu(r) : openRecordModal(r, true);
+  });
   $$("[data-del]", c).forEach((b) => b.onclick = () =>
     confirmDialog(`${fmtDate(byId(b.dataset.del).date)} tarihli kayıt silinsin mi?`, async () => {
       await deleteDoc(doc(db, "dayEndRecords", b.dataset.del));
