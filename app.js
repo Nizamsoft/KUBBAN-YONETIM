@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.26";
+} from "./local-backend.js?v=2026.27";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.26";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.27";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.26";
+const APP_VERSION = "2026.27";
 const CHANGELOG = [
+  { version: "2026.27", date: "2026-08-04", items: [
+    "Kasa Kapanış Kontrolü mobil-dostu, gruplu düzene geçti (tablo taşması giderildi)",
+    "Gruplar: Banka ve Nakit · Yemek Platformları · Yemek Kartları (grup + genel toplam/fark)",
+  ]},
   { version: "2026.26", date: "2026-08-04", items: [
     "Gün Sonu Aktarım çok adımlı yapıldı: tepede ilerleme çubuğu, geri/ileri",
     "Adım 1 – Kasa Kapanış Kontrolü: rapordaki Kasa Sayımları tablosu alınır",
@@ -828,6 +832,12 @@ const GS_PAY_METHODS = [
   { key: "Sodexho",            alias: ["sodexho", "sodexo"] },
   { key: "Set Kurumsal",       alias: ["set kurumsal"] },
 ];
+// Ödeme yöntemi grupları (sıra korunur)
+const GS_GROUPS = [
+  { name: "Banka ve Nakit", methods: ["X", "Nakit", "Garanti Bankası", "Garanti Sanal", "T.Finans Banka", "T.Finans Qr", "Havale"] },
+  { name: "Yemek Platformları", methods: ["Yemek Sepeti", "Getir Yemek", "Trendyol", "Trendyol E-Ticaret"] },
+  { name: "Yemek Kartları", methods: ["Metropol Card", "Ticket", "Multinet", "Sodexho", "Set Kurumsal"] },
+];
 const normTr = (s) => String(s || "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim();
 function gsMatchMethod(label) {
   const lab = normTr(label);
@@ -910,27 +920,46 @@ async function viewGunSonuAktarim(c) {
 
   function renderKasa(body) {
     const rows = gsState.kasa || [];
+    const idxOf = {}; rows.forEach((r, i) => idxOf[r.yontem] = i);
+    const groupOf = {}; GS_GROUPS.forEach((g, gi) => g.methods.forEach((m) => groupOf[m] = gi));
+
+    const itemHtml = (name) => {
+      const i = idxOf[name];
+      if (i == null) return "";
+      const r = rows[i];
+      return `<div class="gs-item">
+        <div class="gs-item-name">${esc(name)}</div>
+        <div class="gs-cells">
+          <div class="cell"><span class="lab">Sisteme Girilen</span><span class="val">${fmtNum(parseNum(r.sistem))} ₺</span></div>
+          <div class="cell"><span class="lab">Gerçekleşen</span><input class="gs-real" data-i="${i}" inputmode="decimal" value="${r.gerceklesen === "" || r.gerceklesen == null ? "" : fmtNum(parseNum(r.gerceklesen))}" placeholder="0,00" /></div>
+          <div class="cell"><span class="lab">Fark</span><span class="val gs-fark" data-i="${i}">—</span></div>
+        </div>
+      </div>`;
+    };
+    const groupHtml = (g, gi) => {
+      const gs = g.methods.reduce((s, m) => s + parseNum(rows[idxOf[m]]?.sistem), 0);
+      return `<div class="gs-group">
+        <div class="gs-group-head">${esc(g.name)}
+          <span class="sub">Sistem <b>${fmtNum(gs)} ₺</b> · Fark <b id="gf-${gi}">—</b></span></div>
+        ${g.methods.map(itemHtml).join("")}
+      </div>`;
+    };
     const totSistem = rows.reduce((s, r) => s + parseNum(r.sistem), 0);
+
     body.innerHTML = `
       <div class="card">
-        <div class="field" style="max-width:220px;margin:0 0 16px">
+        <div class="field" style="max-width:240px;margin:0 0 16px">
           <label>Gün Sonu Tarihi</label>
           <input type="date" id="gs-date" value="${esc(gsState.date)}" />
         </div>
         <div class="card-head"><h3>Kasa Kapanış Kontrolü</h3><span class="hint">Gerçekleşen (sayım) tutarlarını girin</span></div>
-        <div class="table-wrap"><table class="data">
-          <thead><tr><th>Ödeme Yöntemi</th><th class="num">Sisteme Girilen</th><th class="num">Gerçekleşen</th><th class="num">Fark</th></tr></thead>
-          <tbody>${rows.map((r, i) => `<tr>
-            <td><b>${esc(r.yontem)}</b></td>
-            <td class="num">${fmtNum(parseNum(r.sistem))}</td>
-            <td class="num" style="padding:2px"><input class="num gs-real" data-i="${i}" inputmode="decimal" style="text-align:right" value="${r.gerceklesen === "" || r.gerceklesen == null ? "" : fmtNum(parseNum(r.gerceklesen))}" placeholder="0,00" /></td>
-            <td class="num gs-fark" data-i="${i}">—</td>
-          </tr>`).join("")}</tbody>
-          <tfoot><tr style="font-weight:700;background:var(--surface-2)">
-            <td>TOPLAM</td><td class="num">${fmtNum(totSistem)}</td>
-            <td class="num" id="tot-real">—</td><td class="num" id="tot-fark">—</td>
-          </tr></tfoot>
-        </table></div>
+        ${GS_GROUPS.map(groupHtml).join("")}
+        <div class="gs-total">
+          <span>GENEL TOPLAM</span>
+          <span class="tt">Sistem <b>${fmtNum(totSistem)} ₺</b></span>
+          <span class="tt">Gerçekleşen <b id="tot-real">—</b></span>
+          <span class="tt">Fark <b id="tot-fark">—</b></span>
+        </div>
       </div>
       <div class="toolbar" style="margin-top:14px">
         <button class="btn" id="gs-back">← Geri</button>
@@ -939,23 +968,32 @@ async function viewGunSonuAktarim(c) {
       </div>`;
 
     const recompute = () => {
-      let tr = 0, tf = 0, any = false;
+      const gFark = {}; let tr = 0, tf = 0, any = false;
       $$(".gs-real", body).forEach((inp) => {
         const i = +inp.dataset.i;
         const v = inp.value.trim();
         rows[i].gerceklesen = v === "" ? "" : parseNum(v);
         const fc = $(`.gs-fark[data-i="${i}"]`, body);
-        if (v === "") { fc.textContent = "—"; fc.style.color = ""; fc.style.fontWeight = ""; }
+        if (v === "") { fc.textContent = "—"; fc.style.color = ""; }
         else {
           const f = parseNum(v) - parseNum(rows[i].sistem);
+          const gi = groupOf[rows[i].yontem];
+          gFark[gi] = (gFark[gi] || 0) + f;
           any = true; tr += parseNum(v); tf += f;
           fc.textContent = fmtNum(f);
-          fc.style.fontWeight = "700";
           fc.style.color = f < 0 ? "var(--danger)" : f > 0 ? "var(--ok)" : "";
         }
       });
-      $("#tot-real", body).textContent = any ? fmtNum(tr) : "—";
-      $("#tot-fark", body).textContent = any ? fmtNum(tf) : "—";
+      GS_GROUPS.forEach((g, gi) => {
+        const el = $(`#gf-${gi}`, body);
+        if (!el) return;
+        if (gi in gFark) { el.textContent = fmtNum(gFark[gi]); el.style.color = gFark[gi] < 0 ? "var(--danger)" : gFark[gi] > 0 ? "var(--ok)" : ""; }
+        else { el.textContent = "—"; el.style.color = ""; }
+      });
+      const tre = $("#tot-real", body), tfe = $("#tot-fark", body);
+      tre.textContent = any ? fmtNum(tr) + " ₺" : "—";
+      tfe.textContent = any ? fmtNum(tf) + " ₺" : "—";
+      tfe.style.color = any ? (tf < 0 ? "var(--danger)" : tf > 0 ? "var(--ok)" : "") : "";
     };
     body.addEventListener("input", rafThrottle(recompute));
     $$(".gs-real", body).forEach((inp) => inp.addEventListener("blur", () => {

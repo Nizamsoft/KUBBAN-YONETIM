@@ -331,6 +331,22 @@ table.data input.num { text-align: right; }
 .stepper .step.done .dot { border-color: var(--ok); background: var(--ok); color: #fff; }
 .stepper .step-line { flex: 1; min-width: 16px; height: 2px; background: var(--line-strong); }
 
+/* Gün Sonu · Kasa Kapanış Kontrolü (gruplu, mobil-dostu) */
+.gs-group { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
+.gs-group-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; background: var(--surface-2); padding: 10px 14px; font-weight: 700; font-size: 13.5px; color: var(--ink); }
+.gs-group-head .sub { margin-left: auto; font-weight: 600; font-size: 12px; color: var(--ink-soft); }
+.gs-item { padding: 10px 14px; border-top: 1px solid var(--line); }
+.gs-item-name { font-weight: 600; margin-bottom: 8px; }
+.gs-cells { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; align-items: end; }
+.gs-cells .cell { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.gs-cells .lab { font-size: 10px; text-transform: uppercase; letter-spacing: .3px; color: var(--ink-faint); }
+.gs-cells .val { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.gs-cells input { width: 100%; padding: 9px 10px; text-align: right; border: 1px solid var(--line-strong); border-radius: 8px; font-size: 16px; font-variant-numeric: tabular-nums; }
+.gs-cells input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(166,123,46,.15); }
+.gs-total { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 6px; padding: 12px 14px; border-radius: 12px; background: var(--sidebar); color: var(--on-dark); font-weight: 700; }
+.gs-total .tt { font-size: 13px; font-weight: 600; color: #cbb78e; }
+.gs-total .tt b { color: #fff; margin-left: 4px; }
+
 /* Banka uygulaması tarzı hareket kartları (mobil) */
 .ledger-cards { display: none; }
 .tx-card {
