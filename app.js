@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.24";
+} from "./local-backend.js?v=2026.25";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.24";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.25";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.24";
+const APP_VERSION = "2026.25";
 const CHANGELOG = [
+  { version: "2026.25", date: "2026-08-04", items: [
+    "108 Blokeli Hesaplar altına 5 sabit alt hesap eklendi (Garanti/Türkiye Finans bloke, Yemek Sepeti, Getir Yemek, Trendyol)",
+    "Hesapları Düzenle modunda 'Varsayılanları Tamamla': eksik varsayılan hesapları veri kaybı olmadan ekler",
+  ]},
   { version: "2026.24", date: "2026-08-04", items: [
     "Cari aktarımda açıklamalar kaldırıldı, Excel yükleme alanı küçültüldü",
     "Aktarımda faturalar sıra sıra soruluyor: Açık / Kapalı / Kısmi Kapat (Kısmi'de tutar girilir)",
@@ -1115,23 +1119,41 @@ const DEFAULT_CHART = [
     { code: "102.02", name: "Türkiye Finans Bankası Hesabı" },
     { code: "102.03", name: "Ziraat Bankası Hesabı" },
   ]},
-  { code: "108", name: "Blokeli Hesaplar", type: "diger" },
+  { code: "108", name: "Blokeli Hesaplar", type: "diger", subs: [
+    { code: "108.01", name: "Garanti Bankası Bloke Hesabı" },
+    { code: "108.02", name: "Türkiye Finans Bloke Hesabı" },
+    { code: "108.03", name: "Yemek Sepeti" },
+    { code: "108.04", name: "Getir Yemek" },
+    { code: "108.05", name: "Trendyol" },
+  ]},
   { code: "120", name: "Alıcı Hesaplar (Müşteriler)", type: "musteri" },
   { code: "320", name: "Tedarikçiler", type: "tedarikci" },
 ];
+// Idempotent: yalnızca eksik olan varsayılan hesapları ekler (mevcutları korur)
 async function seedDefaultChart() {
+  const existing = await fetchAll(C.accounts).catch(() => []);
+  const byCode = new Map(existing.map((a) => [String(a.code), a]));
+  let added = 0;
   for (const m of DEFAULT_CHART) {
-    const ref = await addDoc(C.accounts(), {
-      code: m.code, name: m.name, type: m.type, parentId: null, parentCode: null,
-      openingBalance: 0, createdAt: serverTimestamp(),
-    });
-    for (const s of (m.subs || [])) {
-      await addDoc(C.accounts(), {
-        code: s.code, name: s.name, type: m.type, parentId: ref.id, parentCode: m.code,
+    let mainAcc = byCode.get(m.code);
+    if (!mainAcc) {
+      const ref = await addDoc(C.accounts(), {
+        code: m.code, name: m.name, type: m.type, parentId: null, parentCode: null,
         openingBalance: 0, createdAt: serverTimestamp(),
       });
+      mainAcc = { id: ref.id, code: m.code, type: m.type };
+      byCode.set(m.code, mainAcc); added++;
+    }
+    for (const s of (m.subs || [])) {
+      if (byCode.has(s.code)) continue;
+      const ref = await addDoc(C.accounts(), {
+        code: s.code, name: s.name, type: m.type, parentId: mainAcc.id, parentCode: m.code,
+        openingBalance: 0, createdAt: serverTimestamp(),
+      });
+      byCode.set(s.code, { id: ref.id }); added++;
     }
   }
+  return added;
 }
 
 async function viewHesaplar(c) {
@@ -1216,6 +1238,7 @@ async function viewHesaplar(c) {
     <div class="toolbar">
       <div class="grow"></div>
       <button class="btn btn-sm" id="toggle-all">Tümünü Aç / Kapat</button>
+      <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">+ Yeni Hesap</button>
       <button class="btn btn-primary btn-sm" id="edit-toggle">✏️ Hesapları Düzenle</button>
     </div>
@@ -1296,7 +1319,16 @@ async function viewHesaplar(c) {
     btn.textContent = on ? "✓ Bitir" : "✏️ Hesapları Düzenle";
     btn.classList.toggle("btn-primary", !on);
     $("#acc-add", c).style.display = on ? "" : "none";
+    $("#acc-complete", c).style.display = on ? "" : "none";
   };
+  $("#acc-complete").onclick = () =>
+    confirmDialog("Eksik varsayılan hesaplar (ör. 108 bloke alt hesapları) eklensin mi? Mevcut hesaplar korunur.", async () => {
+      try {
+        const n = await seedDefaultChart();
+        toast(n ? `${n} varsayılan hesap eklendi.` : "Eklenecek eksik hesap yok.", "ok");
+        route();
+      } catch (e) { toast("Hata: " + e.message, "err"); }
+    });
   $$("[data-addsub]", c).forEach((b) => b.onclick = () => {
     const p = byId.get(b.dataset.addsub);
     accModal(null, p, { nextCode: nextSubCode(p, kids.get(p.id) || []) });
