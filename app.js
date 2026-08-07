@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.56";
+} from "./local-backend.js?v=2026.57";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.56";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.57";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.56";
+const APP_VERSION = "2026.57";
 const CHANGELOG = [
+  { version: "2026.57", date: "2026-08-07", items: [
+    "Fatura türü seçimi yenilendi: net bir soru + iki büyük kart (Satış / Alış); ekrandaki karmaşık açıklamalar kaldırıldı",
+  ]},
   { version: "2026.56", date: "2026-08-07", items: [
     "Menü grubu aç/kapa artık çekmece kadar akıcı: yükseklik anlık, hareket tamamen GPU'da (transform+opacity)",
   ]},
@@ -2779,19 +2782,19 @@ async function viewCariHareket(c) {
   }, ".xlsx,.xls,.csv", true));
 
   function askType(headers, rows) {
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <div class="ft-q">Hangi fatura türünü aktaralım?<small>${rows.length} fatura bulundu</small></div>
+      <div class="ft-cards">
+        <button class="ft-c sat" data-kind="satis"><span class="ic">📤</span><span class="t">Satış Faturası</span></button>
+        <button class="ft-c al" data-kind="alis"><span class="ic">📥</span><span class="t">Alış Faturası</span></button>
+      </div>`;
     const m = openModal({
       title: "Fatura Türü",
-      body: `<p style="margin:0 0 10px">${rows.length} fatura bulundu. Bu faturaları hangi tür olarak işleyelim?</p>
-        <div style="font-size:12.5px;color:var(--ink-soft);line-height:1.7">
-          • <b>Alış Faturası</b> → 320 Tedarikçiler · tutar <b>Alacak</b>'a<br>
-          • <b>Satış Faturası</b> → 120 Alıcılar · tutar <b>Borç</b>'a
-        </div>`,
-      footer: [
-        mkBtn("Vazgeç", "", () => m.close()),
-        mkBtn("Satış Faturası", "", () => { m.close(); buildPreview(headers, rows, "satis"); }),
-        mkBtn("Alış Faturası", "btn-primary", () => { m.close(); buildPreview(headers, rows, "alis"); }),
-      ],
+      body,
+      footer: [mkBtn("Vazgeç", "", () => m.close())],
     });
+    $$(".ft-c", body).forEach((b) => b.onclick = () => { m.close(); buildPreview(headers, rows, b.dataset.kind); });
   }
 
   async function buildPreview(headers, rows, kind) {

@@ -851,3 +851,15 @@ table.data input.num { text-align: right; }
   .ledger-hero .lh-name { font-size: 16px; }
   .ledger-hero .lh-bal .val { font-size: 19px; }
 }
+
+/* ===== Fatura Türü seçimi (Satış / Alış) ===== */
+.ft-q { font-family: Georgia, "Times New Roman", serif; font-size: 20px; font-weight: 700; color: var(--ink); text-align: center; line-height: 1.25; }
+.ft-q small { display: block; font-family: "Segoe UI", system-ui, sans-serif; font-size: 12.5px; font-weight: 600; color: var(--ink-faint); margin-top: 6px; text-transform: none; }
+.ft-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 18px; }
+.ft-c { border: 1.5px solid var(--line-strong); border-radius: 16px; padding: 20px 12px; cursor: pointer; background: var(--surface); font: inherit; color: inherit; display: flex; flex-direction: column; align-items: center; transition: border-color .15s, background .15s, transform .06s; }
+.ft-c:hover { border-color: var(--gold); background: var(--surface-2); }
+.ft-c:active { transform: translateY(1px); }
+.ft-c .ic { width: 56px; height: 56px; margin-bottom: 10px; border-radius: 16px; display: flex; align-items: center; justify-content: center; font-size: 28px; }
+.ft-c.sat .ic { background: var(--ok-bg); }
+.ft-c.al .ic { background: var(--warn-bg); }
+.ft-c .t { font-weight: 800; font-size: 15px; color: var(--ink); }
