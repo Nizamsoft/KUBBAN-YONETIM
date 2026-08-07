@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.32";
+} from "./local-backend.js?v=2026.33";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.32";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.33";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.32";
+const APP_VERSION = "2026.33";
 const CHANGELOG = [
+  { version: "2026.33", date: "2026-08-07", items: [
+    "Gün Sonu Aktarım'a 4. adım eklendi: Masraflar (rapordaki 'Masraflar Toplamı' satırları)",
+    "Masraflar: 1. sütun ad (sondaki '(Ödenmezler İstihkak)' atılır) · Rapor boş · 3. sütun tutar",
+    "Para alanlarındaki ₺ kayması düzeltildi (Cari Kayıtlar ve Bloke tutarları düzgün hizalı)",
+    "Hesap aramasındaki öneri listesinden emoji kaldırıldı",
+  ]},
   { version: "2026.32", date: "2026-08-07", items: [
     "Hesaplar: üstteki açıklama kutusu kaldırıldı",
     "Emoji yalnızca ana hesaplarda ve üst kartta; alt hesaplardan kaldırıldı",
@@ -953,6 +959,24 @@ const gsExtractCariIslem = (aoa) => gsExtractSection(aoa, "kredili satis", 2, fa
 // Bölüm 2 – Cari Tahsilatlar ("Tahsilatlar Toplami (+)", tutar 2. sütun, özet satırları atla)
 const gsExtractCariTahsilat = (aoa) => gsExtractSection(aoa, "tahsilatlar toplami", 1, true);
 
+// Adım 4 – Masraflar ("Masraflar Toplami (-)"): 1. sütun ad (sondaki (Ödenmezler İstihkak)
+// eki atılır), 2. sütun Rapor (boş), 3. sütun (indeks 2) çıkan tutar.
+function gsExtractMasraflar(aoa) {
+  const idx = aoa.findIndex((r) => normTr(r[0]).includes("masraflar toplami"));
+  const out = [];
+  if (idx < 0) return out;
+  for (let i = idx + 1; i < aoa.length; i++) {
+    const raw = String(aoa[i][0] || "").trim();
+    if (!raw) continue;
+    if (/^[=_-]{3,}/.test(raw)) break;                 // ayraç → bölüm bitti
+    const ad = raw.replace(/\s*\([^)]*\)?\s*$/, "").trim(); // sondaki (…) etiketi (kapanışsız da olsa) atılır
+    const tutar = gsRowAmount(aoa[i], 2);
+    if (!ad || !tutar) continue;
+    out.push({ ad, rapor: "", tutar });
+  }
+  return out;
+}
+
 // Bölüm 3 – Blokeye Aktarım eşleştirmesi (ödeme yöntemi → 108 bloke hesabı)
 const GS_BLOKE_MAP = [
   { method: "Garanti Bankası", code: "108.01", garanti: true },
@@ -1032,7 +1056,7 @@ function nextDayISO(iso) {
 
 // Çok adımlı Gün Sonu Aktarım durumu (adımlar arası korunur)
 let gsState = null; // { step, date, kasa:[{yontem,sistem,gerceklesen}], recordId? }
-const GS_STEPS = ["Dosya Yükle", "Kasa Kapanış Kontrolü", "Cari Kayıtlar"];
+const GS_STEPS = ["Dosya Yükle", "Kasa Kapanış Kontrolü", "Cari Kayıtlar", "Masraflar"];
 
 async function viewGunSonuAktarim(c) {
   if (!gsState) gsState = { step: 0, date: todayISO(), kasa: null };
@@ -1051,7 +1075,7 @@ async function viewGunSonuAktarim(c) {
   function render() {
     c.innerHTML = stepper() + `<div id="gs-body"></div>`;
     $$(".step", c).forEach((el) => el.onclick = () => goto(+el.dataset.step));
-    const renderers = [renderUpload, renderKasa, renderCari];
+    const renderers = [renderUpload, renderKasa, renderCari, renderMasraflar];
     (renderers[gsState.step] || renderUpload)($("#gs-body", c));
   }
 
@@ -1072,6 +1096,7 @@ async function viewGunSonuAktarim(c) {
         gsState.date = gsExtractDate(aoa);
         gsState.cariIslem = gsExtractCariIslem(aoa);
         gsState.cariTahsilat = gsExtractCariTahsilat(aoa);
+        gsState.masraflar = gsExtractMasraflar(aoa);
         toast("Rapor okundu.", "ok");
         goto(1);
       } catch (e) { toast("Okunamadı: " + e.message, "err"); }
@@ -1268,7 +1293,7 @@ async function viewGunSonuAktarim(c) {
       <div class="toolbar" style="margin-top:14px">
         <button class="btn" id="gs-back2">← Geri</button>
         <div class="grow"></div>
-        <button class="btn btn-primary" id="gs-save">💾 Kaydet</button>
+        <button class="btn btn-primary" id="gs-next3">İleri →</button>
       </div>`;
 
     // Cari liste düzenleme
@@ -1319,6 +1344,53 @@ async function viewGunSonuAktarim(c) {
     recomputeBloke();
 
     $("#gs-back2", body).onclick = () => goto(1);
+    $("#gs-next3", body).onclick = () => goto(3);
+  }
+
+  // ---- Adım 4: Masraflar ----
+  function renderMasraflar(body) {
+    gsState.masraflar = gsState.masraflar || [];
+    const money = (v) => (v === "" || v == null) ? "" : fmtNum(parseNum(v));
+    const rows = gsState.masraflar;
+    const tot = rows.reduce((s, r) => s + parseNum(r.tutar), 0);
+    const rowsHtml = rows.map((r, i) => `
+      <div class="masraf-row">
+        <input class="mf-ad" data-i="${i}" value="${esc(r.ad)}" placeholder="Masraf / İşlem adı" />
+        <div class="mf-line2">
+          <input class="mf-rapor" data-i="${i}" value="${esc(r.rapor || "")}" placeholder="Rapor (boş)" />
+          <div class="money-wrap sm"><input class="num mf-tutar" data-i="${i}" inputmode="decimal" value="${esc(money(r.tutar))}" placeholder="0,00" /><span class="cur">₺</span></div>
+          <button class="btn btn-sm btn-danger mf-del" data-i="${i}" title="Sil">✕</button>
+        </div>
+      </div>`).join("");
+
+    body.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h3>Masraflar</h3><span class="hint">Rapordaki "Masraflar Toplamı" satırları</span></div>
+        <div class="masraf-list">${rowsHtml || `<div class="empty" style="padding:14px"><p>Masraf satırı bulunamadı.</p></div>`}</div>
+        <div class="toolbar" style="margin-top:10px">
+          <button class="btn btn-sm" id="mf-add">+ Satır Ekle</button>
+          <div class="grow"></div>
+          <div style="font-weight:800">Toplam <span id="mf-tot">${fmtTRY(tot)}</span></div>
+        </div>
+      </div>
+      <div class="toolbar" style="margin-top:14px">
+        <button class="btn" id="gs-back3">← Geri</button>
+        <div class="grow"></div>
+        <button class="btn btn-primary" id="gs-save">💾 Kaydet</button>
+      </div>`;
+
+    const refreshTot = () => { $("#mf-tot", body).textContent = fmtTRY(rows.reduce((s, r) => s + parseNum(r.tutar), 0)); };
+    $$(".mf-ad", body).forEach((inp) => inp.addEventListener("input", () => { rows[+inp.dataset.i].ad = inp.value; }));
+    $$(".mf-rapor", body).forEach((inp) => inp.addEventListener("input", () => { rows[+inp.dataset.i].rapor = inp.value; }));
+    $$(".mf-tutar", body).forEach((inp) => {
+      inp.addEventListener("input", () => { rows[+inp.dataset.i].tutar = parseNum(inp.value); refreshTot(); });
+      inp.addEventListener("blur", () => { const n = parseNum(inp.value); inp.value = n ? fmtNum(n) : ""; });
+      inp.addEventListener("focus", () => inp.select());
+    });
+    $$(".mf-del", body).forEach((b) => b.onclick = () => { rows.splice(+b.dataset.i, 1); renderMasraflar(body); });
+    $("#mf-add", body).onclick = () => { rows.push({ ad: "", rapor: "", tutar: 0 }); renderMasraflar(body); };
+
+    $("#gs-back3", body).onclick = () => goto(2);
     $("#gs-save", body).onclick = () => saveGunSonu();
   }
 
@@ -1340,6 +1412,9 @@ async function viewGunSonuAktarim(c) {
       .filter((r) => r.sahis || r.tutar);
     const cariIslem = cleanList(gsState.cariIslem);
     const cariTahsilat = cleanList(gsState.cariTahsilat);
+    const masraflar = (gsState.masraflar || [])
+      .map((r) => ({ ad: String(r.ad || "").trim(), rapor: String(r.rapor || "").trim(), tutar: parseNum(r.tutar) }))
+      .filter((r) => r.ad || r.tutar);
     const bl = gsState.bloke || {};
     const blokePayload = {
       tarih: bl.tarih || nextDayISO(date), valor: bl.valor || nextDayISO(date),
@@ -1351,9 +1426,10 @@ async function viewGunSonuAktarim(c) {
       brut: parseNum(gsState.brut), iskonto: parseNum(gsState.iskonto),
       ikram: parseNum(gsState.ikram), x: gsState.x === "" || gsState.x == null ? "" : x,
       ikramNet, netSatis,
-      cariIslem, cariTahsilat, bloke: blokePayload,
+      cariIslem, cariTahsilat, masraflar, bloke: blokePayload,
       cariIslemTotal: cariIslem.reduce((s, r) => s + r.tutar, 0),
       cariTahsilatTotal: cariTahsilat.reduce((s, r) => s + r.tutar, 0),
+      masraflarTotal: masraflar.reduce((s, r) => s + r.tutar, 0),
       total: rows.reduce((s, r) => s + parseNum(r.sistem), 0),
       rowCount: rows.length, status: "aktarildi",
       updatedAt: serverTimestamp(), updatedBy: currentUser.email,
@@ -1451,6 +1527,7 @@ async function viewGunSonuKayitlar(c) {
       x: rec.x == null ? "" : rec.x,
       cariIslem: (rec.cariIslem || []).map((r) => ({ ...r })),
       cariTahsilat: (rec.cariTahsilat || []).map((r) => ({ ...r })),
+      masraflar: (rec.masraflar || []).map((r) => ({ ...r })),
       bloke: rec.bloke ? { ...rec.bloke } : null,
       recordId: rec.id,
     };
@@ -1861,7 +1938,6 @@ async function viewHesaplar(c) {
     if (!sug.items.length) { sugBox.classList.remove("open"); sugBox.innerHTML = ""; return; }
     sugBox.innerHTML = sug.items.map((f, i) => `
       <div class="sug ${i === 0 ? "active" : ""}" data-id="${f.id}">
-        <span class="sug-ico">${f.emoji}</span>
         <span class="sug-code">${esc(f.code)}</span>
         <span class="sug-name">${esc(f.name)}</span>
       </div>`).join("");
