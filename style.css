@@ -195,8 +195,10 @@ button { font-family: inherit; }
 .nav-group.open > .nav-group-header { border: none; border-bottom: 1px solid #f0e7d5; border-radius: 0; box-shadow: none; color: var(--gold-dark); }
 .nav-group.open > .nav-group-header .chev { transform: rotate(90deg); color: var(--gold-dark); }
 
-.nav-group-body { overflow: hidden; max-height: 0; transition: max-height .22s ease-out; display: flex; flex-direction: column; }
-.nav-group.open > .nav-group-body { max-height: 340px; padding: 6px; gap: 2px; }
+/* Akıcı açılış/kapanış: grid-rows 0fr→1fr (max-height gibi ölü bölge/reflow yok) */
+.nav-group-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .24s ease; }
+.nav-group.open > .nav-group-body { grid-template-rows: 1fr; }
+.nav-group-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px; }
 .nav-item.nav-sub { padding: 9px 11px; border-radius: 8px; font-weight: 500; color: var(--ink-soft); }
 .nav-item.nav-sub:hover { background: var(--surface-2); }
 .nav-item.nav-sub.active { background: var(--gold); color: #fff; font-weight: 700; }
@@ -802,4 +804,17 @@ table.data input.num { text-align: right; }
 .rep-sec-h b.pos { color: var(--ok); }
 @media (max-width: 640px) {
   .rep-crow { grid-template-columns: 1fr 62px 76px 60px; gap: 4px; font-size: 11.5px; }
+}
+
+/* ===================== AKICILIK / PERFORMANS ===================== */
+/* Menü grubunun iç yerleşimini yalıt: açılırken sayfanın geri kalanını zorlamasın */
+.nav-group { contain: layout; }
+/* Dokunmatik cihazlarda momentum kaydırma + zincirleme kaydırmayı engelle */
+.nav, .content, .table-wrap, .modal-body, .acc-suggest { -webkit-overflow-scrolling: touch; overscroll-behavior: contain; }
+/* Cihazda "hareketi azalt" açıksa animasyonları kapat (anında, kasmasız) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .001ms !important; animation-iteration-count: 1 !important;
+    transition-duration: .001ms !important; scroll-behavior: auto !important;
+  }
 }

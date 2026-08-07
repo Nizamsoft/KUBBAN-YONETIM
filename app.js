@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.42";
+} from "./local-backend.js?v=2026.43";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.42";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.43";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.42";
+const APP_VERSION = "2026.43";
 const CHANGELOG = [
+  { version: "2026.43", date: "2026-08-07", items: [
+    "Menü aç/kapa kasması giderildi: max-height yerine grid-rows (0fr↔1fr) ile akıcı animasyon",
+    "Menü grubunda layout yalıtımı (contain) — açılırken sayfayı zorlamıyor",
+    "Dokunmatikte momentum kaydırma + 'hareketi azalt' desteği (genel akıcılık)",
+  ]},
   { version: "2026.42", date: "2026-08-07", items: [
     "Yan menü yeni 'Beyaz Kartlar' tasarımı: açık grup altın çerçeveli kutu, seçili sayfa net",
     "Menü sadeleşti: Cari Hareket→Fatura Aktarımı, Banka→Banka Aktarımı",
@@ -591,14 +596,17 @@ function buildNav() {
 
       const bodyEl = document.createElement("div");
       bodyEl.className = "nav-group-body";
+      const inner = document.createElement("div");
+      inner.className = "nav-group-inner";
       n.children.forEach((ch) => {
         const a = document.createElement("a");
         a.className = "nav-item nav-sub";
         a.href = "#/" + ch.path;
         a.dataset.path = ch.path;
         a.innerHTML = `<span class="ico">${ch.icon}</span><span>${esc(ch.label)}</span>`;
-        bodyEl.appendChild(a);
+        inner.appendChild(a);
       });
+      bodyEl.appendChild(inner);
 
       group.appendChild(header);
       group.appendChild(bodyEl);
