@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.39";
+} from "./local-backend.js?v=2026.40";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.39";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.40";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.39";
+const APP_VERSION = "2026.40";
 const CHANGELOG = [
+  { version: "2026.40", date: "2026-08-07", items: [
+    "Blokeye Aktarımlar üstteki cari bölümler gibi kutusuz/düz oldu (tarih dahil)",
+    "Menüde Gün Sonu İşlemleri emojisi kasa fişi (🧾) yapıldı",
+    "Gün Sonu Raporu yenilendi: gün seç → sade, bol görselli özet (bar/renk/emoji)",
+    "Rapordan 📄 PDF indir / WhatsApp'tan paylaş (yazdır → PDF olarak kaydet)",
+  ]},
   { version: "2026.39", date: "2026-08-07", items: [
     "Kasa Kapanış: Gerçekleşen alanları kutusuz (düz); başlıklardan ₺ kaldırıldı",
     "GENEL TOPLAM sütunlarla hizalı ve altın renkli",
@@ -527,7 +533,7 @@ const NAV = [
     { label: "Cari Hareket İşleme", icon: "🔁", path: "cari-hareket" },
     { label: "Banka İşleme",        icon: "🏦", path: "banka" },
   ]},
-  { label: "Gün Sonu İşlemleri", icon: "🌙", children: [
+  { label: "Gün Sonu İşlemleri", icon: "🧾", children: [
     { label: "Aktarım Ekranı",      icon: "📥", path: "gunsonu-aktarim" },
     { label: "Gün Sonu Kayıtları",  icon: "🗂️", path: "gunsonu-kayitlar" },
     { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
@@ -1634,76 +1640,132 @@ function openRecordModal(rec, editMode) {
 // ===========================================================================
 //  MODÜL: GÜN SONU — RAPOR (incele + not bırak)
 // ===========================================================================
+// Ödeme yöntemi görseli (emoji)
+const gsPayEmoji = (n) => {
+  const k = normTr(n);
+  if (k.includes("nakit")) return "💵";
+  if (k.includes("garanti")) return "🟢";
+  if (k.includes("finans")) return "🔵";
+  if (k.includes("havale")) return "🏦";
+  if (k.includes("yemek sepeti")) return "🍽️";
+  if (k.includes("getir")) return "🛵";
+  if (k.includes("trendyol")) return "🛒";
+  if (k.includes("ticket") || k.includes("edenred")) return "🎟️";
+  if (k.includes("multinet")) return "💠";
+  if (k.includes("sodex") || k.includes("pluxee")) return "🍔";
+  if (k.includes("metropol")) return "🏙️";
+  if (k.includes("set")) return "🏢";
+  return "💳";
+};
+
 async function viewGunSonuRapor(c) {
   const records = (await fetchAll(C.dayEndRecords))
+    .filter((r) => r.type === "gunsonu")
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+
   c.innerHTML = `
-    <div class="card">
-      <div class="card-head"><h3>Gün Sonu Raporu</h3><span class="hint">İlgili günü seçin, inceleyin ve not bırakın</span></div>
-      <div class="toolbar" style="margin:0">
-        <div class="field" style="margin:0;min-width:220px">
-          <label>Gün Seçin</label>
-          <select id="rep-date">
-            <option value="">— seçin —</option>
-            ${records.map((r) => `<option value="${r.id}">${fmtDate(r.date)} · ${fmtTRY(r.total||0)}</option>`).join("")}
-          </select>
-        </div>
-      </div>
+    <div class="card rep-noprint">
+      <div class="card-head"><h3>Gün Sonu Raporu</h3><span class="hint">Bir gün seçin — sade, görsel özet çıkar</span></div>
+      ${records.length ? `<div class="field" style="margin:0;max-width:340px">
+        <label>📅 Gün Seçin</label>
+        <select id="rep-date">${records.map((r) => `<option value="${r.id}">${fmtDate(r.date)} · Net ${fmtTRY(r.netSatis || 0)}</option>`).join("")}</select>
+      </div>` : `<div class="empty"><div class="ico">🧾</div><p>Henüz gün sonu kaydı yok.</p><a class="btn btn-primary btn-sm" href="#/gunsonu-aktarim">Aktarım Ekranı</a></div>`}
     </div>
     <div id="rep-body"></div>`;
 
-  $("#rep-date").addEventListener("change", (e) => {
-    const rec = records.find((r) => r.id === e.target.value);
-    renderReport(rec);
-  });
-  if (records[0]) { $("#rep-date").value = records[0].id; renderReport(records[0]); }
+  if (!records.length) return;
+  const sel = $("#rep-date", c);
+  sel.addEventListener("change", () => renderReport(records.find((r) => r.id === sel.value)));
+  renderReport(records[0]);
 
   function renderReport(rec) {
-    const body = $("#rep-body");
+    const body = $("#rep-body", c);
     if (!rec) { body.innerHTML = ""; return; }
+    const actual = (m) => (m.gerceklesen === "" || m.gerceklesen == null) ? parseNum(m.sistem) : parseNum(m.gerceklesen);
+    const methods = (rec.kasa || []).map((m) => ({ yontem: m.yontem, tutar: actual(m) })).filter((m) => m.tutar > 0).sort((a, b) => b.tutar - a.tutar);
+    const payTotal = methods.reduce((s, m) => s + m.tutar, 0);
+    const maxPay = methods.reduce((mx, m) => Math.max(mx, m.tutar), 0) || 1;
+    const brut = parseNum(rec.brut), iskonto = parseNum(rec.iskonto);
+    const ikramNet = parseNum(rec.ikramNet != null ? rec.ikramNet : rec.ikram), net = parseNum(rec.netSatis);
+    const tahsilat = rec.cariTahsilat || [], cariIslem = rec.cariIslem || [], masraflar = rec.masraflar || [];
+    const tahTot = rec.cariTahsilatTotal != null ? rec.cariTahsilatTotal : tahsilat.reduce((s, r) => s + parseNum(r.tutar), 0);
+    const cariTot = rec.cariIslemTotal != null ? rec.cariIslemTotal : cariIslem.reduce((s, r) => s + parseNum(r.tutar), 0);
+    const masTot = rec.masraflarTotal != null ? rec.masraflarTotal : masraflar.reduce((s, r) => s + parseNum(r.tutar), 0);
     const notes = rec.notes || [];
-    const totalCol = rec.totalColumn;
-    const nakit = sumCol(rec.rows, ["nakit"]);
-    const kart  = sumCol(rec.rows, ["kart", "kredi"]);
+    const liList = (arr, keyName) => arr.length
+      ? arr.map((r) => `<div class="rep-li"><span>${esc(r[keyName])}${r.rapor ? ` <small>(${esc(r.rapor)})</small>` : ""}</span><b>${fmtTRY(parseNum(r.tutar))}</b></div>`).join("")
+      : `<div class="rep-empty">— yok —</div>`;
+
     body.innerHTML = `
-      <div class="grid cols-3">
-        <div class="stat"><div class="label">Toplam Ciro</div><div class="value">${fmtTRY(rec.total||0)}</div></div>
-        <div class="stat green"><div class="label">Nakit</div><div class="value">${fmtTRY(nakit)}</div></div>
-        <div class="stat"><div class="label">Kart / Kredi</div><div class="value">${fmtTRY(kart)}</div></div>
+      <div class="rep-controls rep-noprint">
+        <button class="btn btn-primary" id="rep-print">📄 PDF İndir / Paylaş</button>
+        <span class="hint">Butona bas → <b>PDF olarak kaydet</b> ya da WhatsApp ile paylaş</span>
       </div>
-      <div class="card" style="margin-top:18px">
-        <div class="card-head"><h3>Detay</h3><span class="hint">${(rec.rows||[]).length} satır</span></div>
-        <div class="table-wrap"><table class="data">
-          <thead><tr>${(rec.headers||[]).map((h)=>`<th class="${/tutar|ciro|toplam|nakit|kart/i.test(h)?'num':''}">${esc(h)}</th>`).join("")}</tr></thead>
-          <tbody>${(rec.rows||[]).slice(0,200).map((row)=>`<tr>${(rec.headers||[]).map((h)=>{
-            const isNum=/tutar|ciro|toplam|nakit|kart|fiyat|adet/i.test(h);
-            return `<td class="${isNum?'num':''}">${isNum?fmtNum(parseNum(row[h])):esc(row[h])}</td>`;
-          }).join("")}</tr>`).join("")}</tbody>
-        </table></div>
+      <div id="gs-report">
+        <div class="rep-head">
+          <div class="rep-logo">🧾</div>
+          <div><div class="rep-title">Güllüoğlu Kübban — Gün Sonu</div><div class="rep-date">${fmtDate(rec.date)}</div></div>
+        </div>
+
+        <div class="rep-hero">
+          <div class="rep-hero-lbl">BUGÜNKÜ NET SATIŞ</div>
+          <div class="rep-hero-val">${fmtTRY(net)}</div>
+        </div>
+
+        <div class="rep-tiles">
+          <div class="rep-tile"><div class="ic">💰</div><div class="l">Brüt Satış</div><div class="v">${fmtTRY(brut)}</div></div>
+          <div class="rep-tile red"><div class="ic">🏷️</div><div class="l">İskonto</div><div class="v">${fmtTRY(iskonto)}</div></div>
+          <div class="rep-tile red"><div class="ic">🎁</div><div class="l">İkram</div><div class="v">${fmtTRY(ikramNet)}</div></div>
+          <div class="rep-tile green"><div class="ic">✅</div><div class="l">Net Satış</div><div class="v">${fmtTRY(net)}</div></div>
+        </div>
+
+        <div class="rep-sec">
+          <div class="rep-sec-h"><span>💳 Para Nasıl Geldi?</span><b>${fmtTRY(payTotal)}</b></div>
+          <div class="rep-bars">
+            ${methods.map((m) => `
+              <div class="rep-bar-row">
+                <div class="rep-bar-top"><span>${gsPayEmoji(m.yontem)} ${esc(m.yontem)}</span><b>${fmtTRY(m.tutar)}</b></div>
+                <div class="rep-bar-track"><div class="rep-bar-fill" style="width:${Math.max(4, (m.tutar / maxPay) * 100)}%"></div></div>
+              </div>`).join("") || `<div class="rep-empty">— yok —</div>`}
+          </div>
+        </div>
+
+        <div class="rep-two">
+          <div class="rep-sec green-sec">
+            <div class="rep-sec-h"><span>🟢 Tahsilatlar</span><b>${fmtTRY(tahTot)}</b></div>
+            ${liList(tahsilat, "sahis")}
+          </div>
+          <div class="rep-sec">
+            <div class="rep-sec-h"><span>🧾 Veresiye Satış</span><b>${fmtTRY(cariTot)}</b></div>
+            ${liList(cariIslem, "sahis")}
+          </div>
+        </div>
+
+        <div class="rep-sec red-sec">
+          <div class="rep-sec-h"><span>💸 Masraflar</span><b>${fmtTRY(masTot)}</b></div>
+          ${liList(masraflar, "ad")}
+        </div>
+
+        <div class="rep-foot">Güllüoğlu Kübban · ${fmtDate(rec.date)} · Bu rapor uygulamadan üretilmiştir.</div>
       </div>
-      <div class="card" style="margin-top:18px">
-        <div class="card-head"><h3>Notlar</h3></div>
-        <div class="note-list" id="note-list">
-          ${notes.length ? notes.map((n)=>`<div class="note"><div class="meta">${esc(n.by||"")} · ${esc(n.at||"")}</div>${esc(n.text)}</div>`).join("")
-            : `<div class="empty" style="padding:20px"><p>Henüz not eklenmemiş.</p></div>`}
-        </div>
-        <div class="field" style="margin-top:14px">
-          <label>Yeni Not</label>
-          <textarea id="note-text" rows="2" placeholder="Bu gün sonu için notunuz..."></textarea>
-        </div>
+
+      <div class="card rep-noprint" style="margin-top:16px">
+        <div class="card-head"><h3>📝 Notlar</h3></div>
+        <div class="note-list">${notes.length ? notes.map((n) => `<div class="note"><div class="meta">${esc(n.by || "")} · ${esc(n.at || "")}</div>${esc(n.text)}</div>`).join("") : `<div class="empty" style="padding:16px"><p>Not yok.</p></div>`}</div>
+        <div class="field" style="margin-top:12px"><label>Yeni Not</label><textarea id="note-text" rows="2" placeholder="Bu gün için not..."></textarea></div>
         <button class="btn btn-primary btn-sm" id="note-add">Not Ekle</button>
       </div>`;
 
-    $("#note-add").addEventListener("click", async () => {
-      const text = $("#note-text").value.trim();
+    $("#rep-print", body).onclick = () => window.print();
+    $("#note-add", body).onclick = async () => {
+      const text = $("#note-text", body).value.trim();
       if (!text) return;
-      const note = { text, by: currentUser.displayName || currentUser.email, at: new Date().toLocaleString("tr-TR") };
-      const newNotes = [...notes, note];
+      const newNotes = [...notes, { text, by: currentUser.displayName || currentUser.email, at: new Date().toLocaleString("tr-TR") }];
       await updateDoc(doc(db, "dayEndRecords", rec.id), { notes: newNotes });
       rec.notes = newNotes;
       toast("Not eklendi.", "ok");
       renderReport(rec);
-    });
+    };
   }
 }
 function sumCol(rows, keywords) {

@@ -542,18 +542,17 @@ table.data input.num { text-align: right; }
 .bl-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--gold-light); color: #4a3712; }
 .bl-sub { font-size: 10.5px; color: var(--ink-faint); margin-top: 1px; }
 .bl-camt { text-align: right; }
-.bl-camt .bl-val { font-size: 13px; font-weight: 700; color: var(--gold-dark); font-variant-numeric: tabular-nums; }
-.bl-camt .bl-input { width: 100%; height: 34px; padding: 0 7px; text-align: right; border: 1px solid var(--line-strong); border-radius: 7px; font-size: 14px; font-variant-numeric: tabular-nums; }
-.bl-camt .bl-input:focus { outline: none; border-color: var(--gold); }
-.bl-kredi { display: flex; flex-direction: column; gap: 5px; }
-.bl-kredi label { display: flex; align-items: center; gap: 5px; justify-content: flex-end; }
-.bl-kredi label span { font-size: 9.5px; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; }
-.bl-kredi input { width: 76px; }
-.bl-cvalor .bl-valor-row { width: 100%; height: 34px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 7px; font-size: 12px; background: var(--surface); color: var(--ink); font-variant-numeric: tabular-nums; }
-.bl-cvalor .bl-valor-row:focus { outline: none; border-color: var(--gold); }
+.bl-camt .bl-val { font-size: 14px; font-weight: 700; color: var(--gold-dark); font-variant-numeric: tabular-nums; }
+.bl-camt .bl-input { width: 100%; height: 32px; padding: 0 2px; text-align: right; border: none; background: transparent; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.bl-camt .bl-input:focus { outline: none; background: var(--surface-2); border-radius: 6px; }
+.bl-kredi { display: flex; flex-direction: column; gap: 3px; }
+.bl-kredi label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px; }
+.bl-kredi label span { font-size: 9px; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; text-align: right; }
+.bl-cvalor .bl-valor-row { width: 100%; height: 32px; padding: 0 2px; border: none; background: transparent; font-size: 13px; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; }
+.bl-cvalor .bl-valor-row:focus { outline: none; background: var(--surface-2); border-radius: 6px; }
 @media (max-width: 480px) {
-  .bl-thead, .bl-trow { grid-template-columns: 1fr 92px 96px; gap: 5px; }
-  .bl-kredi input { width: 68px; }
+  .bl-thead, .bl-trow { grid-template-columns: 1fr 88px 92px; gap: 5px; }
+  .bl-name { font-size: 12.5px; }
 }
 
 /* Banka uygulaması tarzı hareket kartları (mobil) */
@@ -727,4 +726,57 @@ table.data input.num { text-align: right; }
   .toolbar .seg { width: 100%; }
   .toolbar .seg button { flex: 1; }
   .login-card { padding: 26px 20px; }
+}
+
+/* ===================== GÜN SONU RAPORU (sade görsel + PDF) ===================== */
+.rep-controls { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+#gs-report { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+.rep-head { display: flex; align-items: center; gap: 14px; border-bottom: 2px solid var(--gold-light); padding-bottom: 14px; margin-bottom: 16px; }
+.rep-logo { width: 52px; height: 52px; border-radius: 14px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-size: 28px; background: linear-gradient(135deg, var(--gold-dark), var(--gold-light)); }
+.rep-title { font-weight: 800; font-size: 17px; color: var(--gold-dark); }
+.rep-date { color: var(--ink-soft); font-size: 13px; font-weight: 600; }
+.rep-hero { text-align: center; padding: 20px; border-radius: 14px; margin-bottom: 16px; color: #fff; background: linear-gradient(135deg, var(--gold-dark), var(--gold) 70%, var(--gold-light)); }
+.rep-hero-lbl { font-size: 12px; letter-spacing: 2px; opacity: .92; font-weight: 700; }
+.rep-hero-val { font-size: 34px; font-weight: 800; margin-top: 4px; }
+.rep-tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 18px; }
+.rep-tile { text-align: center; padding: 14px 8px; border-radius: 12px; background: var(--surface-2); border: 1px solid var(--line); }
+.rep-tile .ic { font-size: 24px; }
+.rep-tile .l { font-size: 11px; color: var(--ink-soft); font-weight: 600; margin-top: 4px; }
+.rep-tile .v { font-weight: 800; font-size: 14px; margin-top: 2px; }
+.rep-tile.green { background: var(--ok-bg); border-color: #bfe3cd; }
+.rep-tile.green .v { color: var(--ok); }
+.rep-tile.red .v { color: var(--danger); }
+.rep-sec { border: 1px solid var(--line); border-radius: 12px; padding: 14px; margin-bottom: 14px; }
+.rep-sec-h { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-weight: 800; font-size: 14px; margin-bottom: 10px; }
+.rep-sec-h b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.green-sec .rep-sec-h { color: var(--ok); }
+.red-sec .rep-sec-h { color: var(--danger); }
+.rep-bars { display: flex; flex-direction: column; gap: 10px; }
+.rep-bar-top { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; font-weight: 600; margin-bottom: 4px; }
+.rep-bar-top b { font-variant-numeric: tabular-nums; }
+.rep-bar-track { height: 9px; background: var(--line); border-radius: 99px; overflow: hidden; }
+.rep-bar-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--gold), var(--gold-light)); }
+.rep-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.rep-li { display: flex; justify-content: space-between; gap: 10px; padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.rep-li:first-child { border-top: none; }
+.rep-li span { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.rep-li small { color: var(--ink-faint); }
+.rep-li b { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rep-empty { color: var(--ink-faint); font-size: 12px; padding: 4px 0; }
+.rep-foot { text-align: center; color: var(--ink-faint); font-size: 11px; margin-top: 8px; }
+@media (max-width: 640px) {
+  .rep-tiles { grid-template-columns: repeat(2, 1fr); }
+  .rep-two { grid-template-columns: 1fr; }
+  .rep-hero-val { font-size: 28px; }
+}
+
+/* Yazdırma: yalnızca rapor görünür, tam renkli */
+@media print {
+  @page { margin: 10mm; }
+  body { background: #fff; }
+  .sidebar, .topbar, #sidebar-overlay, #toasts, #modal-root, .rep-noprint { display: none !important; }
+  body * { visibility: hidden; }
+  #gs-report, #gs-report * { visibility: visible; }
+  #gs-report { position: absolute; left: 0; top: 0; width: 100%; border: none; border-radius: 0; padding: 0; }
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 }
