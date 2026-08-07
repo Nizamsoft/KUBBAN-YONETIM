@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.48";
+} from "./local-backend.js?v=2026.49";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.48";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.49";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.48";
+const APP_VERSION = "2026.49";
 const CHANGELOG = [
+  { version: "2026.49", date: "2026-08-07", items: [
+    "Para alanlarında ₺ amblemi düzeltildi (mobilde sayının üstüne biniyordu)",
+    "Gün sonu cari kayıtları 120 Müşteri hesaplarına işleniyor: Cari İşlem→Borç, Tahsilat→Alacak",
+    "Cari yoksa onay ile otomatik açılıp öyle kaydediliyor (fatura aktarımı gibi)",
+    "Aynı tarih ve tutarda kayıt varsa uyarı (gün sonu cari + manuel hareket ekleme)",
+  ]},
   { version: "2026.48", date: "2026-08-07", items: [
     "Gün sonu Nakit (Gerçekleşen) 100 Kasa Hesabı'na Giren olarak yazılıyor: açıklama '{tarih} Nakit Girişi'",
   ]},
@@ -1535,22 +1541,103 @@ async function viewGunSonuAktarim(c) {
       rowCount: rows.length, status: "aktarildi",
       updatedAt: serverTimestamp(), updatedBy: currentUser.email,
     };
-    try {
-      let editing = !!gsState.recordId;
-      if (gsState.recordId) {
-        await updateDoc(doc(db, "dayEndRecords", gsState.recordId), payload);
-      } else {
-        const same = (await fetchAll(C.dayEndRecords, where("date", "==", date))).find((e) => e.type === "gunsonu");
-        if (same) { await updateDoc(doc(db, "dayEndRecords", same.id), payload); editing = true; }
-        else await addDoc(C.dayEndRecords(), { ...payload, notes: [], createdAt: serverTimestamp(), createdBy: currentUser.email });
-      }
-      // Bölüm 3 — bloke hesaplarına tek taraflı (Borç) hareket yaz (idempotent)
-      await postBlokeEntries(date, blokePayload);
-      await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
-      toast("Gün sonu kaydedildi.", "ok");
-      gsState = null;
-      location.hash = "#/gunsonu-kayitlar";
-    } catch (e) { toast("Kaydedilemedi: " + e.message, "err"); }
+    // ---- Cari plan: her şahsı 120 Müşteri hesabına eşle; yoksa oluşturulacak; aynı tarih+tutar uyarısı
+    const accounts = await fetchAll(C.accounts).catch(() => []);
+    const preEntries = await fetchAll(C.accountEntries).catch(() => []);
+    const musteri = accounts.filter((a) => a.type === "musteri");
+    const byName = new Map(musteri.map((a) => [normTr(a.name), a]));
+    const cariItems = [
+      ...cariIslem.map((r) => ({ name: r.sahis, tutar: r.tutar, side: "borc" })),
+      ...cariTahsilat.map((r) => ({ name: r.sahis, tutar: r.tutar, side: "alacak" })),
+    ].filter((it) => it.name && it.tutar);
+    const missing = [], mset = new Set();
+    cariItems.forEach((it) => { const k = normTr(it.name); if (!byName.has(k) && !mset.has(k)) { mset.add(k); missing.push(it.name); } });
+    const dups = [];
+    cariItems.forEach((it) => {
+      const acc = byName.get(normTr(it.name)); if (!acc) return;
+      const dup = preEntries.some((e) => e.accountId === acc.id && e.date === date && e.gunSonuKey !== date &&
+        parseNum(it.side === "borc" ? e.borc : e.alacak) === it.tutar && it.tutar);
+      if (dup) dups.push(`${it.name} · ${fmtTRY(it.tutar)} · ${it.side === "borc" ? "Borç" : "Alacak"}`);
+    });
+
+    const doCommit = async () => {
+      try {
+        // 1) Eksik carileri 120 Alıcılar altına oluştur
+        let main = accounts.find((a) => a.type === "musteri" && !a.parentId) || accounts.find((a) => a.type === "musteri");
+        if (!main && cariItems.length) {
+          const ref = await addDoc(C.accounts(), { code: "120", name: "Alıcı Hesaplar (Müşteriler)", type: "musteri", parentId: null, parentCode: null, openingBalance: 0, createdAt: serverTimestamp() });
+          main = { id: ref.id, code: "120", name: "Alıcı Hesaplar (Müşteriler)", type: "musteri" };
+          accounts.push(main); byName.set(normTr(main.name), main);
+        }
+        for (const nm of missing) {
+          const siblings = accounts.filter((a) => a.parentId === main.id);
+          const code = nextSubCode(main, siblings);
+          const ref = await addDoc(C.accounts(), { code, name: nm, type: "musteri", parentId: main.id, parentCode: main.code, openingBalance: 0, createdAt: serverTimestamp() });
+          const acc = { id: ref.id, code, name: nm, type: "musteri", parentId: main.id };
+          accounts.push(acc); byName.set(normTr(nm), acc);
+        }
+        // 2) Gün sonu kaydını yaz
+        let editing = !!gsState.recordId;
+        if (gsState.recordId) {
+          await updateDoc(doc(db, "dayEndRecords", gsState.recordId), payload);
+        } else {
+          const same = (await fetchAll(C.dayEndRecords, where("date", "==", date))).find((e) => e.type === "gunsonu");
+          if (same) { await updateDoc(doc(db, "dayEndRecords", same.id), payload); editing = true; }
+          else await addDoc(C.dayEndRecords(), { ...payload, notes: [], createdAt: serverTimestamp(), createdBy: currentUser.email });
+        }
+        // 3) Bloke (108) + Nakit (100) + Cari (120) hareketleri (hepsi idempotent)
+        await postBlokeEntries(date, blokePayload);
+        await postCariEntries(date, cariItems, byName);
+        await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
+        toast("Gün sonu kaydedildi.", "ok");
+        gsState = null;
+        location.hash = "#/gunsonu-kayitlar";
+      } catch (e) { toast("Kaydedilemedi: " + e.message, "err"); }
+    };
+
+    if (missing.length || dups.length) {
+      const bodyEl = document.createElement("div");
+      bodyEl.innerHTML =
+        (missing.length ? `<div style="margin-bottom:10px"><b>🆕 Şu cariler yok, otomatik oluşturulacak:</b><ul style="margin:6px 0 0;padding-left:20px">${missing.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : "") +
+        (dups.length ? `<div class="notice warn" style="margin:0"><b>⚠️ Aynı tarih ve tutarda zaten kayıt var:</b><ul style="margin:6px 0 0;padding-left:20px">${dups.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>Yine de eklensin mi?</div>` : "");
+      const m = openModal({ title: "Cari Kayıtları — Onay", body: bodyEl, footer: [
+        mkBtn("Vazgeç", "", () => m.close()),
+        mkBtn("Onayla ve Kaydet", "btn-primary", () => { m.close(); doCommit(); }),
+      ]});
+      return;
+    }
+    doCommit();
+  }
+
+  // Cari (borç/alacak) hareketlerini 120 müşteri hesaplarına yazar (idempotent).
+  async function postCariEntries(date, cariItems, byName) {
+    const fresh = await fetchAll(C.accountEntries).catch(() => []);
+    const isStale = (e) => e.source === "gunsonu-cari" && e.gunSonuKey === date;
+    for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
+    const remaining = fresh.filter((e) => !isStale(e));
+    let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+    const cnoMap = new Map();
+    const docs = [];
+    for (const it of cariItems) {
+      const acc = byName.get(normTr(it.name));
+      if (!acc || !it.tutar) continue;
+      if (!cnoMap.has(acc.id))
+        cnoMap.set(acc.id, remaining.filter((e) => e.accountId === acc.id).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
+      const cno = cnoMap.get(acc.id) + 1; cnoMap.set(acc.id, cno);
+      gno++;
+      docs.push({
+        accountId: acc.id, accountCode: acc.code || "",
+        islemNo: gno, cariNo: cno,
+        date, sahis: it.name,
+        aciklama: `${fmtDate(date)} Gün Sonu ${it.side === "borc" ? "Kredili Satış" : "Tahsilat"}`,
+        borc: it.side === "borc" ? it.tutar : 0,
+        alacak: it.side === "alacak" ? it.tutar : 0,
+        faturaTuru: "", faturaNo: "",
+        source: "gunsonu-cari", gunSonuKey: date,
+        createdAt: serverTimestamp(), createdBy: currentUser.email,
+      });
+    }
+    if (docs.length) await batchAdd(C.accountEntries, docs);
   }
 
   // Bloke satırlarını 108 hesap defterlerine yazar; aynı güne ait öncekileri siler.
@@ -2597,6 +2684,13 @@ function entryModal(acc, entry, opts) {
     try {
       const lbl = `${acc.code || ""} ${acc.name || ""} · İşlem No ${payload.islemNo ?? ""}`;
       if (isNew) {
+        // Uyarı: aynı hesapta aynı tarih ve aynı tutarda işlem zaten var mı?
+        const amt = cari ? (payload.borc || payload.alacak) : (payload.giren || payload.cikan);
+        const all = await fetchAll(C.accountEntries).catch(() => []);
+        const dup = amt && all.some((e) => e.accountId === acc.id && e.date === payload.date && (cari
+          ? (parseNum(e.borc) === payload.borc && parseNum(e.alacak) === payload.alacak)
+          : (parseNum(e.giren) === payload.giren && parseNum(e.cikan) === payload.cikan)));
+        if (dup && !confirm(`Bu hesapta ${fmtDate(payload.date)} tarihli ve aynı tutarlı bir işlem zaten var.\nYine de eklensin mi?`)) return;
         await addDoc(C.accountEntries(), { ...payload, createdAt: serverTimestamp(), createdBy: currentUser.email });
         await logAction("Ekleme", "Hesap Hareketi", lbl);
       } else {

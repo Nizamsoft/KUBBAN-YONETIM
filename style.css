@@ -116,6 +116,8 @@ button { font-family: inherit; }
 /* Para alanı: sağda ₺ */
 .money-wrap { position: relative; }
 .money-wrap input { width: 100%; text-align: right; padding-right: 30px; }
+/* Mobilde .field input padding'i ezmesin diye yüksek özgüllük (₺ sayının üstüne binmesin) */
+.field .money-wrap input, .money-wrap input.money, .money-wrap input.num { padding-right: 30px; }
 .money-wrap .cur { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); pointer-events: none; }
 .auth-error { color: var(--danger); font-size: 13px; min-height: 18px; margin: 4px 0 6px; }
 .auth-toggle { text-align: center; margin-top: 14px; font-size: 13px; color: var(--ink-soft); }
