@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.51";
+} from "./local-backend.js?v=2026.52";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.51";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.52";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.51";
+const APP_VERSION = "2026.52";
 const CHANGELOG = [
+  { version: "2026.52", date: "2026-08-07", items: [
+    "Açıklamalardaki tarih öneki kaldırıldı (tarih zaten satırda görünüyor) — tüm gün sonu aktarımları",
+    "Hareket kartlarında 'No' gösterilmiyor",
+  ]},
   { version: "2026.51", date: "2026-08-07", items: [
     "Kasa nakit girişi = sayılan Nakit + gün içi nakit ödemeler (Masraflar) toplamı",
     "Her ödeme (masraf) kasadan Çıkan olarak yazılıyor (net etki = sayılan nakit)",
@@ -1650,7 +1654,7 @@ async function viewGunSonuAktarim(c) {
         accountId: acc.id, accountCode: acc.code || "",
         islemNo: gno, cariNo: cno,
         date, sahis: it.name,
-        aciklama: `${fmtDate(date)} Gün Sonu ${it.side === "borc" ? "Kredili Satış" : "Tahsilat"}`,
+        aciklama: `Gün Sonu ${it.side === "borc" ? "Kredili Satış" : "Tahsilat"}`,
         borc: it.side === "borc" ? it.tutar : 0,
         alacak: it.side === "alacak" ? it.tutar : 0,
         faturaTuru: "", faturaNo: "",
@@ -1693,7 +1697,7 @@ async function viewGunSonuAktarim(c) {
         islemNo: gno, cariNo: cno,
         date: blokePayload.tarih, valor: rv,
         islemAdi: "BLOKEYE ALMA", sahis: r.name,
-        aciklama: `${fmtDate(date)} ${cekimAd(r)} Çekimi`, rapor: "",
+        aciklama: `${cekimAd(r)} Çekimi`, rapor: "",
         borc: parseNum(r.borc), alacak: 0,
         faturaTuru: "", faturaNo: fmtDate(rv),
         source: "gunsonu-bloke", gunSonuKey: date,
@@ -1714,7 +1718,7 @@ async function viewGunSonuAktarim(c) {
         accountId: kasaId, accountCode: "100",
         islemNo: gno, date: blokePayload.tarih,
         islemAdi: "Gün Sonu", sahis: "",
-        aciklama: `${fmtDate(date)} Nakit Girişi`, rapor: "",
+        aciklama: `Nakit Girişi`, rapor: "",
         giren: nakit + masrafTot, cikan: 0,
         source: "gunsonu-nakit", gunSonuKey: date,
         createdAt: serverTimestamp(), createdBy: currentUser.email,
@@ -1725,7 +1729,7 @@ async function viewGunSonuAktarim(c) {
           accountId: kasaId, accountCode: "100",
           islemNo: gno, date: blokePayload.tarih,
           islemAdi: "Ödeme", sahis: "",
-          aciklama: `${fmtDate(date)} ${m.ad || "Ödeme"}`, rapor: m.rapor || "",
+          aciklama: `${m.ad || "Ödeme"}`, rapor: m.rapor || "",
           giren: 0, cikan: parseNum(m.tutar),
           source: "gunsonu-masraf", gunSonuKey: date,
           createdAt: serverTimestamp(), createdBy: currentUser.email,
@@ -2488,7 +2492,7 @@ async function viewAccountLedger(c) {
     <button class="tx-card" data-edit="${e.id}">
       <div class="tx-left">
         <div class="tx-title">${esc(e.islemAdi || "Hareket")}</div>
-        <div class="tx-sub">${fmtDate(e.date)} · No ${esc(String(e.islemNo ?? "—"))}${e.sahis ? " · " + esc(e.sahis) : ""}</div>
+        <div class="tx-sub">${fmtDate(e.date)}${e.sahis ? " · " + esc(e.sahis) : ""}</div>
         ${e.aciklama ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : ""}
       </div>
       <div class="tx-right">
@@ -2501,7 +2505,7 @@ async function viewAccountLedger(c) {
     <button class="tx-card" data-edit="${e.id}">
       <div class="tx-left">
         <div class="tx-title">${esc(e.sahis || e.aciklama || "Hareket")}</div>
-        <div class="tx-sub">${fmtDate(e.date)} · Cari ${esc(String(e.cariNo ?? "—"))} · No ${esc(String(e.islemNo ?? "—"))}</div>
+        <div class="tx-sub">${fmtDate(e.date)}${e.cariNo ? " · Cari " + esc(String(e.cariNo)) : ""}</div>
         ${e.aciklama && e.sahis ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : ""}
         ${(e.faturaTuru || e.faturaNo) ? `<div class="tx-tag">🧾 ${esc(e.faturaTuru || "")}${e.faturaNo ? " · " + esc(e.faturaNo) : ""}</div>` : ""}
       </div>
