@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.41";
+} from "./local-backend.js?v=2026.42";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.41";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.42";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.41";
+const APP_VERSION = "2026.42";
 const CHANGELOG = [
+  { version: "2026.42", date: "2026-08-07", items: [
+    "Yan menü yeni 'Beyaz Kartlar' tasarımı: açık grup altın çerçeveli kutu, seçili sayfa net",
+    "Menü sadeleşti: Cari Hareket→Fatura Aktarımı, Banka→Banka Aktarımı",
+    "Gün Sonu Aktarımı, Veri Girişleri altına taşındı; Gün Sonu Raporu Raporlar altına",
+    "Gün Sonu Kayıtları'na artık Gün Sonu Aktarımı ekranındaki '🕘 Geçmiş Kayıtları Gör' ile ulaşılıyor",
+  ]},
   { version: "2026.41", date: "2026-08-07", items: [
     "Gün Sonu Raporu'na 'Sayım Kontrolü' eklendi: Girilen ↔ Gerçekleşen ↔ Fark (renkli, toplam farklı)",
   ]},
@@ -533,18 +539,15 @@ const CHANGELOG = [
 const NAV = [
   { label: "Dashboard", icon: "📊", path: "dashboard" },
   { label: "Veri Girişleri", icon: "📝", children: [
-    { label: "Cari Hareket İşleme", icon: "🔁", path: "cari-hareket" },
-    { label: "Banka İşleme",        icon: "🏦", path: "banka" },
-  ]},
-  { label: "Gün Sonu İşlemleri", icon: "🧾", children: [
-    { label: "Aktarım Ekranı",      icon: "📥", path: "gunsonu-aktarim" },
-    { label: "Gün Sonu Kayıtları",  icon: "🗂️", path: "gunsonu-kayitlar" },
-    { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
+    { label: "Fatura Aktarımı",   icon: "🧾", path: "cari-hareket" },
+    { label: "Banka Aktarımı",    icon: "🏦", path: "banka" },
+    { label: "Gün Sonu Aktarımı", icon: "🌙", path: "gunsonu-aktarim" },
   ]},
   { label: "Hesaplar", icon: "💼", path: "hesaplar" },
   { label: "Raporlar", icon: "📈", children: [
     { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
     { label: "Nakit Akış Verileri", icon: "🔄", path: "nakit-akis-veri" },
+    { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
   ]},
   { label: "Sistem", icon: "⚙️", children: [
     { label: "Değişiklik Kaydı", icon: "📋", path: "audit" },
@@ -555,13 +558,13 @@ const NAV = [
 
 const ROUTES = {
   "dashboard":        { title: "Dashboard", crumb: "Ana Sayfa", render: viewDashboard },
-  "gunsonu-aktarim":  { title: "Aktarım Ekranı", crumb: "Gün Sonu", render: viewGunSonuAktarim },
-  "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu", render: viewGunSonuKayitlar },
-  "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Gün Sonu", render: viewGunSonuRapor },
+  "gunsonu-aktarim":  { title: "Gün Sonu Aktarımı", crumb: "Veri Girişleri", render: viewGunSonuAktarim },
+  "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu Aktarımı", render: viewGunSonuKayitlar },
+  "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
   "hesaplar":         { title: "Hesaplar", crumb: "Hesaplar", render: viewHesaplar },
   "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger },
-  "cari-hareket":     { title: "Cari Hareket İşleme", crumb: "Veri Girişi", render: viewCariHareket },
-  "banka":            { title: "Banka İşleme", crumb: "Veri Girişi", render: viewBanka },
+  "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
+  "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
   "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Raporlar", render: viewNakitAkisVeri },
   "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
@@ -623,12 +626,13 @@ async function route() {
   const r = ROUTES[path] || ROUTES["dashboard"];
   closeDrawer(); // mobilde gezinince menüyü kapat
   if (reviewKeyHandler) { document.removeEventListener("keydown", reviewKeyHandler); reviewKeyHandler = null; }
-  const navPath = path === "hesap-detay" ? "hesaplar" : path;
+  const navPath = path === "hesap-detay" ? "hesaplar"
+    : path === "gunsonu-kayitlar" ? "gunsonu-aktarim" : path;
   $$("#nav .nav-item").forEach((a) =>
     a.classList.toggle("active", a.dataset.path === navPath));
   // Aktif sayfanın bulunduğu grubu aç (akordeon)
   $$("#nav .nav-group").forEach((g) =>
-    g.classList.toggle("open", Array.isArray(g._paths) && g._paths.includes(path)));
+    g.classList.toggle("open", Array.isArray(g._paths) && g._paths.includes(navPath)));
   $("#page-title").textContent = r.title;
   $("#crumb").textContent = r.crumb;
   const c = $("#view-container");
@@ -845,7 +849,7 @@ async function viewDashboard(c) {
         <div class="card-head"><h3>Bugünün Gün Sonu</h3><span class="hint">${fmtDate(todayISO())}</span></div>
         ${todayRec
           ? `<div class="stat" style="border-left-color:var(--ok)"><div class="label">Toplam Ciro</div><div class="value">${fmtTRY(todayRec.total||0)}</div><div class="foot">${(todayRec.rows||[]).length} satır · ${esc(todayRec.status||"")}</div></div>`
-          : `<div class="empty"><div class="ico">🗓️</div><p>Bugün için gün sonu kaydı yok.</p><a class="btn btn-primary btn-sm" href="#/gunsonu-aktarim">Aktarım Ekranına Git</a></div>`}
+          : `<div class="empty"><div class="ico">🗓️</div><p>Bugün için gün sonu kaydı yok.</p><a class="btn btn-primary btn-sm" href="#/gunsonu-aktarim">Gün Sonu Aktarımı</a></div>`}
       </div>
       <div class="card">
         <div class="card-head"><h3>Son Gün Sonu Kayıtları</h3><a class="hint" href="#/gunsonu-kayitlar">Tümü →</a></div>
@@ -1123,7 +1127,8 @@ async function viewGunSonuAktarim(c) {
   }
 
   function render() {
-    c.innerHTML = stepper() + `<div id="gs-body"></div>`;
+    c.innerHTML = `<div class="gs-topbar"><div class="grow"></div><a class="btn btn-sm" href="#/gunsonu-kayitlar">🕘 Geçmiş Kayıtları Gör</a></div>`
+      + stepper() + `<div id="gs-body"></div>`;
     $$(".step", c).forEach((el) => el.onclick = () => goto(+el.dataset.step));
     const renderers = [renderUpload, renderKasa, renderCari, renderMasraflar];
     (renderers[gsState.step] || renderUpload)($("#gs-body", c));
@@ -1555,6 +1560,7 @@ async function viewGunSonuKayitlar(c) {
   const records = (await fetchAll(C.dayEndRecords))
     .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   c.innerHTML = `
+    <div class="gs-topbar"><a class="btn btn-sm" href="#/gunsonu-aktarim">← Gün Sonu Aktarımı</a><div class="grow"></div></div>
     ${isAdmin() ? "" : `<div class="notice info">🔒 Kayıtları yalnızca <b>yetkili (yönetici)</b> düzenleyebilir. Görüntüleme yetkiniz var.</div>`}
     <div class="card">
       <div class="card-head"><h3>Gün Sonu Arşivi</h3><span class="hint">${records.length} kayıt</span></div>
@@ -1572,7 +1578,7 @@ async function viewGunSonuKayitlar(c) {
               <button class="btn btn-sm btn-danger" data-del="${r.id}">Sil</button>` : ""}
           </td>
         </tr>`).join("")}</tbody></table></div>`
-        : `<div class="empty"><div class="ico">🗂️</div><p>Henüz gün sonu kaydı yok.</p><a class="btn btn-primary btn-sm" href="#/gunsonu-aktarim">Aktarım Ekranı</a></div>`}
+        : `<div class="empty"><div class="ico">🗂️</div><p>Henüz gün sonu kaydı yok.</p><a class="btn btn-primary btn-sm" href="#/gunsonu-aktarim">Gün Sonu Aktarımı</a></div>`}
     </div>`;
 
   const byId = (id) => records.find((r) => r.id === id);
@@ -1672,7 +1678,7 @@ async function viewGunSonuRapor(c) {
       ${records.length ? `<div class="field" style="margin:0;max-width:340px">
         <label>📅 Gün Seçin</label>
         <select id="rep-date">${records.map((r) => `<option value="${r.id}">${fmtDate(r.date)} · Net ${fmtTRY(r.netSatis || 0)}</option>`).join("")}</select>
-      </div>` : `<div class="empty"><div class="ico">🧾</div><p>Henüz gün sonu kaydı yok.</p><a class="btn btn-primary btn-sm" href="#/gunsonu-aktarim">Aktarım Ekranı</a></div>`}
+      </div>` : `<div class="empty"><div class="ico">🧾</div><p>Henüz gün sonu kaydı yok.</p><a class="btn btn-primary btn-sm" href="#/gunsonu-aktarim">Gün Sonu Aktarımı</a></div>`}
     </div>
     <div id="rep-body"></div>`;
 
