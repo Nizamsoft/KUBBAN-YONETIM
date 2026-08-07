@@ -415,6 +415,18 @@ table.data input.num { text-align: right; }
 .stepper .step.active .dot { border-color: var(--gold); background: var(--gold); color: #fff; }
 .stepper .step.done .dot { border-color: var(--ok); background: var(--ok); color: #fff; }
 .stepper .step-line { flex: 1; min-width: 16px; height: 2px; background: var(--line-strong); }
+/* Mobil: bağlantı çizgileri gizlenir, adımlar sıra sıra hap (pill) olarak sığar */
+@media (max-width: 640px) {
+  .stepper { gap: 6px; margin-bottom: 14px; }
+  .stepper .step-line { display: none; }
+  .stepper .step {
+    font-size: 11.5px; gap: 5px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 999px; padding: 4px 11px 4px 4px;
+  }
+  .stepper .step .dot { width: 21px; height: 21px; font-size: 11px; border-width: 1.5px; }
+  .stepper .step.active { border-color: var(--gold); background: var(--warn-bg); }
+  .stepper .step.done { border-color: var(--ok); }
+}
 
 /* Gün Sonu · Kasa Kapanış Kontrolü (gruplu, mobil-dostu) */
 .gs-group { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; margin-bottom: 14px; }
@@ -463,12 +475,26 @@ table.data input.num { text-align: right; }
 .gs-total .tt { font-size: 13px; font-weight: 600; color: #cbb78e; }
 .gs-total .tt b { color: #fff; margin-left: 4px; }
 
-/* Adım 3 — Cari Kayıtlar: düzenlenebilir cari listeleri */
-.cari-list { display: flex; flex-direction: column; gap: 8px; }
-.cari-row { display: grid; grid-template-columns: 1fr 150px 40px; gap: 8px; align-items: center; }
-.cari-row input { height: 40px; width: 100%; min-width: 0; }
+/* Adım 3 — Cari Kayıtlar: düz (kutusuz) satırlar, normal metin görünümü */
 .money-wrap.sm input { height: 40px; }
-.cari-row .btn-danger { padding: 0; height: 40px; }
+.ci-list { display: flex; flex-direction: column; }
+.ci-row { display: grid; grid-template-columns: 1fr 132px; gap: 8px; align-items: center; border-top: 1px solid var(--line); }
+.ci-row:first-child { border-top: none; }
+.ci-sahis {
+  width: 100%; min-width: 0; border: none; background: transparent; padding: 9px 2px;
+  font-size: 14px; color: var(--ink); font-family: inherit;
+}
+.ci-sahis:focus { outline: none; background: var(--surface-2); border-radius: 6px; }
+.ci-amt { position: relative; }
+.ci-amt input {
+  width: 100%; border: none; background: transparent; text-align: right; padding: 9px 16px 9px 2px;
+  font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink); font-family: inherit;
+}
+.ci-amt input:focus { outline: none; background: var(--surface-2); border-radius: 6px; }
+.ci-amt .cur { position: absolute; right: 2px; top: 50%; transform: translateY(-50%); color: var(--ink-faint); font-size: 12px; pointer-events: none; }
+.ci-toplam { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; padding-top: 10px; border-top: 2px solid var(--gold-light); font-weight: 800; }
+.ci-toplam span { color: var(--ink-soft); font-size: 13px; }
+.ci-toplam b { font-variant-numeric: tabular-nums; }
 
 /* Masraflar — kompakt tablo; açıklama dokununca büyür */
 .mf-thead, .mf-row { display: grid; grid-template-columns: 1fr 66px 104px 30px; gap: 6px; align-items: center; }
@@ -491,30 +517,29 @@ table.data input.num { text-align: right; }
   .mf-row .btn-danger { width: 28px; }
 }
 
-/* Adım 3 — Blokeye Aktarımlar */
-.bloke-list { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
-.bloke-row {
-  display: flex; flex-direction: column; gap: 8px;
-  padding: 10px 12px; border: 1px solid var(--line); border-left: 4px solid var(--gold);
-  border-radius: var(--radius-sm); background: var(--surface);
-}
-.bloke-row .bl-top { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
-.bloke-row .bl-main { min-width: 0; }
-.bloke-row .bl-name { font-weight: 700; font-size: 14px; }
-.bloke-row .bl-tag { display: inline-block; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 999px; background: var(--gold-light); color: #4a3712; }
-.bloke-row .bl-sub { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; }
-.bloke-row .bl-amt { flex: 0 0 auto; text-align: right; }
-.bloke-row .bl-amt .money-wrap.sm { width: 150px; }
-.bloke-row .bl-val { font-size: 15px; color: var(--gold-dark); }
-/* Satır bazında valör tarihi (takvim) */
-.bloke-row .bl-valor { display: flex; align-items: center; justify-content: flex-end; gap: 8px; border-top: 1px dashed var(--line); padding-top: 8px; }
-.bloke-row .bl-cal { font-size: 12px; color: var(--ink-faint); font-weight: 600; }
-.bloke-row .bl-valor-row { height: 34px; padding: 0 8px; border: 1px solid var(--line-strong); border-radius: 7px; font-size: 13px; background: var(--surface); color: var(--ink); font-variant-numeric: tabular-nums; }
-.bloke-row .bl-valor-row:focus { outline: none; border-color: var(--gold); }
-
-@media (max-width: 820px) {
-  .cari-row { grid-template-columns: 1fr 120px 36px; }
-  .bloke-row .bl-amt .money-wrap.sm { width: 120px; }
+/* Adım 3 — Blokeye Aktarımlar (tablo: Hesap · Tutar · Valör) */
+.bl-table { display: flex; flex-direction: column; margin-bottom: 12px; }
+.bl-thead, .bl-trow { display: grid; grid-template-columns: 1fr 96px 108px; gap: 8px; align-items: center; }
+.bl-thead { padding: 6px 2px 8px; font-size: 10px; text-transform: uppercase; letter-spacing: .3px; color: var(--ink-faint); font-weight: 700; border-bottom: 1px solid var(--line); }
+.bl-thead .num { text-align: right; }
+.bl-trow { padding: 8px 2px; border-bottom: 1px solid var(--line); }
+.bl-cname { min-width: 0; }
+.bl-name { font-weight: 600; font-size: 13px; }
+.bl-tag { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 999px; background: var(--gold-light); color: #4a3712; }
+.bl-sub { font-size: 10.5px; color: var(--ink-faint); margin-top: 1px; }
+.bl-camt { text-align: right; }
+.bl-camt .bl-val { font-size: 13px; font-weight: 700; color: var(--gold-dark); font-variant-numeric: tabular-nums; }
+.bl-camt .bl-input { width: 100%; height: 34px; padding: 0 7px; text-align: right; border: 1px solid var(--line-strong); border-radius: 7px; font-size: 14px; font-variant-numeric: tabular-nums; }
+.bl-camt .bl-input:focus { outline: none; border-color: var(--gold); }
+.bl-kredi { display: flex; flex-direction: column; gap: 5px; }
+.bl-kredi label { display: flex; align-items: center; gap: 5px; justify-content: flex-end; }
+.bl-kredi label span { font-size: 9.5px; text-transform: uppercase; color: var(--ink-faint); font-weight: 700; }
+.bl-kredi input { width: 76px; }
+.bl-cvalor .bl-valor-row { width: 100%; height: 34px; padding: 0 6px; border: 1px solid var(--line-strong); border-radius: 7px; font-size: 12px; background: var(--surface); color: var(--ink); font-variant-numeric: tabular-nums; }
+.bl-cvalor .bl-valor-row:focus { outline: none; border-color: var(--gold); }
+@media (max-width: 480px) {
+  .bl-thead, .bl-trow { grid-template-columns: 1fr 92px 96px; gap: 5px; }
+  .bl-kredi input { width: 68px; }
 }
 
 /* Banka uygulaması tarzı hareket kartları (mobil) */

@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.36";
+} from "./local-backend.js?v=2026.37";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.36";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.37";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,17 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.36";
+const APP_VERSION = "2026.37";
 const CHANGELOG = [
+  { version: "2026.37", date: "2026-08-07", items: [
+    "Üstteki adım çubuğu mobilde sıra sıra hap düzenine geçti (taşma yok)",
+    "Cari İşlemler/Tahsilatlar sadeleşti: kutusuz normal metin, ✕ ve + Satır Ekle kaldırıldı",
+    "Girişlerde otomatik yakınlaşma/kayma engellendi (maximum-scale)",
+    "Blokeye Aktarımlar tablo oldu (Hesap · Tutar · Valör); tepedeki tarihler kaldırıldı",
+    "Garanti Kredi Kartı için iki alan: Tutar ve Komisyon",
+    "Masraf adlarında '-' öncesi kısım Rapor koduna ayrıldı; adlar 'İlk Harf Büyük' düzeninde",
+    "İçe alınan tüm isimler Başlık Düzeni (TÜMÜ BÜYÜK yerine İlk Harfler Büyük)",
+  ]},
   { version: "2026.36", date: "2026-08-07", items: [
     "Alt hesaplar en soldan hizalanıyor (emoji boşluğu kaldırıldı)",
   ]},
@@ -890,6 +899,11 @@ const normTr = (s) => String(s || "")
   .replace(/[İIı]/g, "i").replace(/[Şş]/g, "s").replace(/[Çç]/g, "c")
   .replace(/[Ğğ]/g, "g").replace(/[Öö]/g, "o").replace(/[Üü]/g, "u")
   .toLowerCase().replace(/\s+/g, " ").trim();
+// Başlık düzeni: TÜMÜ BÜYÜK olsa bile "İlk Harfler Büyük" (kelime başları), gerisi küçük
+function titleCase(s) {
+  return String(s || "").toLowerCase()
+    .replace(/(^|[\s\-.\/(&])([a-zçğıöşü])/g, (m, sep, ch) => sep + ch.toUpperCase());
+}
 function gsMatchMethod(label) {
   const lab = normTr(label);
   let best = null, bestLen = 0;
@@ -968,9 +982,11 @@ function gsExtractSection(aoa, marker, amtCol, skipArrow) {
   return out;
 }
 // Bölüm 1 – Cari İşlemler ("Kredili Satislar Toplami (-)", tutar 3. sütun)
-const gsExtractCariIslem = (aoa) => gsExtractSection(aoa, "kredili satis", 2, false);
+const gsExtractCariIslem = (aoa) => gsExtractSection(aoa, "kredili satis", 2, false)
+  .map((r) => ({ ...r, sahis: titleCase(r.sahis) }));
 // Bölüm 2 – Cari Tahsilatlar ("Tahsilatlar Toplami (+)", tutar 2. sütun, özet satırları atla)
-const gsExtractCariTahsilat = (aoa) => gsExtractSection(aoa, "tahsilatlar toplami", 1, true);
+const gsExtractCariTahsilat = (aoa) => gsExtractSection(aoa, "tahsilatlar toplami", 1, true)
+  .map((r) => ({ ...r, sahis: titleCase(r.sahis) }));
 
 // Adım 4 – Masraflar ("Masraflar Toplami (-)"): 1. sütun ad (sondaki (Ödenmezler İstihkak)
 // eki atılır), 2. sütun Rapor (boş), 3. sütun (indeks 2) çıkan tutar.
@@ -982,10 +998,14 @@ function gsExtractMasraflar(aoa) {
     const raw = String(aoa[i][0] || "").trim();
     if (!raw) continue;
     if (/^[=_-]{3,}/.test(raw)) break;                 // ayraç → bölüm bitti
-    const ad = raw.replace(/\s*\([^)]*\)?\s*$/, "").trim(); // sondaki (…) etiketi (kapanışsız da olsa) atılır
+    const full = raw.replace(/\s*\([^)]*\)?\s*$/, "").trim(); // sondaki (…) etiketi (kapanışsız da olsa) atılır
+    // "-"den önceki kısım rapor kodu, sonraki kısım açıklama
+    const dash = full.indexOf("-");
+    const rapor = dash > 0 ? titleCase(full.slice(0, dash).trim()) : "";
+    const ad = titleCase(dash > 0 ? full.slice(dash + 1).trim() : full);
     const tutar = gsRowAmount(aoa[i], 2);
     if (!ad || !tutar) continue;
-    out.push({ ad, rapor: "", tutar });
+    out.push({ ad, rapor, tutar });
   }
   return out;
 }
@@ -1237,6 +1257,7 @@ async function viewGunSonuAktarim(c) {
     if (!bl.tarih) bl.tarih = nextDayISO(gsState.date);
     if (!bl.valor) bl.valor = nextDayISO(gsState.date);
     if (bl.garantiKredi == null) bl.garantiKredi = "";
+    if (bl.garantiKomisyon == null) bl.garantiKomisyon = "";
     if (bl.garantiDebit == null) bl.garantiDebit = "";
     if (!bl.rowValor) bl.rowValor = {};
 
@@ -1249,45 +1270,39 @@ async function viewGunSonuAktarim(c) {
       const rows = gsState[key];
       const tot = rows.reduce((s, r) => s + parseNum(r.tutar), 0);
       const rowsHtml = rows.map((r, i) => `
-        <div class="cari-row">
+        <div class="ci-row">
           <input class="ci-sahis" data-key="${key}" data-i="${i}" value="${esc(r.sahis)}" placeholder="Şahıs / Cari" />
-          <div class="money-wrap sm">
-            <input class="num ci-tutar" data-key="${key}" data-i="${i}" inputmode="decimal" value="${esc(money(r.tutar))}" placeholder="0,00" />
-            <span class="cur">₺</span>
-          </div>
-          <button class="btn btn-sm btn-danger ci-del" data-key="${key}" data-i="${i}" title="Sil">✕</button>
+          <div class="ci-amt"><input class="num ci-tutar" data-key="${key}" data-i="${i}" inputmode="decimal" value="${esc(money(r.tutar))}" placeholder="0,00" /><span class="cur">₺</span></div>
         </div>`).join("");
       return `<div class="card">
         <div class="card-head"><h3>${esc(title)}</h3><span class="hint">${esc(hint)}</span></div>
-        <div class="cari-list">${rowsHtml || `<div class="empty" style="padding:14px"><p>Kayıt yok.</p></div>`}</div>
-        <div class="toolbar" style="margin-top:10px">
-          <button class="btn btn-sm" data-add="${key}">+ Satır Ekle</button>
-          <div class="grow"></div>
-          <div style="font-weight:800">Toplam <span data-tot="${key}">${fmtTRY(tot)}</span></div>
-        </div>
+        <div class="ci-list">${rowsHtml || `<div class="empty" style="padding:14px"><p>Kayıt yok.</p></div>`}</div>
+        <div class="ci-toplam"><span>Toplam</span><b data-tot="${key}">${fmtTRY(tot)}</b></div>
       </div>`;
     };
 
     const rowKey = (r) => r.code + "-" + r.tip;
-    const blokeRowHtml = (r) => {
+    const blRowHtml = (r) => {
       const key = rowKey(r);
       const rv = bl.rowValor[key] || bl.valor;
-      return `<div class="bloke-row">
-        <div class="bl-top">
-          <div class="bl-main">
-            <div class="bl-name">${esc(r.name)}${r.aciklama ? ` · <span class="bl-tag">${esc(r.aciklama)}</span>` : ""}</div>
-            <div class="bl-sub">${esc(r.code)} · BLOKEYE ALMA</div>
-          </div>
-          <div class="bl-amt">
-            ${r.manual
-              ? `<div class="money-wrap sm"><input class="num bl-input" data-tip="${r.tip}" inputmode="decimal" value="${esc(money(r.tip === "kredi" ? bl.garantiKredi : bl.garantiDebit))}" placeholder="0,00" /><span class="cur">₺</span></div>`
-              : `<b class="bl-val" data-tip="${r.tip}">${fmtTRY(r.borc)}</b>`}
-          </div>
+      let amtCell;
+      if (r.tip === "kredi") {
+        amtCell = `<div class="bl-kredi">
+          <label><span>Tutar</span><input class="num bl-input" data-tip="kredi" inputmode="decimal" value="${esc(money(bl.garantiKredi))}" placeholder="0,00" /></label>
+          <label><span>Komisyon</span><input class="num bl-input" data-tip="komisyon" inputmode="decimal" value="${esc(money(bl.garantiKomisyon))}" placeholder="0,00" /></label>
+        </div>`;
+      } else if (r.manual) {
+        amtCell = `<input class="num bl-input" data-tip="${r.tip}" inputmode="decimal" value="${esc(money(bl.garantiDebit))}" placeholder="0,00" />`;
+      } else {
+        amtCell = `<b class="bl-val" data-tip="${r.tip}">${fmtNum(r.borc)}</b>`;
+      }
+      return `<div class="bl-trow${r.tip === "kredi" ? " tall" : ""}">
+        <div class="bl-cname">
+          <div class="bl-name">${esc(r.name)}${r.aciklama ? ` <span class="bl-tag">${esc(r.aciklama)}</span>` : ""}</div>
+          <div class="bl-sub">${esc(r.code)}</div>
         </div>
-        <label class="bl-valor">
-          <span class="bl-cal">📅 Valör</span>
-          <input type="date" class="bl-valor-row" data-key="${key}" value="${esc(rv)}" />
-        </label>
+        <div class="bl-camt">${amtCell}</div>
+        <div class="bl-cvalor"><input type="date" class="bl-valor-row" data-key="${key}" value="${esc(rv)}" /></div>
       </div>`;
     };
 
@@ -1295,16 +1310,15 @@ async function viewGunSonuAktarim(c) {
       const rows = gsComputeBlokeRows(gsState, codeToName);
       const tot = rows.reduce((s, r) => s + parseNum(r.borc), 0);
       return `<div class="card">
-        <div class="card-head"><h3>Blokeye Aktarımlar</h3><span class="hint">Kasa "Gerçekleşen" tutarları 108 bloke hesaplarına Borç yazılır</span></div>
-        <div class="grid cols-2" style="margin-bottom:12px">
-          <div class="field" style="margin:0"><label>İşlem Tarihi</label><input type="date" id="bl-tarih" value="${esc(bl.tarih)}" /></div>
-          <div class="field" style="margin:0"><label>Valör Tarihi</label><input type="date" id="bl-valor" value="${esc(bl.valor)}" /></div>
+        <div class="card-head"><h3>Blokeye Aktarımlar</h3><span class="hint">108 bloke hesaplarına Borç</span></div>
+        <div class="bl-table">
+          <div class="bl-thead"><span>Hesap</span><span class="num">Tutar ₺</span><span>Valör</span></div>
+          ${rows.map(blRowHtml).join("")}
         </div>
-        <div class="bloke-list">${rows.map(blokeRowHtml).join("")}</div>
         <div class="gs-total"><span>TOPLAM BLOKE</span><span class="tt">Borç <b id="bl-tot">${fmtTRY(tot)}</b></span></div>
-        <div style="font-size:12px;color:var(--ink-faint);margin-top:8px">
-          Garanti için <b>Kredi Kartı</b> ve <b>Debit Kartı</b> tutarlarını elle girin; <b>Yurt Dışı</b> otomatik
-          hesaplanır (Garanti Gerçekleşen − Kredi − Debit).
+        <div style="font-size:11.5px;color:var(--ink-faint);margin-top:8px">
+          Garanti <b>Kredi Kartı</b> (Tutar + Komisyon) ve <b>Debit Kartı</b> elle; <b>Yurt Dışı</b> otomatik
+          (Garanti Gerçekleşen − Kredi − Debit). Her satırın valör tarihi ayrı ayarlanabilir.
         </div>
       </div>`;
     };
@@ -1335,19 +1349,7 @@ async function viewGunSonuAktarim(c) {
       inp.addEventListener("blur", () => { const n = parseNum(inp.value); inp.value = n ? fmtNum(n) : ""; });
       inp.addEventListener("focus", () => inp.select());
     });
-    $$(".ci-del", body).forEach((b) => b.onclick = () => {
-      gsState[b.dataset.key].splice(+b.dataset.i, 1); renderCari(body);
-    });
-    $$("[data-add]", body).forEach((b) => b.onclick = () => {
-      gsState[b.dataset.add].push({ sahis: "", tutar: 0 }); renderCari(body);
-    });
 
-    // Bloke tarih / valör (tepe). Valör değişince, elle değiştirilmemiş satırlar da güncellenir.
-    $("#bl-tarih", body).addEventListener("change", (e) => { bl.tarih = e.target.value || bl.tarih; });
-    $("#bl-valor", body).addEventListener("change", (e) => {
-      bl.valor = e.target.value || bl.valor;
-      $$(".bl-valor-row", body).forEach((inp) => { if (!bl.rowValor[inp.dataset.key]) inp.value = bl.valor; });
-    });
     // Her satır için ayrı valör tarihi
     $$(".bl-valor-row", body).forEach((inp) => inp.addEventListener("change", () => {
       bl.rowValor[inp.dataset.key] = inp.value || bl.valor;
@@ -1357,12 +1359,14 @@ async function viewGunSonuAktarim(c) {
     const recomputeBloke = () => {
       $$(".bl-input", body).forEach((inp) => {
         const v = inp.value.trim() === "" ? "" : parseNum(inp.value);
-        if (inp.dataset.tip === "kredi") bl.garantiKredi = v; else if (inp.dataset.tip === "debit") bl.garantiDebit = v;
+        if (inp.dataset.tip === "kredi") bl.garantiKredi = v;
+        else if (inp.dataset.tip === "komisyon") bl.garantiKomisyon = v;
+        else if (inp.dataset.tip === "debit") bl.garantiDebit = v;
       });
       const rows = gsComputeBlokeRows(gsState, codeToName);
       const yd = rows.find((r) => r.tip === "yurtdisi");
       const ydEl = $('.bl-val[data-tip="yurtdisi"]', body);
-      if (ydEl && yd) { ydEl.textContent = fmtTRY(yd.borc); ydEl.style.color = yd.borc < 0 ? "var(--danger)" : ""; }
+      if (ydEl && yd) { ydEl.textContent = fmtNum(yd.borc); ydEl.style.color = yd.borc < 0 ? "var(--danger)" : ""; }
       const totEl = $("#bl-tot", body);
       if (totEl) totEl.textContent = fmtTRY(rows.reduce((s, r) => s + parseNum(r.borc), 0));
     };
@@ -1452,8 +1456,9 @@ async function viewGunSonuAktarim(c) {
       .filter((r) => r.ad || r.tutar);
     const bl = gsState.bloke || {};
     const blokePayload = {
-      tarih: bl.tarih || nextDayISO(date), valor: bl.valor || nextDayISO(date),
-      garantiKredi: parseNum(bl.garantiKredi), garantiDebit: parseNum(bl.garantiDebit),
+      tarih: date, valor: bl.valor || nextDayISO(date),
+      garantiKredi: parseNum(bl.garantiKredi), garantiKomisyon: parseNum(bl.garantiKomisyon),
+      garantiDebit: parseNum(bl.garantiDebit),
       rowValor: bl.rowValor || {},
     };
 
