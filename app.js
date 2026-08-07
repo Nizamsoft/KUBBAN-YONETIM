@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.37";
+} from "./local-backend.js?v=2026.38";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.37";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.38";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.37";
+const APP_VERSION = "2026.38";
 const CHANGELOG = [
+  { version: "2026.38", date: "2026-08-07", items: [
+    "Adım çubuğu mobilde tek satır: 1–2–3–4 numaralı noktalar, yalnızca aktif adımın adı yazılır",
+  ]},
   { version: "2026.37", date: "2026-08-07", items: [
     "Üstteki adım çubuğu mobilde sıra sıra hap düzenine geçti (taşma yok)",
     "Cari İşlemler/Tahsilatlar sadeleşti: kutusuz normal metin, ✕ ve + Satır Ekle kaldırıldı",
