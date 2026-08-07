@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.46";
+} from "./local-backend.js?v=2026.47";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.46";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.47";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.46";
+const APP_VERSION = "2026.47";
 const CHANGELOG = [
+  { version: "2026.47", date: "2026-08-07", items: [
+    "Bloke hareket açıklaması: '{gün sonu tarihi} {isim} Çekimi' (ör. 08.04.2026 Garanti Kredi Kartı Çekimi)",
+  ]},
   { version: "2026.46", date: "2026-08-07", items: [
     "(Geçici/test) Kasa Kapanış'a '⚡ Test: Doldur' — tüm Gerçekleşen'i Girilen'den doldurur",
   ]},
@@ -1558,6 +1561,11 @@ async function viewGunSonuAktarim(c) {
     for (const e of existing.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
     const remaining = existing.filter((e) => !isStale(e));
 
+    // Açıklama: "{gün sonu tarihi} {isim} Çekimi"  (ör. 08.04.2026 Garanti Kredi Kartı Çekimi · 08.04.2026 Metropol Çekimi)
+    const cekimAd = (r) => r.aciklama
+      ? "Garanti " + r.aciklama
+      : String(r.name || "").replace(/\s*Bloke Hesab[ıi]\s*$/i, "").trim();
+
     const blokeRows = gsComputeBlokeRows(gsState, codeToName).filter((r) => parseNum(r.borc));
     let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
     const cnoMap = new Map();
@@ -1574,7 +1582,7 @@ async function viewGunSonuAktarim(c) {
         islemNo: gno, cariNo: cno,
         date: blokePayload.tarih, valor: rv,
         islemAdi: "BLOKEYE ALMA", sahis: r.name,
-        aciklama: r.aciklama || "", rapor: "",
+        aciklama: `${fmtDate(date)} ${cekimAd(r)} Çekimi`, rapor: "",
         borc: parseNum(r.borc), alacak: 0,
         faturaTuru: "", faturaNo: fmtDate(rv),
         source: "gunsonu-bloke", gunSonuKey: date,
