@@ -165,7 +165,7 @@ button { font-family: inherit; }
 .sidebar-brand .name { font-family: Georgia, serif; font-size: 15px; color: var(--ink); line-height: 1.1; }
 .sidebar-brand .name small { display: block; font-family: "Segoe UI", sans-serif; font-size: 9.5px; letter-spacing: 2px; color: var(--gold); text-transform: uppercase; }
 
-.nav { padding: 12px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 7px; }
+.nav { padding: 12px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 6px; transform: translateZ(0); will-change: transform; }
 
 /* Ortak satır görünümü */
 .nav-item { display: flex; align-items: center; gap: 11px; font-size: 13.5px; font-weight: 600; color: var(--ink); cursor: pointer; }
@@ -175,31 +175,34 @@ button { font-family: inherit; }
 .nav-top, .nav-group-header {
   padding: 11px 13px; border-radius: 11px; background: #fff; border: 1px solid #eaddc5;
   color: var(--ink); font-family: inherit; text-align: left; width: 100%;
-  transition: background .12s, border-color .12s, box-shadow .12s;
+  transition: background .12s, border-color .12s;
 }
-.nav-top { box-shadow: 0 1px 2px rgba(51,41,28,.04); }
 .nav-top:hover, .nav-group-header:hover { background: var(--surface-2); border-color: var(--gold-light); }
-.nav-top.active { background: var(--gold); border-color: var(--gold); color: #fff; box-shadow: 0 4px 12px rgba(122,90,32,.28); }
+.nav-top.active { background: var(--gold); border-color: var(--gold); color: #fff; }
 
 .nav-group-header {
   display: flex; align-items: center; gap: 11px; cursor: pointer;
-  font-size: 13.5px; font-weight: 700; box-shadow: 0 1px 2px rgba(51,41,28,.04);
+  font-size: 13.5px; font-weight: 700;
 }
 .nav-group-header .ico { width: 18px; text-align: center; font-size: 15px; }
 .nav-group-header .lbl { flex: 1; }
-.nav-group-header .chev { font-size: 11px; color: var(--ink-faint); transition: transform .2s; }
+.nav-group-header .chev { font-size: 11px; color: var(--ink-faint); transition: transform .18s ease; }
 
-/* Açık grup = altın çerçeveli beyaz kutu */
+/* Açık grup = altın çerçeveli beyaz kutu (gölge yok → yeniden boyama maliyeti sıfır) */
 .nav-group { border-radius: 12px; }
-.nav-group.open { background: #fff; border: 1px solid var(--gold-light); box-shadow: 0 6px 18px rgba(122,90,32,.14); overflow: hidden; }
-.nav-group.open > .nav-group-header { border: none; border-bottom: 1px solid #f0e7d5; border-radius: 0; box-shadow: none; color: var(--gold-dark); }
+.nav-group.open { background: #fff; border: 1px solid var(--gold-light); overflow: hidden; }
+.nav-group.open > .nav-group-header { border: none; border-bottom: 1px solid #f0e7d5; border-radius: 0; color: var(--gold-dark); }
 .nav-group.open > .nav-group-header .chev { transform: rotate(90deg); color: var(--gold-dark); }
 
-/* Akıcı açılış/kapanış: grid-rows 0fr→1fr (max-height gibi ölü bölge/reflow yok) */
-.nav-group-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .24s ease; }
+/* Yüksek FPS: yükseklik grid-rows ile kısa/snappy; içerik compositor'da fade+slide */
+.nav-group-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .18s cubic-bezier(.33,1,.68,1); will-change: grid-template-rows; }
 .nav-group.open > .nav-group-body { grid-template-rows: 1fr; }
-.nav-group-inner { overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 2px; padding: 6px; }
-.nav-item.nav-sub { padding: 9px 11px; border-radius: 8px; font-weight: 500; color: var(--ink-soft); }
+.nav-group-inner {
+  overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px;
+  opacity: 0; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease;
+}
+.nav-group.open > .nav-group-body > .nav-group-inner { opacity: 1; transform: none; }
+.nav-item.nav-sub { padding: 10px 12px; border-radius: 8px; font-weight: 500; color: var(--ink-soft); }
 .nav-item.nav-sub:hover { background: var(--surface-2); }
 .nav-item.nav-sub.active { background: var(--gold); color: #fff; font-weight: 700; }
 
