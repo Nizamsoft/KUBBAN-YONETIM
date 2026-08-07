@@ -918,3 +918,28 @@ table.data input.num { text-align: right; }
 .mg-arrow { font-size: 11px; color: var(--ink-faint); margin: 3px 0; font-weight: 700; }
 .mg-keep { font-size: 13.5px; font-weight: 800; color: var(--ink); }
 .mg-reason { align-self: center; flex: 0 0 auto; }
+
+/* ===== Banka seçimi (Garanti / T.Finans / Ziraat) ===== */
+.bk-choose { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 18px; }
+.bk-c { border: 1.5px solid var(--line-strong); border-radius: 15px; padding: 18px 8px; cursor: pointer; background: var(--surface); font: inherit; color: inherit; display: flex; flex-direction: column; align-items: center; gap: 8px; transition: border-color .15s, background .15s, transform .06s; }
+.bk-c:hover { border-color: var(--gold); background: var(--surface-2); }
+.bk-c:active { transform: translateY(1px); }
+.bk-c .ic { width: 46px; height: 46px; border-radius: 13px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 24px; }
+.bk-c .t { font-weight: 800; font-size: 14px; color: var(--ink); }
+
+/* ===== Banka POS grupları / kontrol ===== */
+.bk-grp { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+.bk-grp:last-child { border-bottom: none; }
+.bk-grp .ic { width: 34px; height: 34px; flex: 0 0 auto; border-radius: 10px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 17px; }
+.bk-grp .mid { flex: 1; min-width: 0; }
+.bk-grp .nm { font-weight: 700; font-size: 14px; color: var(--ink); }
+.bk-grp .mt { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.bk-grp .amt { text-align: right; flex: 0 0 auto; }
+.bk-grp .amt .v { font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.bk-grp .amt .k { font-size: 10.5px; color: var(--warn); font-weight: 700; margin-top: 2px; }
+.bk-ctrl { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 6px; font-size: 12px; padding: 9px 8px; border-radius: 9px; align-items: center; }
+.bk-ctrl.head { color: var(--ink-faint); font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: .3px; }
+.bk-ctrl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.bk-ctrl.warn { background: var(--warn-bg); }
+.bk-ctrl .ok { color: var(--ok); }
+.bk-ctrl .bad { color: var(--danger); font-weight: 700; }

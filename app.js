@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.58";
+} from "./local-backend.js?v=2026.59";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.58";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.59";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,15 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.58";
+const APP_VERSION = "2026.59";
 const CHANGELOG = [
+  { version: "2026.59", date: "2026-08-07", items: [
+    "Banka Aktarımı: önce banka seçimi (Garanti / T.Finans / Ziraat)",
+    "Garanti POS tahsilatları çekim tarihi + kart tipine (gün farkı 23/16/1: Kredi/Debit/Yurt Dışı) göre gruplanır",
+    "POS çözülme muhasebesi: 108 bloke'den çıkış (brüt), 102 banka'ya giriş (brüt) + komisyon çıkışı",
+    "Bloke Kontrolü: gün sonu bloke ↔ çözülen tutar karşılaştırması (tutmayan sarı)",
+    "Dekont bazlı idempotent (aynı POS grubu iki kez işlenmez)",
+  ]},
   { version: "2026.58", date: "2026-08-07", items: [
     "Fatura önizleme yenilendi: segment özet (İşlenecek/Zaten var/Cari yok) — başlığa dokununca süzülür; sade satırlar, kısaltılmış adlar",
     "İşle'ye basınca eksik cariler resmi ünvanla otomatik açılır, sonra işlenir",
@@ -3157,96 +3164,233 @@ async function viewCariHareket(c) {
 // ===========================================================================
 //  MODÜL: BANKA İŞLEME
 // ===========================================================================
+const BK_BANKS = [
+  { key: "garanti", label: "Garanti",   emoji: "🟢", bankCode: "102.01", blokeCode: "108.01" },
+  { key: "tfinans", label: "T. Finans", emoji: "🔵", bankCode: "102.02", blokeCode: "108.02" },
+  { key: "ziraat",  label: "Ziraat",    emoji: "🟡", bankCode: "102.03", blokeCode: null },
+];
+// gg/aa/yyyy → Date · Date → ISO
+function bkParseDate(s) {
+  if (s instanceof Date && !isNaN(s)) return new Date(s.getFullYear(), s.getMonth(), s.getDate());
+  const m = String(s).match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
+}
+function bkISO(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+// Garanti POS satırını ayrıştır: PK.. KARTKODU AA/GG K: komisyon  → tip gün farkından
+function bkClassifyGaranti(aoa) {
+  const low = (x) => String(x).toLocaleLowerCase("tr");
+  const hi = aoa.findIndex((r) => { const j = r.map(low); return j.includes("tarih") && j.some((x) => x.includes("açıklama")) && j.includes("tutar"); });
+  if (hi < 0) throw new Error("Başlık satırı (Tarih/Açıklama/Tutar) bulunamadı.");
+  const H = aoa[hi].map((x) => String(x).trim());
+  const idx = (ks) => { for (const k of ks) { const i = H.findIndex((h) => low(h).includes(k)); if (i >= 0) return i; } return -1; };
+  const ci = { tarih: idx(["tarih"]), acik: idx(["açıklama", "aciklama"]), etiket: idx(["etiket"]), tutar: idx(["tutar"]), dekont: idx(["dekont"]) };
+  const rows = aoa.slice(hi + 1).filter((r) => bkParseDate(r[ci.tarih]));
+  const pos = [], other = [];
+  for (const r of rows) {
+    const dep = bkParseDate(r[ci.tarih]), desc = String(r[ci.acik] || ""), amt = parseNum(r[ci.tutar]), dekont = String(r[ci.dekont] || "");
+    const m = desc.match(/^(PK\d+)\s+(\S+)\s+(\d{2})\/(\d{2})\s+K:\s*([\d.,]+)/);
+    if (m) {
+      let cek = new Date(dep.getFullYear(), +m[3] - 1, +m[4]);
+      if (cek > dep) cek = new Date(dep.getFullYear() - 1, +m[3] - 1, +m[4]);
+      const diff = Math.round((dep - cek) / 86400000);
+      const tip = diff === 23 ? "Kredi Kartı" : diff === 16 ? "Debit Kartı" : diff === 1 ? "Yurt Dışı Kredi Kartı" : null;
+      pos.push({ dep: bkISO(dep), cek: bkISO(cek), diff, tip, kart: m[2], kom: parseNum(m[5]), amt, dekont, desc });
+    } else {
+      other.push({ dep: bkISO(dep), etiket: String(r[ci.etiket] || ""), amt, dekont, desc });
+    }
+  }
+  return { pos, other };
+}
+// POS satırlarını (çekim tarihi + tip) bazında grupla
+function bkGroupPos(pos) {
+  const g = {};
+  for (const p of pos) {
+    if (!p.tip) continue;
+    const k = p.cek + "|" + p.tip;
+    (g[k] || (g[k] = { cek: p.cek, tip: p.tip, net: 0, kom: 0, n: 0 }));
+    g[k].net += p.amt; g[k].kom += p.kom; g[k].n++;
+  }
+  return Object.values(g).sort((a, b) => a.cek.localeCompare(b.cek) || a.tip.localeCompare(b.tip));
+}
+
 async function viewBanka(c) {
   const allAcc = await fetchAll(C.accounts).catch(() => []);
-  const parentIds = new Set(allAcc.map((a) => a.parentId).filter(Boolean));
-  // Yalnızca alt hesabı olmayan (yaprak) banka hesapları — ör. 102.01 Garanti
-  const bankAccounts = allAcc.filter((a) => a.type === "banka" && !parentIds.has(a.id));
   c.innerHTML = `
-    <div class="notice info">🏦 Banka hareket dosyanızı yükleyin. Aşağıda <b>düzenleme ve ön izleme</b> ekranı oluşur;
-      kontrol edip kaydedin. Seçtiğiniz <b>hedef banka hesabı</b>nın bakiyesi bu hareketlerle güncellenir.</div>
-    ${bankAccounts.length ? "" : `<div class="notice warn">⚠️ Henüz <b>banka türünde hesap</b> yok. Hareketlerin bir hesaba işlenmesi için önce <a href="#/hesaplar">Hesaplar</a>'dan banka hesabı ekleyin.</div>`}
-    <div class="card"><div class="card-head"><h3>1) Banka Dosyası Yükle</h3></div><div id="bk-drop"></div></div>
-    <div id="bk-editor"></div>`;
+    <div class="notice info">🏦 Banka hareket dosyanızı yükleyin. POS tahsilatları çekim tarihine göre gruplanıp
+      <b>bloke → banka</b> mantığıyla işlenir.</div>
+    <div id="bk-body"></div>`;
+  chooseBank();
 
-  $("#bk-drop").appendChild(fileDrop(async (file) => {
-    try {
-      const { headers, rows } = await parseSpreadsheet(file);
-      if (!rows.length) return toast("Veri bulunamadı.", "err");
-      renderEditor(headers, rows);
-      toast(`${rows.length} satır okundu.`, "ok");
-    } catch (e) { toast("Okunamadı: " + e.message, "err"); }
-  }));
-
-  function renderEditor(headers, rows) {
-    const map = {
-      date: guessCol(headers, ["tarih", "date"]),
-      desc: guessCol(headers, ["açıklama", "aciklama", "description", "işlem", "islem"]),
-      amount: guessCol(headers, ["tutar", "amount", "işlem tutar"]),
-      balance: guessCol(headers, ["bakiye", "balance"]),
-    };
-    const norm = rows.map((r) => {
-      const amt = parseNum(r[map.amount]);
-      return {
-        date: excelDateToISO(r[map.date]),
-        desc: r[map.desc] || "",
-        type: amt >= 0 ? "gelen" : "giden",
-        amount: amt,
-        balance: parseNum(r[map.balance]),
-      };
+  function chooseBank() {
+    const body = $("#bk-body");
+    body.innerHTML = `
+      <div class="card">
+        <div class="ft-q">Hangi bankanın hareketleri?<small>Dosyayı ona göre okuyacağım</small></div>
+        <div class="bk-choose">
+          ${BK_BANKS.map((b) => `<button class="bk-c" data-bank="${b.key}"><span class="ic">${b.emoji}</span><span class="t">${esc(b.label)}</span></button>`).join("")}
+        </div>
+      </div>`;
+    $$(".bk-c", body).forEach((btn) => btn.onclick = () => {
+      const bank = BK_BANKS.find((x) => x.key === btn.dataset.bank);
+      if (bank.key === "garanti") renderGaranti(bank);
+      else renderSoon(bank);
     });
-    const columns = [
-      { key: "date", label: "Tarih", type: "date" },
-      { key: "desc", label: "Açıklama", type: "text" },
-      { key: "type", label: "Yön", type: "select", options: [{value:"gelen",label:"Gelen"},{value:"giden",label:"Giden"}] },
-      { key: "amount", label: "Tutar", type: "num" },
-      { key: "balance", label: "Bakiye", type: "num" },
-    ];
-    const et = editableTable(columns, norm);
-    const editor = $("#bk-editor");
-    editor.innerHTML = "";
-    const card = document.createElement("div");
-    card.className = "card";
-    card.innerHTML = `<div class="card-head"><h3>2) Ön İzleme & Düzenleme</h3><span class="hint">${norm.length} hareket</span></div>`;
-    card.appendChild(et.root);
-    const foot = document.createElement("div"); foot.className = "toolbar"; foot.style.marginTop = "14px";
-    const acctField = document.createElement("div");
-    acctField.className = "field"; acctField.style.margin = "0";
-    acctField.innerHTML = `<label>Hedef Banka Hesabı</label>
-      <select id="bk-account">
-        <option value="">(hesaba işlenmesin)</option>
-        ${bankAccounts.map((a) => `<option value="${a.id}">${esc(a.code ? a.code + " · " : "")}${esc(a.name)}</option>`).join("")}
-      </select>`;
-    const info = document.createElement("div"); info.className = "grow"; info.style.fontWeight = "700";
-    const saveBtn = mkBtn("💾 Banka Hareketlerini Kaydet", "btn-primary");
-    foot.append(acctField, info, saveBtn);
-    card.appendChild(foot);
-    editor.appendChild(card);
+  }
 
-    const recompute = () => {
-      const d = et.getData();
-      const gelen = d.filter((r) => parseNum(r.amount) >= 0).reduce((s, r) => s + parseNum(r.amount), 0);
-      const giden = d.filter((r) => parseNum(r.amount) < 0).reduce((s, r) => s + parseNum(r.amount), 0);
-      info.textContent = `Gelen: ${fmtTRY(gelen)}  ·  Giden: ${fmtTRY(giden)}  ·  Net: ${fmtTRY(gelen+giden)}`;
-    };
-    recompute();
-    editor.addEventListener("input", rafThrottle(recompute));
-    saveBtn.onclick = async () => {
-      const data = et.getData().filter((r) => r.date || r.desc || r.amount);
-      if (!data.length) return toast("Kaydedilecek hareket yok.", "err");
-      saveBtn.disabled = true;
-      const acctId = $("#bk-account", editor)?.value || "";
-      const acct = bankAccounts.find((a) => a.id === acctId);
+  function renderSoon(bank) {
+    const body = $("#bk-body");
+    body.innerHTML = `<div class="card">
+      <div class="notice warn">⚠️ <b>${esc(bank.label)}</b> aktarımı yakında eklenecek. Şimdilik <b>Garanti</b> hazır.</div>
+      <button class="btn" id="bk-back">← Banka seç</button></div>`;
+    $("#bk-back", body).onclick = chooseBank;
+  }
+
+  function renderGaranti(bank) {
+    const bankAcc = allAcc.find((a) => String(a.code) === bank.bankCode);
+    const blokeAcc = allAcc.find((a) => String(a.code) === bank.blokeCode);
+    const body = $("#bk-body");
+    body.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h3>🟢 Garanti · Dosya Yükle</h3><button class="btn btn-sm" id="bk-back">← Banka</button></div>
+        ${bankAcc ? "" : `<div class="notice warn">⚠️ <b>102.01 Garanti Banka</b> hesabı yok. <a href="#/hesaplar">Hesaplar</a>'dan varsayılan planı oluşturun.</div>`}
+        ${blokeAcc ? "" : `<div class="notice warn">⚠️ <b>108.01 Garanti Bloke</b> hesabı yok.</div>`}
+        <div id="bk-drop"></div>
+      </div>
+      <div id="bk-editor"></div>`;
+    $("#bk-back", body).onclick = chooseBank;
+    $("#bk-drop", body).appendChild(fileDrop(async (file) => {
       try {
-        await batchAdd(C.bankTransactions, data.map((r) => ({
-          ...r, source: "banka",
-          accountId: acctId || null, accountCode: acct?.code || null,
-          createdAt: serverTimestamp(), createdBy: currentUser.email,
-        })));
-        toast(`${data.length} banka hareketi kaydedildi.`, "ok");
-        editor.innerHTML = `<div class="notice info">✔ ${data.length} hareket kaydedildi.</div>`;
-      } catch (e) { toast("Hata: " + e.message, "err"); saveBtn.disabled = false; }
+        const aoa = await parseSheetAOA(file);
+        const { pos, other } = bkClassifyGaranti(aoa);
+        if (!pos.length && !other.length) return toast("Hareket bulunamadı.", "err");
+        buildGaranti(bank, bankAcc, blokeAcc, pos, other);
+        toast(`${pos.length + other.length} hareket okundu.`, "ok");
+      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+    }));
+  }
+
+  async function buildGaranti(bank, bankAcc, blokeAcc, pos, other) {
+    const editor = $("#bk-editor");
+    const groups = bkGroupPos(pos);
+    const belirsiz = pos.filter((p) => !p.tip);
+    const entries = await fetchAll(C.accountEntries).catch(() => []);
+
+    // Gün sonu blokesiyle eşleşme (kontrol)
+    const tipMatch = (acik, tip) => {
+      const a = String(acik || "");
+      if (tip.startsWith("Yurt Dışı")) return a.includes("Yurt Dışı");
+      if (tip === "Debit Kartı") return a.includes("Debit");
+      return a.includes("Kredi Kartı") && !a.includes("Yurt Dışı");
     };
+    const blokeBorcOf = (g) => !blokeAcc ? 0 : entries
+      .filter((e) => e.accountId === blokeAcc.id && e.source === "gunsonu-bloke" && e.date === g.cek && tipMatch(e.aciklama, g.tip))
+      .reduce((s, e) => s + parseNum(e.borc), 0);
+
+    const tipIco = (t) => t.startsWith("Yurt Dışı") ? "🌍" : t === "Debit Kartı" ? "💳" : "🏦";
+    const grpHtml = groups.map((g) => {
+      const brut = g.net + g.kom;
+      return `<div class="bk-grp">
+        <div class="ic">${tipIco(g.tip)}</div>
+        <div class="mid"><div class="nm">${fmtDate(g.cek)} · ${esc(g.tip)} Çekimi</div>
+          <div class="mt">${g.n} hareket${g.kom ? ` · komisyon ${fmtTRY(g.kom)}` : ""}</div></div>
+        <div class="amt"><div class="v">${fmtTRY(brut)}</div>${g.kom ? `<div class="k">brüt</div>` : ""}</div>
+      </div>`;
+    }).join("");
+
+    const ctrlHtml = `
+      <div class="bk-ctrl head"><span>Grup</span><span class="num">Gün Sonu Bloke</span><span class="num">Çözülen (brüt)</span><span class="num">Fark</span></div>
+      ${groups.map((g) => {
+        const brut = g.net + g.kom, bb = blokeBorcOf(g), fark = bb - brut;
+        const warn = Math.abs(fark) > 1;
+        return `<div class="bk-ctrl ${warn ? "warn" : ""}">
+          <span>${fmtDate(g.cek)} · ${esc(g.tip)}</span>
+          <span class="num">${bb ? fmtTRY(bb) : "—"}</span>
+          <span class="num">${fmtTRY(brut)}</span>
+          <span class="num ${warn ? "bad" : "ok"}">${fmtTRY(fark)}</span>
+        </div>`;
+      }).join("")}`;
+
+    const posNet = groups.reduce((s, g) => s + g.net, 0);
+    const posKom = groups.reduce((s, g) => s + g.kom, 0);
+
+    editor.innerHTML = `
+      <div class="card">
+        <div class="pv-head"><div class="pv-title">POS Tahsilatları</div>
+          <div class="pv-sub">${groups.length} grup · ${pos.length} hareket · net ${fmtTRY(posNet)}${posKom ? ` · komisyon ${fmtTRY(posKom)}` : ""}</div></div>
+        <div>${grpHtml || `<div class="empty" style="padding:16px">POS hareketi yok.</div>`}</div>
+        ${belirsiz.length ? `<div class="notice warn" style="margin:12px 0 0">⚠️ ${belirsiz.length} hareketin kart tipi belirsiz (gün farkı 23/16/1 değil). Bunlar işlenmez; bana ilet.</div>` : ""}
+      </div>
+
+      <div class="card">
+        <div class="card-head"><h3>🧮 Bloke Kontrolü</h3><span class="hint">gün sonu ↔ çözülen</span></div>
+        ${ctrlHtml}
+        <div class="pv-fhint" style="margin-top:8px">Sarı satır = gün sonu bloke ile çözülen tutar tutmuyor.</div>
+      </div>
+
+      ${other.length ? `<div class="card">
+        <div class="card-head"><h3>💸 POS Dışı Hareketler</h3><span class="hint">${other.length} işlem · sonraki adım</span></div>
+        <div class="notice info" style="margin:0 0 10px">Bunlar (Para Transferi vb.) sonraki adımda hesap eşleştirmesiyle işlenecek.</div>
+        ${other.map((o) => `<div class="bk-grp"><div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
+          <div class="mid"><div class="nm">${esc(o.desc.slice(0, 46))}${o.desc.length > 46 ? "…" : ""}</div><div class="mt">${fmtDate(o.dep)} · ${esc(o.etiket)}</div></div>
+          <div class="amt"><div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div></div></div>`).join("")}
+      </div>` : ""}
+
+      <div class="pv-cta">
+        <div class="grow"></div>
+        <button class="btn btn-primary" id="bk-save" ${groups.length && bankAcc && blokeAcc ? "" : "disabled"}>💾 POS Çözülmelerini İşle (${groups.length})</button>
+      </div>`;
+
+    $("#bk-save", editor).onclick = () => savePos($("#bk-save", editor), bank, bankAcc, blokeAcc, groups);
+  }
+
+  async function savePos(btn, bank, bankAcc, blokeAcc, groups) {
+    btn.disabled = true;
+    try {
+      const fresh = await fetchAll(C.accountEntries).catch(() => []);
+      const newKeys = new Set(groups.map((g) => `${bank.key}|${g.cek}|${g.tip}`));
+      const isStale = (e) => (e.source === "banka-pos" || e.source === "banka-pos-komisyon") && newKeys.has(e.posKey);
+      for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
+      const remaining = fresh.filter((e) => !isStale(e));
+      let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+      const cnoMap = new Map();
+      const nextCno = (id) => {
+        if (!cnoMap.has(id)) cnoMap.set(id, remaining.filter((e) => e.accountId === id).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
+        const n = cnoMap.get(id) + 1; cnoMap.set(id, n); return n;
+      };
+      const docs = [];
+      for (const g of groups) {
+        const brut = g.net + g.kom;
+        const posKey = `${bank.key}|${g.cek}|${g.tip}`;
+        const acik = `${fmtDate(g.cek)} ${g.tip} Çekimi`;
+        // 1) Bloke → çıkış (alacak)
+        docs.push({
+          accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
+          date: g.cek, islemAdi: "POS ÇÖZÜLME", sahis: "", aciklama: acik, rapor: "",
+          borc: 0, alacak: brut, faturaTuru: "", faturaNo: "",
+          source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
+        });
+        // 2) Banka → giriş (giren, komisyonlu/brüt)
+        docs.push({
+          accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
+          date: g.cek, islemAdi: "POS", sahis: "", aciklama: acik, rapor: "",
+          giren: brut, cikan: 0,
+          source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
+        });
+        // 3) Komisyon → bankadan çıkış
+        if (g.kom > 0.005) {
+          docs.push({
+            accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
+            date: g.cek, islemAdi: "Komisyon", sahis: "", aciklama: `${acik} Komisyonu`, rapor: "",
+            giren: 0, cikan: g.kom,
+            source: "banka-pos-komisyon", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
+          });
+        }
+      }
+      await batchAdd(C.accountEntries, docs);
+      await logAction("İçe Aktarma", "Banka POS", `${bank.label} · ${groups.length} grup · ${docs.length} kayıt`);
+      toast(`${groups.length} POS grubu işlendi (${docs.length} kayıt).`, "ok");
+      $("#bk-editor").innerHTML = `<div class="notice info">✔ ${groups.length} POS çözülmesi işlendi.
+        <a href="#/hesap-detay?id=${bankAcc.id}">102.01 Garanti</a> ve <a href="#/hesap-detay?id=${blokeAcc.id}">108.01 Bloke</a> defterlerinde görebilirsin.</div>`;
+    } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
 }
 
