@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.45";
+} from "./local-backend.js?v=2026.46";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.45";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.46";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.45";
+const APP_VERSION = "2026.46";
 const CHANGELOG = [
+  { version: "2026.46", date: "2026-08-07", items: [
+    "(Geçici/test) Kasa Kapanış'a '⚡ Test: Doldur' — tüm Gerçekleşen'i Girilen'den doldurur",
+  ]},
   { version: "2026.45", date: "2026-08-07", items: [
     "Menü açılış/kapanışı yüksek FPS: menü kendi GPU katmanında, ağır gölge kaldırıldı",
     "Yükseklik kısa/snappy (0.18s) + içerik compositor'da fade/slide (kasma yok)",
@@ -1228,6 +1231,8 @@ async function viewGunSonuAktarim(c) {
       </div>
       <div class="toolbar" style="margin-top:14px">
         <button class="btn" id="gs-back">← Geri</button>
+        <!-- TEST — geçici: Gerçekleşen'i Girilen'den otomatik doldurur (silinecek) -->
+        <button class="btn btn-sm" id="gs-fill" title="Test amaçlı: tüm Gerçekleşen = Girilen">⚡ Test: Doldur</button>
         <div class="grow"></div>
         <button class="btn btn-primary" id="gs-next2">İleri →</button>
       </div>`;
@@ -1285,6 +1290,18 @@ async function viewGunSonuAktarim(c) {
 
     $("#gs-back", body).onclick = () => goto(0);
     $("#gs-next2", body).onclick = () => { if (dInp) gsState.date = dInp.value || gsState.date; goto(2); };
+
+    // TEST — geçici: tüm Gerçekleşen'i Girilen'den doldur (silinecek)
+    $("#gs-fill", body).onclick = () => {
+      rows.forEach((r, i) => {
+        const v = parseNum(r.sistem);
+        r.gerceklesen = v;
+        const inp = $(`.gs-real[data-i="${i}"]`, body);
+        if (inp) inp.value = v ? fmtNum(v) : "";
+      });
+      recompute();
+      toast("Gerçekleşenler girilenden dolduruldu.", "ok");
+    };
   }
 
   // ---- Adım 3: Cari Kayıtlar (Cari İşlemler · Cari Tahsilatlar · Blokeye Aktarımlar) ----
