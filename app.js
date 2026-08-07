@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.50";
+} from "./local-backend.js?v=2026.51";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.50";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.51";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.50";
+const APP_VERSION = "2026.51";
 const CHANGELOG = [
+  { version: "2026.51", date: "2026-08-07", items: [
+    "Kasa nakit girişi = sayılan Nakit + gün içi nakit ödemeler (Masraflar) toplamı",
+    "Her ödeme (masraf) kasadan Çıkan olarak yazılıyor (net etki = sayılan nakit)",
+  ]},
   { version: "2026.50", date: "2026-08-07", items: [
     "Cari onay: aynı tarih+tutar mükerrerleri tek tek işaretlenerek aktarılır (varsayılan: atla)",
     "Mükerrer olmayan cariler her zaman aktarılır; işaretsiz mükerrerler atlanır",
@@ -1590,8 +1594,8 @@ async function viewGunSonuAktarim(c) {
           if (same) { await updateDoc(doc(db, "dayEndRecords", same.id), payload); editing = true; }
           else await addDoc(C.dayEndRecords(), { ...payload, notes: [], createdAt: serverTimestamp(), createdBy: currentUser.email });
         }
-        // 3) Bloke (108) + Nakit (100) + Cari (120) hareketleri (hepsi idempotent)
-        await postBlokeEntries(date, blokePayload);
+        // 3) Bloke (108) + Nakit/Ödemeler (100) + Cari (120) hareketleri (hepsi idempotent)
+        await postBlokeEntries(date, blokePayload, masraflar);
         await postCariEntries(date, items, byName);
         await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
         toast("Gün sonu kaydedildi.", "ok");
@@ -1657,14 +1661,14 @@ async function viewGunSonuAktarim(c) {
     if (docs.length) await batchAdd(C.accountEntries, docs);
   }
 
-  // Bloke satırlarını 108 hesap defterlerine yazar; aynı güne ait öncekileri siler.
-  async function postBlokeEntries(date, blokePayload) {
+  // Bloke satırlarını 108 hesap defterlerine + Nakit/Ödemeleri 100 Kasa'ya yazar (idempotent).
+  async function postBlokeEntries(date, blokePayload, masraflar) {
     const accounts = await ensureBlokeAccounts();
     const codeToId = {}, codeToName = {};
     accounts.forEach((a) => { if (a.code) { codeToId[String(a.code)] = a.id; codeToName[String(a.code)] = a.name; } });
 
     const existing = await fetchAll(C.accountEntries).catch(() => []);
-    const isStale = (e) => (e.source === "gunsonu-bloke" || e.source === "gunsonu-nakit") && e.gunSonuKey === date;
+    const isStale = (e) => (e.source === "gunsonu-bloke" || e.source === "gunsonu-nakit" || e.source === "gunsonu-masraf") && e.gunSonuKey === date;
     for (const e of existing.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
     const remaining = existing.filter((e) => !isStale(e));
 
@@ -1697,22 +1701,36 @@ async function viewGunSonuAktarim(c) {
       };
     }).filter(Boolean);
 
-    // Nakit (Gerçekleşen) → 100 Kasa Hesabı'na Giren, aynı tarzda açıklamayla
+    // 100 Kasa: gerçek nakit girişi = sayılan Nakit (Gerçekleşen) + gün içi nakit ödemeler (Masraflar);
+    //           sonra her ödeme (masraf) kasadan Çıkan yapılır. Net etki = sayılan nakit.
     const nakitRow = (gsState.kasa || []).find((r) => normTr(r.yontem) === "nakit");
     const nakit = nakitRow && !(nakitRow.gerceklesen === "" || nakitRow.gerceklesen == null) ? parseNum(nakitRow.gerceklesen) : 0;
+    const masrafList = (masraflar || []).filter((m) => parseNum(m.tutar));
+    const masrafTot = masrafList.reduce((s, m) => s + parseNum(m.tutar), 0);
     const kasaId = codeToId["100"];
-    if (kasaId && nakit) {
+    if (kasaId && (nakit || masrafTot)) {
       gno++;
       docs.push({
         accountId: kasaId, accountCode: "100",
-        islemNo: gno,
-        date: blokePayload.tarih,
+        islemNo: gno, date: blokePayload.tarih,
         islemAdi: "Gün Sonu", sahis: "",
         aciklama: `${fmtDate(date)} Nakit Girişi`, rapor: "",
-        giren: nakit, cikan: 0,
+        giren: nakit + masrafTot, cikan: 0,
         source: "gunsonu-nakit", gunSonuKey: date,
         createdAt: serverTimestamp(), createdBy: currentUser.email,
       });
+      for (const m of masrafList) {
+        gno++;
+        docs.push({
+          accountId: kasaId, accountCode: "100",
+          islemNo: gno, date: blokePayload.tarih,
+          islemAdi: "Ödeme", sahis: "",
+          aciklama: `${fmtDate(date)} ${m.ad || "Ödeme"}`, rapor: m.rapor || "",
+          giren: 0, cikan: parseNum(m.tutar),
+          source: "gunsonu-masraf", gunSonuKey: date,
+          createdAt: serverTimestamp(), createdBy: currentUser.email,
+        });
+      }
     }
 
     if (docs.length) await batchAdd(C.accountEntries, docs);
