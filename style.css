@@ -943,3 +943,10 @@ table.data input.num { text-align: right; }
 .bk-ctrl.warn { background: var(--warn-bg); }
 .bk-ctrl .ok { color: var(--ok); }
 .bk-ctrl .bad { color: var(--danger); font-weight: 700; }
+
+/* ===== Banka POS: yatış günü başlıkları ===== */
+.bk-day { margin-bottom: 6px; }
+.bk-day-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 10px 2px 2px; padding: 7px 10px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; font-weight: 800; font-size: 13px; color: var(--ink); }
+.bk-day-h small { font-weight: 600; font-size: 10.5px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .3px; margin-left: 4px; }
+.bk-day-h b { font-variant-numeric: tabular-nums; color: var(--gold-dark); }
+.bk-ctrl-day { font-weight: 800; font-size: 12px; color: var(--ink-soft); margin: 8px 2px 2px; }

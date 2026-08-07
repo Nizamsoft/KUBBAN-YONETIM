@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.59";
+} from "./local-backend.js?v=2026.60";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.59";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.60";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.59";
+const APP_VERSION = "2026.60";
 const CHANGELOG = [
+  { version: "2026.60", date: "2026-08-07", items: [
+    "Banka POS artık yatış günü başlıklarıyla, dosyadaki kayıt sırasında gösteriliyor (gün gün, karışık değil)",
+    "POS kayıtlarının defter tarihi yatış (kayıt) günü olarak yazılıyor",
+  ]},
   { version: "2026.59", date: "2026-08-07", items: [
     "Banka Aktarımı: önce banka seçimi (Garanti / T.Finans / Ziraat)",
     "Garanti POS tahsilatları çekim tarihi + kart tipine (gün farkı 23/16/1: Kredi/Debit/Yurt Dışı) göre gruplanır",
@@ -3200,16 +3204,17 @@ function bkClassifyGaranti(aoa) {
   }
   return { pos, other };
 }
-// POS satırlarını (çekim tarihi + tip) bazında grupla
+// POS satırlarını (yatış günü + çekim tarihi + tip) bazında grupla.
+// Sıralama: yatış günü, sonra dosyadaki kayıt sırası (gün gün, karışmadan).
 function bkGroupPos(pos) {
   const g = {};
-  for (const p of pos) {
-    if (!p.tip) continue;
-    const k = p.cek + "|" + p.tip;
-    (g[k] || (g[k] = { cek: p.cek, tip: p.tip, net: 0, kom: 0, n: 0 }));
+  pos.forEach((p, i) => {
+    if (!p.tip) return;
+    const k = p.dep + "|" + p.cek + "|" + p.tip;
+    if (!g[k]) g[k] = { dep: p.dep, cek: p.cek, tip: p.tip, net: 0, kom: 0, n: 0, ord: i };
     g[k].net += p.amt; g[k].kom += p.kom; g[k].n++;
-  }
-  return Object.values(g).sort((a, b) => a.cek.localeCompare(b.cek) || a.tip.localeCompare(b.tip));
+  });
+  return Object.values(g).sort((a, b) => a.dep.localeCompare(b.dep) || a.ord - b.ord);
 }
 
 async function viewBanka(c) {
@@ -3286,28 +3291,40 @@ async function viewBanka(c) {
       .reduce((s, e) => s + parseNum(e.borc), 0);
 
     const tipIco = (t) => t.startsWith("Yurt Dışı") ? "🌍" : t === "Debit Kartı" ? "💳" : "🏦";
-    const grpHtml = groups.map((g) => {
-      const brut = g.net + g.kom;
-      return `<div class="bk-grp">
-        <div class="ic">${tipIco(g.tip)}</div>
-        <div class="mid"><div class="nm">${fmtDate(g.cek)} · ${esc(g.tip)} Çekimi</div>
-          <div class="mt">${g.n} hareket${g.kom ? ` · komisyon ${fmtTRY(g.kom)}` : ""}</div></div>
-        <div class="amt"><div class="v">${fmtTRY(brut)}</div>${g.kom ? `<div class="k">brüt</div>` : ""}</div>
+    // Yatış günü başlıklarıyla grupla (gün gün, kayıt sırasında)
+    const byDay = {};
+    groups.forEach((g) => (byDay[g.dep] || (byDay[g.dep] = [])).push(g));
+    const days = Object.keys(byDay).sort();
+    const grpHtml = days.map((day) => {
+      const dayTot = byDay[day].reduce((s, g) => s + g.net + g.kom, 0);
+      return `<div class="bk-day">
+        <div class="bk-day-h"><span>📅 ${fmtDate(day)} <small>yatış günü</small></span><b>${fmtTRY(dayTot)}</b></div>
+        ${byDay[day].map((g) => {
+          const brut = g.net + g.kom;
+          return `<div class="bk-grp">
+            <div class="ic">${tipIco(g.tip)}</div>
+            <div class="mid"><div class="nm">${fmtDate(g.cek)} · ${esc(g.tip)} Çekimi</div>
+              <div class="mt">${g.n} hareket${g.kom ? ` · komisyon ${fmtTRY(g.kom)}` : ""}</div></div>
+            <div class="amt"><div class="v">${fmtTRY(brut)}</div>${g.kom ? `<div class="k">brüt</div>` : ""}</div>
+          </div>`;
+        }).join("")}
       </div>`;
     }).join("");
 
     const ctrlHtml = `
       <div class="bk-ctrl head"><span>Grup</span><span class="num">Gün Sonu Bloke</span><span class="num">Çözülen (brüt)</span><span class="num">Fark</span></div>
-      ${groups.map((g) => {
-        const brut = g.net + g.kom, bb = blokeBorcOf(g), fark = bb - brut;
-        const warn = Math.abs(fark) > 1;
-        return `<div class="bk-ctrl ${warn ? "warn" : ""}">
-          <span>${fmtDate(g.cek)} · ${esc(g.tip)}</span>
-          <span class="num">${bb ? fmtTRY(bb) : "—"}</span>
-          <span class="num">${fmtTRY(brut)}</span>
-          <span class="num ${warn ? "bad" : "ok"}">${fmtTRY(fark)}</span>
-        </div>`;
-      }).join("")}`;
+      ${days.map((day) => `
+        <div class="bk-ctrl-day">📅 ${fmtDate(day)}</div>
+        ${byDay[day].map((g) => {
+          const brut = g.net + g.kom, bb = blokeBorcOf(g), fark = bb - brut;
+          const warn = Math.abs(fark) > 1;
+          return `<div class="bk-ctrl ${warn ? "warn" : ""}">
+            <span>${fmtDate(g.cek)} · ${esc(g.tip)}</span>
+            <span class="num">${bb ? fmtTRY(bb) : "—"}</span>
+            <span class="num">${fmtTRY(brut)}</span>
+            <span class="num ${warn ? "bad" : "ok"}">${fmtTRY(fark)}</span>
+          </div>`;
+        }).join("")}`).join("")}`;
 
     const posNet = groups.reduce((s, g) => s + g.net, 0);
     const posKom = groups.reduce((s, g) => s + g.kom, 0);
@@ -3346,7 +3363,7 @@ async function viewBanka(c) {
     btn.disabled = true;
     try {
       const fresh = await fetchAll(C.accountEntries).catch(() => []);
-      const newKeys = new Set(groups.map((g) => `${bank.key}|${g.cek}|${g.tip}`));
+      const newKeys = new Set(groups.map((g) => `${bank.key}|${g.dep}|${g.cek}|${g.tip}`));
       const isStale = (e) => (e.source === "banka-pos" || e.source === "banka-pos-komisyon") && newKeys.has(e.posKey);
       for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
       const remaining = fresh.filter((e) => !isStale(e));
@@ -3359,19 +3376,20 @@ async function viewBanka(c) {
       const docs = [];
       for (const g of groups) {
         const brut = g.net + g.kom;
-        const posKey = `${bank.key}|${g.cek}|${g.tip}`;
+        const posKey = `${bank.key}|${g.dep}|${g.cek}|${g.tip}`;
         const acik = `${fmtDate(g.cek)} ${g.tip} Çekimi`;
+        // Ledger tarihi = yatış (kayıt) günü — hesap defterinde kayıt sırasında dursun
         // 1) Bloke → çıkış (alacak)
         docs.push({
           accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
-          date: g.cek, islemAdi: "POS ÇÖZÜLME", sahis: "", aciklama: acik, rapor: "",
+          date: g.dep, islemAdi: "POS ÇÖZÜLME", sahis: "", aciklama: acik, rapor: "",
           borc: 0, alacak: brut, faturaTuru: "", faturaNo: "",
           source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
         // 2) Banka → giriş (giren, komisyonlu/brüt)
         docs.push({
           accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
-          date: g.cek, islemAdi: "POS", sahis: "", aciklama: acik, rapor: "",
+          date: g.dep, islemAdi: "POS", sahis: "", aciklama: acik, rapor: "",
           giren: brut, cikan: 0,
           source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
@@ -3379,7 +3397,7 @@ async function viewBanka(c) {
         if (g.kom > 0.005) {
           docs.push({
             accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
-            date: g.cek, islemAdi: "Komisyon", sahis: "", aciklama: `${acik} Komisyonu`, rapor: "",
+            date: g.dep, islemAdi: "Komisyon", sahis: "", aciklama: `${acik} Komisyonu`, rapor: "",
             giren: 0, cikan: g.kom,
             source: "banka-pos-komisyon", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
           });
