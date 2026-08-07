@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.35";
+} from "./local-backend.js?v=2026.36";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.35";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.36";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.35";
+const APP_VERSION = "2026.36";
 const CHANGELOG = [
+  { version: "2026.36", date: "2026-08-07", items: [
+    "Alt hesaplar en soldan hizalanıyor (emoji boşluğu kaldırıldı)",
+  ]},
   { version: "2026.35", date: "2026-08-07", items: [
     "Kasa Kapanış: kompakt tablo — başlıklar (Girilen/Gerçekleşen/Fark) her grupta bir kez",
     "Masraflar tablo düzenine geçti; açıklamaya dokununca Excel kutusu gibi büyür",

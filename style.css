@@ -327,8 +327,10 @@ table.data input.num { text-align: right; }
 }
 .acc-row.sub .acc-ico { width: 28px; height: 28px; font-size: 15px; border-radius: 8px; }
 .acc-row.parent[data-open="1"] .acc-ico { background: #fff; border-color: var(--gold-light); }
-/* Alt hesaplarda emoji yok — hizayı korumak için boş yer tutucu */
-.acc-row .acc-ico.blank { background: transparent; border: none; }
+/* Alt hesaplarda emoji yok: boş yer tutucu ve boş chevron gizlenir → kod en soldan başlar */
+.acc-row .acc-ico.blank { display: none; }
+.acc-row.sub .chev { display: none; }
+.acc-row.sub { padding-left: 14px; }
 
 /* Hesap arama + tahmin (autocomplete) */
 .acc-tools { align-items: center; }
