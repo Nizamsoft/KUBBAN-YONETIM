@@ -780,3 +780,22 @@ table.data input.num { text-align: right; }
   #gs-report { position: absolute; left: 0; top: 0; width: 100%; border: none; border-radius: 0; padding: 0; }
   * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
 }
+
+/* Gün Sonu Raporu — Sayım Kontrolü (Girilen ↔ Gerçekleşen ↔ Fark) */
+.rep-check { display: flex; flex-direction: column; }
+.rep-crow { display: grid; grid-template-columns: 1fr 76px 92px 72px; gap: 6px; align-items: center; padding: 6px 0; border-top: 1px solid var(--line); font-size: 12.5px; }
+.rep-crow.head { border-top: none; color: var(--ink-faint); font-size: 10px; text-transform: uppercase; letter-spacing: .3px; font-weight: 700; }
+.rep-crow.head span + span, .rep-cnum, .rep-cfark { text-align: right; }
+.rep-cname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+.rep-cnum { font-variant-numeric: tabular-nums; color: var(--ink-soft); }
+.rep-cfark { font-variant-numeric: tabular-nums; font-weight: 700; }
+.rep-cfark.neg { color: var(--danger); }
+.rep-cfark.pos { color: var(--ok); }
+.rep-crow.diff { background: var(--warn-bg); border-radius: 6px; }
+.rep-crow.total { border-top: 2px solid var(--gold-light); font-weight: 800; }
+.rep-crow.total .rep-cnum { color: var(--ink); }
+.rep-sec-h b.neg { color: var(--danger); }
+.rep-sec-h b.pos { color: var(--ok); }
+@media (max-width: 640px) {
+  .rep-crow { grid-template-columns: 1fr 62px 76px 60px; gap: 4px; font-size: 11.5px; }
+}

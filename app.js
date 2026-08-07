@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.40";
+} from "./local-backend.js?v=2026.41";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.40";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.41";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.40";
+const APP_VERSION = "2026.41";
 const CHANGELOG = [
+  { version: "2026.41", date: "2026-08-07", items: [
+    "Gün Sonu Raporu'na 'Sayım Kontrolü' eklendi: Girilen ↔ Gerçekleşen ↔ Fark (renkli, toplam farklı)",
+  ]},
   { version: "2026.40", date: "2026-08-07", items: [
     "Blokeye Aktarımlar üstteki cari bölümler gibi kutusuz/düz oldu (tarih dahil)",
     "Menüde Gün Sonu İşlemleri emojisi kasa fişi (🧾) yapıldı",
@@ -1692,6 +1695,18 @@ async function viewGunSonuRapor(c) {
     const cariTot = rec.cariIslemTotal != null ? rec.cariIslemTotal : cariIslem.reduce((s, r) => s + parseNum(r.tutar), 0);
     const masTot = rec.masraflarTotal != null ? rec.masraflarTotal : masraflar.reduce((s, r) => s + parseNum(r.tutar), 0);
     const notes = rec.notes || [];
+    // Girilen (sistem) ↔ Gerçekleşen (sayım) farkları
+    const sayim = (rec.kasa || []).map((m) => {
+      const sis = parseNum(m.sistem);
+      const hasGer = !(m.gerceklesen === "" || m.gerceklesen == null);
+      const ger = hasGer ? parseNum(m.gerceklesen) : null;
+      return { yontem: m.yontem, sis, ger, hasGer, fark: hasGer ? ger - sis : null };
+    }).filter((m) => m.sis > 0 || m.hasGer);
+    const anyGer = sayim.some((m) => m.hasGer);
+    const totSis = sayim.reduce((s, m) => s + m.sis, 0);
+    const totGer = sayim.reduce((s, m) => s + (m.hasGer ? m.ger : 0), 0);
+    const totFark = sayim.reduce((s, m) => s + (m.fark || 0), 0);
+    const farkCls = (f) => f < 0 ? "neg" : f > 0 ? "pos" : "";
     const liList = (arr, keyName) => arr.length
       ? arr.map((r) => `<div class="rep-li"><span>${esc(r[keyName])}${r.rapor ? ` <small>(${esc(r.rapor)})</small>` : ""}</span><b>${fmtTRY(parseNum(r.tutar))}</b></div>`).join("")
       : `<div class="rep-empty">— yok —</div>`;
@@ -1728,6 +1743,22 @@ async function viewGunSonuRapor(c) {
                 <div class="rep-bar-track"><div class="rep-bar-fill" style="width:${Math.max(4, (m.tutar / maxPay) * 100)}%"></div></div>
               </div>`).join("") || `<div class="rep-empty">— yok —</div>`}
           </div>
+        </div>
+
+        <div class="rep-sec">
+          <div class="rep-sec-h"><span>🧮 Sayım Kontrolü</span><b class="${anyGer ? farkCls(totFark) : ""}">${anyGer ? "Fark " + fmtTRY(totFark) : "—"}</b></div>
+          <div class="rep-check">
+            <div class="rep-crow head"><span>Yöntem</span><span>Girilen</span><span>Gerçekleşen</span><span>Fark</span></div>
+            ${sayim.map((m) => `
+              <div class="rep-crow${m.fark ? " diff" : ""}">
+                <span class="rep-cname">${gsPayEmoji(m.yontem)} ${esc(m.yontem)}</span>
+                <span class="rep-cnum">${fmtNum(m.sis)}</span>
+                <span class="rep-cnum">${m.hasGer ? fmtNum(m.ger) : "—"}</span>
+                <span class="rep-cfark ${m.hasGer ? farkCls(m.fark) : ""}">${m.hasGer ? (m.fark === 0 ? "0,00" : fmtNum(m.fark)) : "—"}</span>
+              </div>`).join("") || `<div class="rep-empty">— yok —</div>`}
+            ${sayim.length ? `<div class="rep-crow total"><span class="rep-cname">Toplam</span><span class="rep-cnum">${fmtNum(totSis)}</span><span class="rep-cnum">${anyGer ? fmtNum(totGer) : "—"}</span><span class="rep-cfark ${anyGer ? farkCls(totFark) : ""}">${anyGer ? fmtNum(totFark) : "—"}</span></div>` : ""}
+          </div>
+          ${!anyGer ? `<div class="rep-empty" style="margin-top:6px">Bu gün için "Gerçekleşen (sayım)" tutarları girilmemiş.</div>` : ""}
         </div>
 
         <div class="rep-two">
