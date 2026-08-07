@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.54";
+} from "./local-backend.js?v=2026.55";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.54";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.55";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.54";
+const APP_VERSION = "2026.55";
 const CHANGELOG = [
+  { version: "2026.55", date: "2026-08-07", items: [
+    "Dokununca çıkan koyu flaş (iOS tap highlight) kaldırıldı",
+    "Sayfa geçişleri daha akıcı: GPU'da yumuşak fade + hafif yukarı kayma",
+  ]},
   { version: "2026.54", date: "2026-08-07", items: [
     "Hesap defteri üst kartı yeni 'Altın Banner' tasarımı: emoji + hesap + büyük güncel bakiye",
   ]},
@@ -690,10 +694,10 @@ async function route() {
   const c = $("#view-container");
   try {
     await r.render(c);
-    // Yumuşak, anlık geçiş (spinner titremesi olmadan)
+    // Yumuşak geçiş (GPU: opacity + transform)
     c.style.animation = "none";
     void c.offsetWidth;
-    c.style.animation = "viewIn .16s ease-out";
+    c.style.animation = "viewIn .22s cubic-bezier(.22,.61,.36,1)";
   } catch (err) {
     console.error(err);
     c.innerHTML = `<div class="notice warn"><b>Hata:</b> ${esc(err.message || err)}</div>`;

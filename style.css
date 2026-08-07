@@ -41,7 +41,11 @@
   --sidebar-w:   248px;
 }
 
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+/* Dokununca çıkan koyu flaş / metin seçimi olmasın (tıklanabilir öğelerde) */
+.nav-item, .nav-top, .nav-group-header, .btn, .tx-card, .acc-row, .step, .user-chip, .sug, .bloke-row, a {
+  -webkit-tap-highlight-color: transparent; -webkit-touch-callout: none; user-select: none;
+}
 html, body { height: 100%; }
 body {
   margin: 0;
@@ -238,7 +242,7 @@ button { font-family: inherit; }
 
 .content { padding: 24px; flex: 1; min-width: 0; }
 #view-container { min-width: 0; }
-@keyframes viewIn { from { opacity: .35; } to { opacity: 1; } }
+@keyframes viewIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
 /* ==========================================================================
    KARTLAR / IZGARA / TABLO
