@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.47";
+} from "./local-backend.js?v=2026.48";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.47";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.48";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.47";
+const APP_VERSION = "2026.48";
 const CHANGELOG = [
+  { version: "2026.48", date: "2026-08-07", items: [
+    "Gün sonu Nakit (Gerçekleşen) 100 Kasa Hesabı'na Giren olarak yazılıyor: açıklama '{tarih} Nakit Girişi'",
+  ]},
   { version: "2026.47", date: "2026-08-07", items: [
     "Bloke hareket açıklaması: '{gün sonu tarihi} {isim} Çekimi' (ör. 08.04.2026 Garanti Kredi Kartı Çekimi)",
   ]},
@@ -1557,7 +1560,7 @@ async function viewGunSonuAktarim(c) {
     accounts.forEach((a) => { if (a.code) { codeToId[String(a.code)] = a.id; codeToName[String(a.code)] = a.name; } });
 
     const existing = await fetchAll(C.accountEntries).catch(() => []);
-    const isStale = (e) => e.source === "gunsonu-bloke" && e.gunSonuKey === date;
+    const isStale = (e) => (e.source === "gunsonu-bloke" || e.source === "gunsonu-nakit") && e.gunSonuKey === date;
     for (const e of existing.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
     const remaining = existing.filter((e) => !isStale(e));
 
@@ -1589,6 +1592,25 @@ async function viewGunSonuAktarim(c) {
         createdAt: serverTimestamp(), createdBy: currentUser.email,
       };
     }).filter(Boolean);
+
+    // Nakit (Gerçekleşen) → 100 Kasa Hesabı'na Giren, aynı tarzda açıklamayla
+    const nakitRow = (gsState.kasa || []).find((r) => normTr(r.yontem) === "nakit");
+    const nakit = nakitRow && !(nakitRow.gerceklesen === "" || nakitRow.gerceklesen == null) ? parseNum(nakitRow.gerceklesen) : 0;
+    const kasaId = codeToId["100"];
+    if (kasaId && nakit) {
+      gno++;
+      docs.push({
+        accountId: kasaId, accountCode: "100",
+        islemNo: gno,
+        date: blokePayload.tarih,
+        islemAdi: "Gün Sonu", sahis: "",
+        aciklama: `${fmtDate(date)} Nakit Girişi`, rapor: "",
+        giren: nakit, cikan: 0,
+        source: "gunsonu-nakit", gunSonuKey: date,
+        createdAt: serverTimestamp(), createdBy: currentUser.email,
+      });
+    }
+
     if (docs.length) await batchAdd(C.accountEntries, docs);
   }
 
