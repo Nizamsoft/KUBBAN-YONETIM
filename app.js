@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.60";
+} from "./local-backend.js?v=2026.61";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.60";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.61";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.60";
+const APP_VERSION = "2026.61";
 const CHANGELOG = [
+  { version: "2026.61", date: "2026-08-07", items: [
+    "Banka: POS dışı hareketler artık ayrı kartta değil, ait olduğu günün bloke çözümlerinin altında, banka kayıt sırasında",
+    "Uzun açıklamalar tutarın üstüne binmiyor (taşma düzeltmesi)",
+    "Dosya seçme alanı küçültüldü; üstteki bilgi açıklaması kaldırıldı",
+  ]},
   { version: "2026.60", date: "2026-08-07", items: [
     "Banka POS artık yatış günü başlıklarıyla, dosyadaki kayıt sırasında gösteriliyor (gün gün, karışık değil)",
     "POS kayıtlarının defter tarihi yatış (kayıt) günü olarak yazılıyor",
@@ -3189,7 +3194,7 @@ function bkClassifyGaranti(aoa) {
   const ci = { tarih: idx(["tarih"]), acik: idx(["açıklama", "aciklama"]), etiket: idx(["etiket"]), tutar: idx(["tutar"]), dekont: idx(["dekont"]) };
   const rows = aoa.slice(hi + 1).filter((r) => bkParseDate(r[ci.tarih]));
   const pos = [], other = [];
-  for (const r of rows) {
+  rows.forEach((r, seq) => {
     const dep = bkParseDate(r[ci.tarih]), desc = String(r[ci.acik] || ""), amt = parseNum(r[ci.tutar]), dekont = String(r[ci.dekont] || "");
     const m = desc.match(/^(PK\d+)\s+(\S+)\s+(\d{2})\/(\d{2})\s+K:\s*([\d.,]+)/);
     if (m) {
@@ -3197,21 +3202,22 @@ function bkClassifyGaranti(aoa) {
       if (cek > dep) cek = new Date(dep.getFullYear() - 1, +m[3] - 1, +m[4]);
       const diff = Math.round((dep - cek) / 86400000);
       const tip = diff === 23 ? "Kredi Kartı" : diff === 16 ? "Debit Kartı" : diff === 1 ? "Yurt Dışı Kredi Kartı" : null;
-      pos.push({ dep: bkISO(dep), cek: bkISO(cek), diff, tip, kart: m[2], kom: parseNum(m[5]), amt, dekont, desc });
+      pos.push({ seq, dep: bkISO(dep), cek: bkISO(cek), diff, tip, kart: m[2], kom: parseNum(m[5]), amt, dekont, desc });
     } else {
-      other.push({ dep: bkISO(dep), etiket: String(r[ci.etiket] || ""), amt, dekont, desc });
+      other.push({ seq, dep: bkISO(dep), etiket: String(r[ci.etiket] || ""), amt, dekont, desc });
     }
-  }
+  });
   return { pos, other };
 }
 // POS satırlarını (yatış günü + çekim tarihi + tip) bazında grupla.
 // Sıralama: yatış günü, sonra dosyadaki kayıt sırası (gün gün, karışmadan).
 function bkGroupPos(pos) {
   const g = {};
-  pos.forEach((p, i) => {
+  pos.forEach((p) => {
     if (!p.tip) return;
     const k = p.dep + "|" + p.cek + "|" + p.tip;
-    if (!g[k]) g[k] = { dep: p.dep, cek: p.cek, tip: p.tip, net: 0, kom: 0, n: 0, ord: i };
+    if (!g[k]) g[k] = { dep: p.dep, cek: p.cek, tip: p.tip, net: 0, kom: 0, n: 0, ord: p.seq };
+    else g[k].ord = Math.min(g[k].ord, p.seq);
     g[k].net += p.amt; g[k].kom += p.kom; g[k].n++;
   });
   return Object.values(g).sort((a, b) => a.dep.localeCompare(b.dep) || a.ord - b.ord);
@@ -3219,10 +3225,7 @@ function bkGroupPos(pos) {
 
 async function viewBanka(c) {
   const allAcc = await fetchAll(C.accounts).catch(() => []);
-  c.innerHTML = `
-    <div class="notice info">🏦 Banka hareket dosyanızı yükleyin. POS tahsilatları çekim tarihine göre gruplanıp
-      <b>bloke → banka</b> mantığıyla işlenir.</div>
-    <div id="bk-body"></div>`;
+  c.innerHTML = `<div id="bk-body"></div>`;
   chooseBank();
 
   function chooseBank() {
@@ -3270,7 +3273,7 @@ async function viewBanka(c) {
         buildGaranti(bank, bankAcc, blokeAcc, pos, other);
         toast(`${pos.length + other.length} hareket okundu.`, "ok");
       } catch (e) { toast("Okunamadı: " + e.message, "err"); }
-    }));
+    }, ".xlsx,.xls,.csv", true));
   }
 
   async function buildGaranti(bank, bankAcc, blokeAcc, pos, other) {
@@ -3291,31 +3294,39 @@ async function viewBanka(c) {
       .reduce((s, e) => s + parseNum(e.borc), 0);
 
     const tipIco = (t) => t.startsWith("Yurt Dışı") ? "🌍" : t === "Debit Kartı" ? "💳" : "🏦";
-    // Yatış günü başlıklarıyla grupla (gün gün, kayıt sırasında)
+    // Yatış günü bazında birleşik liste: her günde önce POS blokeleri, sonra POS dışı — hepsi banka kayıt sırasında
     const byDay = {};
-    groups.forEach((g) => (byDay[g.dep] || (byDay[g.dep] = [])).push(g));
+    const day = (d) => byDay[d] || (byDay[d] = { pos: [], items: [] });
+    groups.forEach((g) => { day(g.dep).pos.push(g); day(g.dep).items.push({ kind: "pos", ord: g.ord, g }); });
+    other.forEach((o) => day(o.dep).items.push({ kind: "other", ord: o.seq, o }));
     const days = Object.keys(byDay).sort();
-    const grpHtml = days.map((day) => {
-      const dayTot = byDay[day].reduce((s, g) => s + g.net + g.kom, 0);
+
+    const posRow = (g) => {
+      const brut = g.net + g.kom;
+      return `<div class="bk-grp"><div class="ic">${tipIco(g.tip)}</div>
+        <div class="mid"><div class="nm">${fmtDate(g.cek)} · ${esc(g.tip)} Çekimi</div>
+          <div class="mt">${g.n} hareket${g.kom ? ` · komisyon ${fmtTRY(g.kom)}` : ""}</div></div>
+        <div class="amt"><div class="v">${fmtTRY(brut)}</div>${g.kom ? `<div class="k">brüt</div>` : ""}</div></div>`;
+    };
+    const otherRow = (o) => `<div class="bk-grp bk-other"><div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
+      <div class="mid"><div class="nm">${esc(o.desc)}</div>
+        <div class="mt">${esc(o.etiket || "Hareket")} · <span class="bk-pend">eşleştirilecek</span></div></div>
+      <div class="amt"><div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div></div></div>`;
+
+    const dayHtml = days.map((d) => {
+      const items = byDay[d].items.slice().sort((a, b) => a.ord - b.ord);
+      const dayTot = items.reduce((s, it) => s + (it.kind === "pos" ? it.g.net + it.g.kom : it.o.amt), 0);
       return `<div class="bk-day">
-        <div class="bk-day-h"><span>📅 ${fmtDate(day)} <small>yatış günü</small></span><b>${fmtTRY(dayTot)}</b></div>
-        ${byDay[day].map((g) => {
-          const brut = g.net + g.kom;
-          return `<div class="bk-grp">
-            <div class="ic">${tipIco(g.tip)}</div>
-            <div class="mid"><div class="nm">${fmtDate(g.cek)} · ${esc(g.tip)} Çekimi</div>
-              <div class="mt">${g.n} hareket${g.kom ? ` · komisyon ${fmtTRY(g.kom)}` : ""}</div></div>
-            <div class="amt"><div class="v">${fmtTRY(brut)}</div>${g.kom ? `<div class="k">brüt</div>` : ""}</div>
-          </div>`;
-        }).join("")}
+        <div class="bk-day-h"><span>📅 ${fmtDate(d)} <small>yatış günü</small></span><b>${fmtTRY(dayTot)}</b></div>
+        ${items.map((it) => it.kind === "pos" ? posRow(it.g) : otherRow(it.o)).join("")}
       </div>`;
     }).join("");
 
     const ctrlHtml = `
       <div class="bk-ctrl head"><span>Grup</span><span class="num">Gün Sonu Bloke</span><span class="num">Çözülen (brüt)</span><span class="num">Fark</span></div>
-      ${days.map((day) => `
-        <div class="bk-ctrl-day">📅 ${fmtDate(day)}</div>
-        ${byDay[day].map((g) => {
+      ${days.filter((d) => byDay[d].pos.length).map((d) => `
+        <div class="bk-ctrl-day">📅 ${fmtDate(d)}</div>
+        ${byDay[d].pos.map((g) => {
           const brut = g.net + g.kom, bb = blokeBorcOf(g), fark = bb - brut;
           const warn = Math.abs(fark) > 1;
           return `<div class="bk-ctrl ${warn ? "warn" : ""}">
@@ -3331,10 +3342,11 @@ async function viewBanka(c) {
 
     editor.innerHTML = `
       <div class="card">
-        <div class="pv-head"><div class="pv-title">POS Tahsilatları</div>
-          <div class="pv-sub">${groups.length} grup · ${pos.length} hareket · net ${fmtTRY(posNet)}${posKom ? ` · komisyon ${fmtTRY(posKom)}` : ""}</div></div>
-        <div>${grpHtml || `<div class="empty" style="padding:16px">POS hareketi yok.</div>`}</div>
+        <div class="pv-head"><div class="pv-title">Banka Hareketleri</div>
+          <div class="pv-sub">${groups.length} POS grubu · ${other.length} POS dışı · net ${fmtTRY(posNet)}${posKom ? ` · komisyon ${fmtTRY(posKom)}` : ""}</div></div>
+        <div>${dayHtml || `<div class="empty" style="padding:16px">Hareket yok.</div>`}</div>
         ${belirsiz.length ? `<div class="notice warn" style="margin:12px 0 0">⚠️ ${belirsiz.length} hareketin kart tipi belirsiz (gün farkı 23/16/1 değil). Bunlar işlenmez; bana ilet.</div>` : ""}
+        ${other.length ? `<div class="pv-fhint" style="margin-top:10px">↘️/↗️ POS dışı hareketler bir sonraki adımda hesap eşleştirmesiyle işlenecek.</div>` : ""}
       </div>
 
       <div class="card">
@@ -3342,14 +3354,6 @@ async function viewBanka(c) {
         ${ctrlHtml}
         <div class="pv-fhint" style="margin-top:8px">Sarı satır = gün sonu bloke ile çözülen tutar tutmuyor.</div>
       </div>
-
-      ${other.length ? `<div class="card">
-        <div class="card-head"><h3>💸 POS Dışı Hareketler</h3><span class="hint">${other.length} işlem · sonraki adım</span></div>
-        <div class="notice info" style="margin:0 0 10px">Bunlar (Para Transferi vb.) sonraki adımda hesap eşleştirmesiyle işlenecek.</div>
-        ${other.map((o) => `<div class="bk-grp"><div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
-          <div class="mid"><div class="nm">${esc(o.desc.slice(0, 46))}${o.desc.length > 46 ? "…" : ""}</div><div class="mt">${fmtDate(o.dep)} · ${esc(o.etiket)}</div></div>
-          <div class="amt"><div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div></div></div>`).join("")}
-      </div>` : ""}
 
       <div class="pv-cta">
         <div class="grow"></div>
