@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.31";
+} from "./local-backend.js?v=2026.32";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.31";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.32";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.31";
+const APP_VERSION = "2026.32";
 const CHANGELOG = [
+  { version: "2026.32", date: "2026-08-07", items: [
+    "Hesaplar: üstteki açıklama kutusu kaldırıldı",
+    "Emoji yalnızca ana hesaplarda ve üst kartta; alt hesaplardan kaldırıldı",
+    "'Tümünü Aç / Kapat' yerine hesap arama: yazınca tahmin eder (ör. 'Ga' → Garanti Bankası)",
+    "Aramada Enter'a basınca doğrudan o hesabın hareketlerine gider (↑/↓ ile seçim)",
+  ]},
   { version: "2026.31", date: "2026-08-06", items: [
     "Hesaplar ekranı yenilendi: altın 'Genel Toplam' banner'ı ve dekoratif düzen",
     "Her hesaba türüne/markasına göre emoji rozeti (💵 Kasa · 🏦 Banka · 🔒 Bloke · 👥 Alıcı · 🚚 Tedarikçi · 🍽️🛵🛒 platformlar)",
@@ -1765,7 +1771,7 @@ async function viewHesaplar(c) {
     const cls = sub ? "sub" : (parent ? "parent" : "leaf");
     return `<div class="acc-row ${cls}" data-id="${a.id}"${sub ? ` data-parent="${a.parentId}" style="display:none"` : ""}>
       <span class="chev">${parent ? "▸" : ""}</span>
-      <span class="acc-ico">${accEmoji(a)}</span>
+      <span class="acc-ico${sub ? " blank" : ""}">${sub ? "" : accEmoji(a)}</span>
       <div class="info">
         <span class="code">${esc(a.code || "—")}</span>
         <span class="name">${esc(a.name || "")}${parent ? ` <em>(${childCount(a)} alt)</em>` : ""}</span>
@@ -1791,10 +1797,11 @@ async function viewHesaplar(c) {
         <div class="acc-hero-sub">🗂️ ${roots.length} ana hesap · 🧾 ${accounts.length} hesap${subCount ? ` · 🔖 ${subCount} alt` : ""}</div>
       </div>
     </div>
-    <div class="notice info acc-note">ℹ️ <b>Ana hesap → alt hesap</b> yapısı. Ana hesabın bakiyesi alt hesaplarının toplamıdır. 👆 Hesaba dokununca hareketleri açılır.</div>
-    <div class="toolbar">
-      <div class="grow"></div>
-      <button class="btn btn-sm" id="toggle-all">🔽 Tümünü Aç / Kapat</button>
+    <div class="toolbar acc-tools">
+      <div class="acc-search">
+        <input id="acc-q" type="search" autocomplete="off" placeholder="🔍 Hesap ara — ör. 'Ga' → Garanti Bankası" />
+        <div class="acc-suggest" id="acc-suggest"></div>
+      </div>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
       <button class="btn btn-primary btn-sm" id="edit-toggle">✏️ Hesapları Düzenle</button>
@@ -1827,11 +1834,50 @@ async function viewHesaplar(c) {
       location.hash = "#/hesap-detay?id=" + row.dataset.id;
     });
   });
-  $("#toggle-all").onclick = () => {
-    const anyClosed = roots.some((a) => childCount(a) &&
-      $(`.acc-row.parent[data-id="${a.id}"]`, c).dataset.open !== "1");
-    roots.forEach((a) => { if (childCount(a)) setOpen(a.id, anyClosed); });
+  // Hesap arama + tahmin (autocomplete). Enter → o hesabın hareketlerine git.
+  const flat = accounts.map((a) => ({
+    id: a.id, code: String(a.code || ""), name: a.name || "", emoji: accEmoji(a),
+    normName: normTr(a.name || ""), norm: normTr((a.code || "") + " " + (a.name || "")),
+  }));
+  const searchAccounts = (q) => {
+    const nq = normTr(q);
+    if (!nq) return [];
+    const starts = [], contains = [];
+    flat.forEach((f) => {
+      if (f.normName.startsWith(nq) || f.code.toLowerCase().startsWith(nq)) starts.push(f);
+      else if (f.norm.includes(nq)) contains.push(f);
+    });
+    return [...starts, ...contains].slice(0, 8);
   };
+  const sug = { items: [], active: 0 };
+  const qInp = $("#acc-q", c), sugBox = $("#acc-suggest", c);
+  const go = (id) => { if (id) location.hash = "#/hesap-detay?id=" + id; };
+  const paintActive = () => $$(".sug", sugBox).forEach((el, i) => {
+    el.classList.toggle("active", i === sug.active);
+    if (i === sug.active) el.scrollIntoView({ block: "nearest" });
+  });
+  const renderSuggest = () => {
+    sug.items = searchAccounts(qInp.value); sug.active = 0;
+    if (!sug.items.length) { sugBox.classList.remove("open"); sugBox.innerHTML = ""; return; }
+    sugBox.innerHTML = sug.items.map((f, i) => `
+      <div class="sug ${i === 0 ? "active" : ""}" data-id="${f.id}">
+        <span class="sug-ico">${f.emoji}</span>
+        <span class="sug-code">${esc(f.code)}</span>
+        <span class="sug-name">${esc(f.name)}</span>
+      </div>`).join("");
+    sugBox.classList.add("open");
+    $$(".sug", sugBox).forEach((el) => el.addEventListener("mousedown", (e) => { e.preventDefault(); go(el.dataset.id); }));
+  };
+  qInp.addEventListener("input", renderSuggest);
+  qInp.addEventListener("focus", renderSuggest);
+  qInp.addEventListener("blur", () => setTimeout(() => sugBox.classList.remove("open"), 150));
+  qInp.addEventListener("keydown", (e) => {
+    const n = sug.items.length;
+    if (e.key === "ArrowDown") { e.preventDefault(); if (n) { sug.active = (sug.active + 1) % n; paintActive(); } }
+    else if (e.key === "ArrowUp") { e.preventDefault(); if (n) { sug.active = (sug.active - 1 + n) % n; paintActive(); } }
+    else if (e.key === "Enter") { e.preventDefault(); const f = sug.items[sug.active] || sug.items[0]; if (f) go(f.id); }
+    else if (e.key === "Escape") { sugBox.classList.remove("open"); }
+  });
   // Üstteki "Yeni Hesap": önce Ana/Alt, Alt ise hangi ana hesabın altında
   const openNewChooser = () => {
     const body = document.createElement("div");
