@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.49";
+} from "./local-backend.js?v=2026.50";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.49";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.50";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.49";
+const APP_VERSION = "2026.50";
 const CHANGELOG = [
+  { version: "2026.50", date: "2026-08-07", items: [
+    "Cari onay: aynı tarih+tutar mükerrerleri tek tek işaretlenerek aktarılır (varsayılan: atla)",
+    "Mükerrer olmayan cariler her zaman aktarılır; işaretsiz mükerrerler atlanır",
+    "Yeniden kaydetmede önceki gün sonu cari hareketleri silinip yenilenir (mükerrer düzelir)",
+  ]},
   { version: "2026.49", date: "2026-08-07", items: [
     "Para alanlarında ₺ amblemi düzeltildi (mobilde sayının üstüne biniyordu)",
     "Gün sonu cari kayıtları 120 Müşteri hesaplarına işleniyor: Cari İşlem→Borç, Tahsilat→Alacak",
@@ -1552,15 +1557,15 @@ async function viewGunSonuAktarim(c) {
     ].filter((it) => it.name && it.tutar);
     const missing = [], mset = new Set();
     cariItems.forEach((it) => { const k = normTr(it.name); if (!byName.has(k) && !mset.has(k)) { mset.add(k); missing.push(it.name); } });
-    const dups = [];
+    // Aynı tarih+tutar mükerreri işaretle (varsayılan: aktarma)
     cariItems.forEach((it) => {
-      const acc = byName.get(normTr(it.name)); if (!acc) return;
-      const dup = preEntries.some((e) => e.accountId === acc.id && e.date === date && e.gunSonuKey !== date &&
-        parseNum(it.side === "borc" ? e.borc : e.alacak) === it.tutar && it.tutar);
-      if (dup) dups.push(`${it.name} · ${fmtTRY(it.tutar)} · ${it.side === "borc" ? "Borç" : "Alacak"}`);
+      const acc = byName.get(normTr(it.name));
+      it.isDup = !!acc && !!it.tutar && preEntries.some((e) => e.accountId === acc.id && e.date === date && e.gunSonuKey !== date &&
+        parseNum(it.side === "borc" ? e.borc : e.alacak) === it.tutar);
     });
+    const dupItems = cariItems.filter((it) => it.isDup);
 
-    const doCommit = async () => {
+    const doCommit = async (items) => {
       try {
         // 1) Eksik carileri 120 Alıcılar altına oluştur
         let main = accounts.find((a) => a.type === "musteri" && !a.parentId) || accounts.find((a) => a.type === "musteri");
@@ -1587,7 +1592,7 @@ async function viewGunSonuAktarim(c) {
         }
         // 3) Bloke (108) + Nakit (100) + Cari (120) hareketleri (hepsi idempotent)
         await postBlokeEntries(date, blokePayload);
-        await postCariEntries(date, cariItems, byName);
+        await postCariEntries(date, items, byName);
         await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
         toast("Gün sonu kaydedildi.", "ok");
         gsState = null;
@@ -1595,18 +1600,30 @@ async function viewGunSonuAktarim(c) {
       } catch (e) { toast("Kaydedilemedi: " + e.message, "err"); }
     };
 
-    if (missing.length || dups.length) {
+    if (missing.length || dupItems.length) {
       const bodyEl = document.createElement("div");
       bodyEl.innerHTML =
         (missing.length ? `<div style="margin-bottom:10px"><b>🆕 Şu cariler yok, otomatik oluşturulacak:</b><ul style="margin:6px 0 0;padding-left:20px">${missing.map((n) => `<li>${esc(n)}</li>`).join("")}</ul></div>` : "") +
-        (dups.length ? `<div class="notice warn" style="margin:0"><b>⚠️ Aynı tarih ve tutarda zaten kayıt var:</b><ul style="margin:6px 0 0;padding-left:20px">${dups.map((d) => `<li>${esc(d)}</li>`).join("")}</ul>Yine de eklensin mi?</div>` : "");
+        (dupItems.length ? `<div class="notice warn" style="margin:0">
+          <b>⚠️ Aynı tarih ve tutarda zaten kayıt var</b>
+          <div style="font-size:12px;color:var(--ink-soft);margin:2px 0 8px">Aktarmak istediğini işaretle; işaretsizler <b>atlanır</b>.</div>
+          ${dupItems.map((it) => `<label style="display:flex;align-items:center;gap:9px;padding:6px 0;cursor:pointer">
+            <input type="checkbox" class="dup-chk" data-i="${cariItems.indexOf(it)}" style="width:18px;height:18px;flex:0 0 auto" />
+            <span>${esc(it.name)} · <b>${fmtTRY(it.tutar)}</b> · ${it.side === "borc" ? "Borç" : "Alacak"}</span>
+          </label>`).join("")}
+        </div>` : "");
       const m = openModal({ title: "Cari Kayıtları — Onay", body: bodyEl, footer: [
         mkBtn("Vazgeç", "", () => m.close()),
-        mkBtn("Onayla ve Kaydet", "btn-primary", () => { m.close(); doCommit(); }),
+        mkBtn("Onayla ve Kaydet", "btn-primary", () => {
+          const keep = new Set();
+          $$(".dup-chk", bodyEl).forEach((chk) => { if (chk.checked) keep.add(+chk.dataset.i); });
+          const finalItems = cariItems.filter((it, i) => !it.isDup || keep.has(i));
+          m.close(); doCommit(finalItems);
+        }),
       ]});
       return;
     }
-    doCommit();
+    doCommit(cariItems);
   }
 
   // Cari (borç/alacak) hareketlerini 120 müşteri hesaplarına yazar (idempotent).
