@@ -863,3 +863,58 @@ table.data input.num { text-align: right; }
 .ft-c.sat .ic { background: var(--ok-bg); }
 .ft-c.al .ic { background: var(--warn-bg); }
 .ft-c .t { font-weight: 800; font-size: 15px; color: var(--ink); }
+
+/* ===== Modal arka plan bulanıklığı ===== */
+.modal-backdrop { background: rgba(36,29,21,.38); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+
+/* ===== Sihirbaz / kontrol ilerleme çubuğu ===== */
+.wz-prog, .gs-prog { height: 6px; border-radius: 999px; background: var(--line); overflow: hidden; margin-top: 16px; }
+.wz-prog .bar, .gs-prog .bar { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--gold-dark), var(--gold)); transition: width .3s cubic-bezier(.22,.61,.36,1); }
+.wz-plabel, .gs-prog-lbl { text-align: center; font-size: 11.5px; color: var(--ink-faint); font-weight: 700; margin-top: 6px; }
+.gs-prog { margin-top: 12px; }
+
+/* ===== Sarı kontrol vurgusu (kontrol edilen satır) ===== */
+@keyframes flashY { 0% { background: var(--warn-bg); } 65% { background: var(--warn-bg); } 100% { background: transparent; } }
+.flash-y { animation: flashY 1s ease; }
+
+/* ===== Fatura Önizleme (Tasarım #1: segment + sade satır) ===== */
+.pv-head { margin: 2px 2px 12px; }
+.pv-title { font-family: Georgia, "Times New Roman", serif; font-size: 18px; font-weight: 700; line-height: 1.15; color: var(--ink); }
+.pv-sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; }
+.pv-seg { display: flex; border: 1px solid var(--line-strong); border-radius: 13px; overflow: hidden; margin-bottom: 6px; background: var(--surface); }
+.pv-seg .s { flex: 1; text-align: center; padding: 9px 4px; border-right: 1px solid var(--line); cursor: pointer; transition: background .15s; }
+.pv-seg .s:last-child { border-right: none; }
+.pv-seg .s .n { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.pv-seg .s .l { font-size: 10.5px; font-weight: 700; letter-spacing: .3px; text-transform: uppercase; color: var(--ink-faint); margin-top: 4px; }
+.pv-seg .s.ok .n { color: var(--ok); }
+.pv-seg .s.warn .n { color: var(--gold-dark); }
+.pv-seg .s.red .n { color: var(--danger); }
+.pv-seg .s.on { background: var(--surface-2); box-shadow: inset 0 -3px 0 var(--gold); }
+.pv-fhint { font-size: 11px; color: var(--ink-faint); text-align: center; margin: 4px 0 8px; }
+.pv-row { display: flex; align-items: center; gap: 12px; padding: 12px 4px; border-bottom: 1px solid var(--line); cursor: pointer; border-radius: 8px; }
+.pv-row:last-child { border-bottom: none; }
+.pv-row .dot { width: 9px; height: 9px; flex: 0 0 auto; border-radius: 50%; }
+.pv-row .dot.ok { background: var(--ok); }
+.pv-row .dot.warn { background: var(--gold-light); }
+.pv-row .dot.red { background: var(--danger); }
+.pv-row .mid { flex: 1; min-width: 0; }
+.pv-row .nm { font-weight: 700; font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+.pv-row .mt { font-size: 11.5px; color: var(--ink-faint); margin-top: 2px; font-variant-numeric: tabular-nums; }
+.pv-row .amt { text-align: right; flex: 0 0 auto; }
+.pv-row .amt .v { font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink); }
+.pv-row .amt .st { font-size: 10.5px; font-weight: 700; margin-top: 2px; }
+.pv-row .amt .st.ok { color: var(--ok); }
+.pv-row .amt .st.warn { color: var(--gold-dark); }
+.pv-row .amt .st.red { color: var(--danger); }
+.pv-add { border: 1px solid var(--danger); background: var(--danger-bg); color: var(--danger); border-radius: 8px; padding: 5px 10px; font-size: 11.5px; font-weight: 700; cursor: pointer; margin-top: 3px; }
+.pv-cta { display: flex; align-items: center; gap: 9px; margin-top: 16px; flex-wrap: wrap; }
+
+/* ===== Cari birleştirme penceresi ===== */
+.mg-note { font-size: 13px; color: var(--ink-soft); margin-bottom: 12px; line-height: 1.5; }
+.mg-row { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 9px; cursor: pointer; background: var(--surface); }
+.mg-row input { margin-top: 3px; width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--gold); }
+.mg-info { flex: 1; min-width: 0; }
+.mg-drop { font-size: 13px; font-weight: 600; color: var(--ink-soft); }
+.mg-arrow { font-size: 11px; color: var(--ink-faint); margin: 3px 0; font-weight: 700; }
+.mg-keep { font-size: 13.5px; font-weight: 800; color: var(--ink); }
+.mg-reason { align-self: center; flex: 0 0 auto; }

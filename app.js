@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.57";
+} from "./local-backend.js?v=2026.58";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.57";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.58";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,15 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.57";
+const APP_VERSION = "2026.58";
 const CHANGELOG = [
+  { version: "2026.58", date: "2026-08-07", items: [
+    "Fatura önizleme yenilendi: segment özet (İşlenecek/Zaten var/Cari yok) — başlığa dokununca süzülür; sade satırlar, kısaltılmış adlar",
+    "İşle'ye basınca eksik cariler resmi ünvanla otomatik açılır, sonra işlenir",
+    "Cari birleştirme: aynı VKN ya da benzer ad tespiti; onayınla hareketler resmi hesaba taşınır, kopya silinir",
+    "Açık/Kapalı sorulurken arka plan bulanıklaşır, altta dolan ilerleme çubuğu; karar verilen satır kısa süre sarıya boyanır",
+    "Kasa Kapanış Kontrolü: girilen satır sarı yanıp söner + altta 'kaç/kaç kontrol edildi' çubuğu",
+  ]},
   { version: "2026.57", date: "2026-08-07", items: [
     "Fatura türü seçimi yenilendi: net bir soru + iki büyük kart (Satış / Alış); ekrandaki karmaşık açıklamalar kaldırıldı",
   ]},
@@ -1270,6 +1277,8 @@ async function viewGunSonuAktarim(c) {
           <span class="v" id="tot-real">—</span>
           <span class="v" id="tot-fark">—</span>
         </div>
+        <div class="gs-prog"><div class="bar" id="gs-prog-bar" style="width:0%"></div></div>
+        <div class="gs-prog-lbl"><span id="gs-prog-lbl">0/${rows.length}</span> satır kontrol edildi</div>
       </div>
       <div class="toolbar" style="margin-top:14px">
         <button class="btn" id="gs-back">← Geri</button>
@@ -1306,10 +1315,20 @@ async function viewGunSonuAktarim(c) {
       tre.textContent = any ? fmtNum(tr) : "—";
       tfe.textContent = any ? fmtNum(tf) : "—";
       tfe.style.color = any ? (tf < 0 ? "#ffd9d0" : tf > 0 ? "#cfeeda" : "") : "";
+      const pb = $("#gs-prog-bar", body), pl = $("#gs-prog-lbl", body);
+      if (pb) {
+        const filled = rows.filter((r) => r.gerceklesen !== "" && r.gerceklesen != null).length;
+        pb.style.width = Math.round((filled / (rows.length || 1)) * 100) + "%";
+        if (pl) pl.textContent = filled + "/" + rows.length;
+      }
     };
     body.addEventListener("input", rafThrottle(recompute));
     $$(".gs-real", body).forEach((inp) => inp.addEventListener("blur", () => {
-      if (inp.value.trim() !== "") inp.value = fmtNum(parseNum(inp.value));
+      if (inp.value.trim() !== "") {
+        inp.value = fmtNum(parseNum(inp.value));
+        const row = inp.closest(".gs-trow");
+        if (row) { row.classList.remove("flash-y"); void row.offsetWidth; row.classList.add("flash-y"); }
+      }
     }));
     recompute();
 
@@ -2850,7 +2869,7 @@ async function viewCariHareket(c) {
       const siblings = accounts.filter((a) => a.parentId === main.id);
       const code = nextSubCode(main, siblings);
       const payload = {
-        code, name: it.ad || "Yeni Cari", type: main.type,
+        code, name: it.ad ? titleCase(it.ad) : "Yeni Cari", type: main.type,
         parentId: main.id, parentCode: main.code, vkn: it.vkn || "",
         openingBalance: 0, createdAt: serverTimestamp(),
       };
@@ -2859,6 +2878,77 @@ async function viewCariHareket(c) {
       accounts.push(newAcc); cariAccounts.push(newAcc);
       await logAction("Ekleme", "Cari Hesap", `${code} ${payload.name}`);
       if (!silent) { toast("Cari eklendi: " + payload.name, "ok"); draw(); }
+    }
+
+    // ---- Olası tekrar cari tespiti (aynı VKN ya da biri diğerinin adının başında) ----
+    function detectDupCaris() {
+      const out = [], used = new Set();
+      const list = cariAccounts.filter((a) => a.parentId);
+      for (let i = 0; i < list.length; i++) {
+        for (let j = i + 1; j < list.length; j++) {
+          const a = list[i], b = list[j];
+          if (used.has(a.id) || used.has(b.id)) continue;
+          const va = String(a.vkn || "").trim(), vb = String(b.vkn || "").trim();
+          let reason = null;
+          if (va && vb && va === vb) reason = "Aynı VKN";
+          else {
+            const na = nrm(a.name), nb = nrm(b.name);
+            if (na && nb && na !== nb && (na.startsWith(nb) || nb.startsWith(na)) && Math.min(na.length, nb.length) >= 3)
+              reason = "Benzer ad";
+          }
+          if (!reason) continue;
+          // Kalacak = VKN'si olan; ikisinde de varsa/yoksa uzun (resmi) ad
+          let keep = a, drop = b;
+          if (vb && !va) { keep = b; drop = a; }
+          else if (!!va === !!vb && String(b.name || "").length > String(a.name || "").length) { keep = b; drop = a; }
+          out.push({ keep, drop, reason });
+          used.add(a.id); used.add(b.id);
+        }
+      }
+      return out;
+    }
+
+    async function mergeCari(keep, drop) {
+      const es = await fetchAll(C.accountEntries).catch(() => []);
+      for (const e of es.filter((x) => x.accountId === drop.id))
+        await updateDoc(doc(db, "accountEntries", e.id), { accountId: keep.id });
+      if (!String(keep.vkn || "").trim() && String(drop.vkn || "").trim()) {
+        await updateDoc(doc(db, "accounts", keep.id), { vkn: drop.vkn });
+        keep.vkn = drop.vkn;
+      }
+      await deleteDoc(doc(db, "accounts", drop.id));
+      await logAction("Birleştirme", "Cari Hesap", `${drop.code} ${drop.name} → ${keep.code} ${keep.name}`);
+    }
+
+    function openMergeModal(pairs) {
+      const body = document.createElement("div");
+      body.innerHTML =
+        `<div class="mg-note">Aşağıdaki hesaplar aynı cari gibi görünüyor. Onayladıklarında tüm hareketler <b>resmi hesaba</b> taşınır, diğeri silinir.</div>` +
+        pairs.map((p, i) => `
+          <label class="mg-row">
+            <input type="checkbox" class="mg-chk" data-i="${i}" checked />
+            <div class="mg-info">
+              <div class="mg-drop">${esc(p.drop.code)} · ${esc(p.drop.name)}${p.drop.vkn ? ` · ${esc(p.drop.vkn)}` : ""}</div>
+              <div class="mg-arrow">↓ şuraya birleştir</div>
+              <div class="mg-keep">${esc(p.keep.code)} · ${esc(p.keep.name)}${p.keep.vkn ? ` · ${esc(p.keep.vkn)}` : ""}</div>
+            </div>
+            <span class="tag warn mg-reason">${esc(p.reason)}</span>
+          </label>`).join("");
+      const m = openModal({ title: "Cari Birleştir", body, footer: [
+        mkBtn("Vazgeç", "", () => m.close()),
+        mkBtn("Seçilenleri Birleştir", "btn-primary", async () => {
+          const chosen = $$(".mg-chk", body).filter((c) => c.checked).map((c) => pairs[+c.dataset.i]);
+          if (!chosen.length) { m.close(); return; }
+          m.close();
+          for (const p of chosen) await mergeCari(p.keep, p.drop);
+          const [fa, fe] = await Promise.all([fetchAll(C.accounts).catch(() => []), fetchAll(C.accountEntries).catch(() => [])]);
+          accounts.splice(0, accounts.length, ...fa);
+          entries.splice(0, entries.length, ...fe);
+          cariAccounts = accounts.filter((a) => a.type === targetType);
+          toast(`${chosen.length} cari birleştirildi.`, "ok");
+          draw();
+        }),
+      ] });
     }
 
     // Borç/Alacak, faturanın türü ve durumuna göre
@@ -2870,6 +2960,8 @@ async function viewCariHareket(c) {
       : it.durum === "kismi" ? { label: `Kısmi ${fmtTRY(it.kismiTutar || 0)}`, tag: "gold" }
       : { label: "Açık", tag: "warn" };
     const nonDupIdx = () => items.map((it, i) => i).filter((i) => statusOf(items[i]).code !== "dup");
+    let statusFilter = null;   // null | "ready" | "dup" | "nocari"
+    const shortNo = (no) => (no && no.length > 11) ? no.slice(0, 3) + "…" + no.slice(-4) : (no || "");
 
     // Sıra sıra soran sihirbaz: Açık / Kapalı / Kısmi Kapat
     function runWizard(indices) {
@@ -2878,18 +2970,26 @@ async function viewCariHareket(c) {
       const body = document.createElement("div");
       const finish = () => { if (keyH) document.removeEventListener("keydown", keyH); m.close(); draw(); };
       const m = openModal({ title: "Fatura Durumu", body, footer: [mkBtn("Bitir", "", finish)] });
+      // İşlenen faturanın listedeki satırını kısa süre sarıya boyar
+      const flashRow = (idx) => {
+        const el = $(`.pv-row[data-row="${idx}"]`, editor);
+        if (!el) return;
+        el.classList.remove("flash-y"); void el.offsetWidth; el.classList.add("flash-y");
+      };
       const choose = (w, amt) => {
         const it = items[indices[k]];
         it.durum = w;
         it.kismiTutar = w === "kismi" ? Math.min(amt || 0, it.amount) : 0;
+        flashRow(indices[k]);
         k++; step();
       };
       function step() {
         if (k >= indices.length) { finish(); return; }
         const it = items[indices[k]];
+        const pct = Math.round((k / indices.length) * 100);
         body.innerHTML = `
           <div style="font-size:12px;color:var(--ink-faint)">${k + 1}/${indices.length}</div>
-          <div style="font-weight:700;font-size:15px;margin-top:4px">${esc(it.ad || "-")}</div>
+          <div style="font-weight:700;font-size:15px;margin-top:4px">${esc(titleCase(it.ad || "-"))}</div>
           <div style="font-size:12.5px;color:var(--ink-soft);margin:4px 0 14px">${esc(it.faturaNo)} · ${fmtDate(it.date)} · Tutar <b>${fmtTRY(it.amount)}</b></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
             <button class="btn btn-primary" data-w="acik">Açık ↵</button>
@@ -2899,7 +2999,9 @@ async function viewCariHareket(c) {
           <div id="wz-kismi" style="display:none;margin-top:14px">
             ${moneyField(kind === "satis" ? "Tahsil Edilen (Alacak)" : "Ödenen (Borç)", "wz-amount", "")}
             <button class="btn btn-primary btn-sm" id="wz-ok">Devam</button>
-          </div>`;
+          </div>
+          <div class="wz-prog"><div class="bar" style="width:${pct}%"></div></div>
+          <div class="wz-plabel">${k}/${indices.length} tamamlandı</div>`;
         wireMoney(body);
         $$("[data-w]", body).forEach((b) => b.onclick = () => {
           if (b.dataset.w === "kismi") { $("#wz-kismi", body).style.display = "block"; $("#wz-amount", body).focus(); return; }
@@ -2927,83 +3029,85 @@ async function viewCariHareket(c) {
       const ready = st.filter((s) => s.code === "ready").length;
       const dups = st.filter((s) => s.code === "dup").length;
       const noc = st.filter((s) => s.code === "nocari").length;
-      const badgeOf = (s, i) => s.code === "ready" ? `<span class="tag ok">${esc(s.acc.code)} · ${esc(s.acc.name)}</span>`
-        : s.code === "dup" ? `<span class="tag warn">Zaten var</span>`
-        : `<span class="tag red">Cari yok</span> <button class="btn btn-sm" data-addcari="${i}">+ Cari Ekle</button>`;
+      const dupCaris = detectDupCaris();
+      const processable = ready + noc;
 
-      const rowsHtml = items.map((it, i) => {
-        const a = amountsOf(it), d = durumInfo(it);
-        return `<tr data-ask="${i}" style="cursor:pointer">
-          <td>${esc(it.faturaNo)}</td><td>${fmtDate(it.date)}</td><td>${esc(it.ad)}</td><td>${esc(it.vkn)}</td>
-          <td class="num">${a.borc ? fmtTRY(a.borc) : "—"}</td>
-          <td class="num">${a.alacak ? fmtTRY(a.alacak) : "—"}</td>
-          <td><span class="tag ${d.tag}">${d.label}</span></td>
-          <td>${badgeOf(st[i], i)}</td>
-        </tr>`;
-      }).join("");
+      const segs = [
+        { code: "ready", w: "İşlenecek", c: "ok", n: ready },
+        { code: "dup", w: "Zaten var", c: "warn", n: dups },
+        { code: "nocari", w: "Cari yok", c: "red", n: noc },
+      ];
+      const stWord = (code) => code === "ready" ? { w: "İşlenecek", c: "ok" }
+        : code === "dup" ? { w: "Zaten var", c: "warn" } : { w: "Cari yok", c: "red" };
 
-      const cardsHtml = items.map((it, i) => {
-        const a = amountsOf(it), d = durumInfo(it);
-        return `<div class="tx-card" data-ask="${i}">
-          <div class="tx-left">
-            <div class="tx-title">${esc(it.ad || "-")}</div>
-            <div class="tx-sub">${esc(it.faturaNo)} · ${fmtDate(it.date)}</div>
-            <div class="tx-desc">Borç ${fmtTRY(a.borc)}${a.alacak ? ` · Alacak ${fmtTRY(a.alacak)}` : ""}</div>
-            <div style="margin-top:6px">${badgeOf(st[i], i)}</div>
-          </div>
-          <div class="tx-right"><span class="tag ${d.tag}">${d.label}</span></div>
+      const visIdx = items.map((it, i) => i).filter((i) => !statusFilter || st[i].code === statusFilter);
+
+      const rowsHtml = visIdx.map((i) => {
+        const it = items[i], s = st[i], d = durumInfo(it), sw = stWord(s.code);
+        const durumTxt = it.durum === "acik" ? "" : ` · ${d.label}`;
+        const right = s.code === "nocari"
+          ? `<div class="v">${fmtTRY(it.amount)}</div><button class="pv-add" data-addcari="${i}">Cari aç +</button>`
+          : `<div class="v">${fmtTRY(it.amount)}</div><div class="st ${sw.c}">${sw.w}</div>`;
+        return `<div class="pv-row" data-row="${i}" data-ask="${i}">
+          <span class="dot ${sw.c}"></span>
+          <div class="mid"><div class="nm">${esc(titleCase(it.ad || "-"))}</div>
+            <div class="mt">${esc(shortNo(it.faturaNo))} · ${fmtDate(it.date)}${durumTxt}</div></div>
+          <div class="amt">${right}</div>
         </div>`;
       }).join("");
+
+      const segHtml = segs.map((g) => `
+        <div class="s ${g.c} ${statusFilter === g.code ? "on" : ""}" data-seg="${g.code}">
+          <div class="n">${g.n}</div><div class="l">${g.w}</div>
+        </div>`).join("");
 
       editor.innerHTML = `
         <div class="card">
-          <div class="card-head"><h3>Önizleme · ${faturaTuru}</h3>
-            <span class="hint">${esc(main.code)} ${esc(main.name)} · ${items.length} fatura</span></div>
-          <div class="toolbar" style="margin:0 0 12px">
-            <span class="tag ok">${ready} işlenecek</span>
-            <span class="tag warn">${dups} zaten var</span>
-            <span class="tag red">${noc} cari yok</span>
-            <div class="grow"></div>
-            <button class="btn btn-sm" id="reask">Durumları Sor</button>
-            ${noc ? `<button class="btn btn-sm" id="add-all-cari">Eksik carileri oluştur</button>` : ""}
+          <div class="pv-head">
+            <div class="pv-title">${faturaTuru} Önizleme</div>
+            <div class="pv-sub">${esc(main.name)} · ${items.length} fatura</div>
           </div>
-          <div class="ledger-cards">${cardsHtml}</div>
-          <div class="table-wrap ledger-table"><table class="data">
-            <thead><tr><th>Fatura No</th><th>Tarih</th><th>Cari Adı</th><th>VKN/TCKN</th>
-              <th class="num">Borç</th><th class="num">Alacak</th><th>Durum</th><th>Cari Hesap</th></tr></thead>
-            <tbody>${rowsHtml}</tbody>
-          </table></div>
-          <div class="toolbar" style="margin-top:14px">
+          <div class="pv-seg">${segHtml}</div>
+          <div class="pv-fhint">${statusFilter ? `Filtre: <b>${esc(stWord(statusFilter).w)}</b> · dokun kaldır` : "Bir başlığa dokunarak süzebilirsin"}</div>
+          ${dupCaris.length ? `<div class="notice warn" style="margin:0 0 10px" id="merge-note">🔗 <b>${dupCaris.length}</b> olası tekrar cari bulundu (aynı cari iki kez açılmış olabilir). <a href="#" id="merge-cari">Birleştir</a></div>` : ""}
+          <div class="pv-rows">${rowsHtml || `<div class="empty" style="padding:20px">Bu süzgeçte fatura yok.</div>`}</div>
+          <div class="pv-cta">
+            <button class="btn btn-sm" id="reask">Durumları Sor</button>
             <div class="grow"></div>
-            <button class="btn btn-primary" id="send-inv" ${ready ? "" : "disabled"}>📤 ${ready} Faturayı İşle</button>
+            <button class="btn btn-primary" id="send-inv" ${processable ? "" : "disabled"}>📤 ${processable} Faturayı İşle${noc ? ` <small style="opacity:.85">(${noc} cari açılacak)</small>` : ""}</button>
           </div>
         </div>`;
 
+      $$("[data-seg]", editor).forEach((el) => el.onclick = () => {
+        statusFilter = statusFilter === el.dataset.seg ? null : el.dataset.seg;
+        draw();
+      });
       $$("[data-ask]", editor).forEach((el) => el.addEventListener("click", (e) => {
         if (e.target.closest("button")) return;
         askOne(+el.dataset.ask);
       }));
       $("#reask", editor).onclick = () => runWizard(nonDupIdx());
       $$("[data-addcari]", editor).forEach((b) => b.onclick = () => createCari(items[+b.dataset.addcari]));
-      const addAll = $("#add-all-cari", editor);
-      if (addAll) addAll.onclick = async () => {
-        addAll.disabled = true;
-        const seen = new Set();
-        for (const it of items) {
-          if (statusOf(it).code !== "nocari") continue;
-          const key = it.vkn || nrm(it.ad);
-          if (seen.has(key)) continue;
-          seen.add(key);
-          await createCari(it, true);
-        }
-        toast("Eksik cariler oluşturuldu.", "ok"); draw();
-      };
+      const mc = $("#merge-cari", editor);
+      if (mc) mc.onclick = (e) => { e.preventDefault(); openMergeModal(dupCaris); };
       const send = $("#send-inv", editor);
       if (send) send.onclick = () => onSend(send);
     }
 
     async function onSend(sendBtn) {
       sendBtn.disabled = true;
+      // Önce eksik carileri (resmi ünvanla) otomatik aç
+      const missing = items.filter((it) => statusOf(it).code === "nocari");
+      if (missing.length) {
+        const seen = new Set();
+        for (const it of missing) {
+          const key = it.vkn || nrm(it.ad);
+          if (seen.has(key)) continue;
+          seen.add(key);
+          await createCari(it, true);
+        }
+        toast(`${seen.size} eksik cari açıldı.`, "ok");
+      }
       const fresh = await fetchAll(C.accountEntries).catch(() => []);
       let gno = fresh.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
       const cnoMap = new Map();
