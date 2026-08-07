@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.38";
+} from "./local-backend.js?v=2026.39";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.38";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.39";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.38";
+const APP_VERSION = "2026.39";
 const CHANGELOG = [
+  { version: "2026.39", date: "2026-08-07", items: [
+    "Kasa Kapanış: Gerçekleşen alanları kutusuz (düz); başlıklardan ₺ kaldırıldı",
+    "GENEL TOPLAM sütunlarla hizalı ve altın renkli",
+    "Masraflar: ✕ kaldırıldı, alanlar kutusuz düz metin",
+  ]},
   { version: "2026.38", date: "2026-08-07", items: [
     "Adım çubuğu mobilde tek satır: 1–2–3–4 numaralı noktalar, yalnızca aktif adımın adı yazılır",
   ]},
@@ -1161,7 +1166,7 @@ async function viewGunSonuAktarim(c) {
       return `<div class="gs-group">
         <div class="gs-group-head">${esc(g.name)}
           <span class="sub">Sistem <b>${fmtNum(gs)} ₺</b> · Fark <b id="gf-${gi}">—</b></span></div>
-        <div class="gs-thead"><span>Ödeme Yöntemi</span><span class="num">Girilen ₺</span><span class="num">Gerçekleşen ₺</span><span class="num">Fark</span></div>
+        <div class="gs-thead"><span>Ödeme Yöntemi</span><span class="num">Girilen</span><span class="num">Gerçekleşen</span><span class="num">Fark</span></div>
         ${g.methods.map(itemHtml).join("")}
       </div>`;
     };
@@ -1183,11 +1188,11 @@ async function viewGunSonuAktarim(c) {
         </div>
         <div class="card-head"><h3>Kasa Kapanış Kontrolü</h3><span class="hint">Gerçekleşen (sayım) tutarlarını girin</span></div>
         ${GS_GROUPS.map(groupHtml).join("")}
-        <div class="gs-total">
-          <span>GENEL TOPLAM</span>
-          <span class="tt">Sistem <b>${fmtNum(totSistem)} ₺</b></span>
-          <span class="tt">Gerçekleşen <b id="tot-real">—</b></span>
-          <span class="tt">Fark <b id="tot-fark">—</b></span>
+        <div class="gs-ttotal">
+          <span class="lbl">GENEL TOPLAM</span>
+          <span class="v">${fmtNum(totSistem)}</span>
+          <span class="v" id="tot-real">—</span>
+          <span class="v" id="tot-fark">—</span>
         </div>
       </div>
       <div class="toolbar" style="margin-top:14px">
@@ -1220,9 +1225,9 @@ async function viewGunSonuAktarim(c) {
         else { el.textContent = "—"; el.style.color = ""; }
       });
       const tre = $("#tot-real", body), tfe = $("#tot-fark", body);
-      tre.textContent = any ? fmtNum(tr) + " ₺" : "—";
-      tfe.textContent = any ? fmtNum(tf) + " ₺" : "—";
-      tfe.style.color = any ? (tf < 0 ? "var(--danger)" : tf > 0 ? "var(--ok)" : "") : "";
+      tre.textContent = any ? fmtNum(tr) : "—";
+      tfe.textContent = any ? fmtNum(tf) : "—";
+      tfe.style.color = any ? (tf < 0 ? "#ffd9d0" : tf > 0 ? "#cfeeda" : "") : "";
     };
     body.addEventListener("input", rafThrottle(recompute));
     $$(".gs-real", body).forEach((inp) => inp.addEventListener("blur", () => {
@@ -1394,14 +1399,13 @@ async function viewGunSonuAktarim(c) {
       <div class="mf-row">
         <textarea class="mf-ad" data-i="${i}" rows="1" placeholder="Açıklama">${esc(r.ad)}</textarea>
         <input class="mf-rapor" data-i="${i}" value="${esc(r.rapor || "")}" placeholder="—" />
-        <div class="money-wrap sm"><input class="num mf-tutar" data-i="${i}" inputmode="decimal" value="${esc(money(r.tutar))}" placeholder="0,00" /><span class="cur">₺</span></div>
-        <button class="btn btn-sm btn-danger mf-del" data-i="${i}" title="Sil">✕</button>
+        <div class="mf-amt"><input class="num mf-tutar" data-i="${i}" inputmode="decimal" value="${esc(money(r.tutar))}" placeholder="0,00" /><span class="cur">₺</span></div>
       </div>`).join("");
 
     body.innerHTML = `
       <div class="card">
         <div class="card-head"><h3>Masraflar</h3><span class="hint">Rapordaki "Masraflar Toplamı" satırları</span></div>
-        <div class="mf-thead"><span>Açıklama <small>(uzunsa dokun)</small></span><span>Rapor</span><span class="num">Tutar</span><span></span></div>
+        <div class="mf-thead"><span>Açıklama <small>(uzunsa dokun)</small></span><span>Rapor</span><span class="num">Tutar</span></div>
         <div class="mf-list">${rowsHtml || `<div class="empty" style="padding:14px"><p>Masraf satırı bulunamadı.</p></div>`}</div>
         <div class="toolbar" style="margin-top:10px">
           <button class="btn btn-sm" id="mf-add">+ Satır Ekle</button>
@@ -1429,7 +1433,6 @@ async function viewGunSonuAktarim(c) {
       inp.addEventListener("blur", () => { const n = parseNum(inp.value); inp.value = n ? fmtNum(n) : ""; });
       inp.addEventListener("focus", () => inp.select());
     });
-    $$(".mf-del", body).forEach((b) => b.onclick = () => { rows.splice(+b.dataset.i, 1); renderMasraflar(body); });
     $("#mf-add", body).onclick = () => { rows.push({ ad: "", rapor: "", tutar: 0 }); renderMasraflar(body); };
 
     $("#gs-back3", body).onclick = () => goto(2);
