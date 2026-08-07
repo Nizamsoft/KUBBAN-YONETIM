@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.43";
+} from "./local-backend.js?v=2026.44";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.43";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.44";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.43";
+const APP_VERSION = "2026.44";
 const CHANGELOG = [
+  { version: "2026.44", date: "2026-08-07", items: [
+    "iOS 'Ana Ekrana Ekle' simgesi artık Kübban logosu (apple-touch-icon eklendi)",
+    "Ana ekrandan açılışta tam ekran uygulama görünümü + simge adı 'Kübban'",
+  ]},
   { version: "2026.43", date: "2026-08-07", items: [
     "Menü aç/kapa kasması giderildi: max-height yerine grid-rows (0fr↔1fr) ile akıcı animasyon",
     "Menü grubunda layout yalıtımı (contain) — açılırken sayfayı zorlamıyor",
