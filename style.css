@@ -200,12 +200,14 @@ button { font-family: inherit; }
 .nav-group.open > .nav-group-header { border: none; border-bottom: 1px solid #f0e7d5; border-radius: 0; color: var(--gold-dark); }
 .nav-group.open > .nav-group-header .chev { transform: rotate(90deg); color: var(--gold-dark); }
 
-/* Yüksek FPS: yükseklik grid-rows ile kısa/snappy; içerik compositor'da fade+slide */
-.nav-group-body { display: grid; grid-template-rows: 0fr; transition: grid-template-rows .18s cubic-bezier(.33,1,.68,1); will-change: grid-template-rows; }
+/* Çekmece gibi pürüzsüz: yükseklik ANLIK değişir (layout animasyonu yok),
+   görünen hareket yalnızca GPU'da transform + opacity ile yapılır */
+.nav-group-body { display: grid; grid-template-rows: 0fr; }
 .nav-group.open > .nav-group-body { grid-template-rows: 1fr; }
 .nav-group-inner {
   overflow: hidden; min-height: 0; display: flex; flex-direction: column; gap: 6px; padding: 6px;
-  opacity: 0; transform: translateY(-4px); transition: opacity .16s ease, transform .16s ease;
+  opacity: 0; transform: translateY(-8px);
+  transition: opacity .2s ease, transform .22s cubic-bezier(.22,.61,.36,1);
 }
 .nav-group.open > .nav-group-body > .nav-group-inner { opacity: 1; transform: none; }
 .nav-item.nav-sub { padding: 10px 12px; border-radius: 8px; font-weight: 500; color: var(--ink-soft); }

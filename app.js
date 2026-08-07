@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.55";
+} from "./local-backend.js?v=2026.56";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.55";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.56";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.55";
+const APP_VERSION = "2026.56";
 const CHANGELOG = [
+  { version: "2026.56", date: "2026-08-07", items: [
+    "Menü grubu aç/kapa artık çekmece kadar akıcı: yükseklik anlık, hareket tamamen GPU'da (transform+opacity)",
+  ]},
   { version: "2026.55", date: "2026-08-07", items: [
     "Dokununca çıkan koyu flaş (iOS tap highlight) kaldırıldı",
     "Sayfa geçişleri daha akıcı: GPU'da yumuşak fade + hafif yukarı kayma",
