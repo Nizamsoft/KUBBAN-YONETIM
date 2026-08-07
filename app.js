@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.53";
+} from "./local-backend.js?v=2026.54";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.53";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.54";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.53";
+const APP_VERSION = "2026.54";
 const CHANGELOG = [
+  { version: "2026.54", date: "2026-08-07", items: [
+    "Hesap defteri üst kartı yeni 'Altın Banner' tasarımı: emoji + hesap + büyük güncel bakiye",
+  ]},
   { version: "2026.53", date: "2026-08-07", items: [
     "Cari kartlarında 'Cari No' gösterilmiyor (alt satır sadece tarih)",
     "Hesap defteri üstünden 'Toplam Giren / Toplam Çıkan' kartları kaldırıldı",
@@ -2542,9 +2545,10 @@ async function viewAccountLedger(c) {
     const totBorc = list.reduce((s, e) => s + parseNum(e.borc), 0);
     const totAlacak = list.reduce((s, e) => s + parseNum(e.alacak), 0);
     c.innerHTML = backBar + `
-      <div class="grid cols-2" style="margin-bottom:18px">
-        <div class="stat"><div class="label">Hesap</div><div class="value" style="font-size:17px">${esc(acc.name || "")}</div><div class="foot">${esc(acc.code || "")}</div></div>
-        <div class="stat"><div class="label">Güncel Bakiye</div><div class="value" style="color:${run<0?'var(--danger)':'inherit'}">${fmtTRY(Math.abs(run))}</div><div class="foot">${run>=0?"Borç":"Alacak"} bakiye</div></div>
+      <div class="ledger-hero">
+        <div class="lh-ico">${accEmoji(acc)}</div>
+        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
+        <div class="lh-bal"><div class="lbl">${run >= 0 ? "Borç" : "Alacak"} Bakiye</div><div class="val">${fmtTRY(Math.abs(run))}</div></div>
       </div>
       <div class="card">
         <div class="card-head"><h3>Cari Hareketler</h3><span class="hint">${list.length} hareket</span></div>
@@ -2581,9 +2585,10 @@ async function viewAccountLedger(c) {
     const totGiren = list.reduce((s, e) => s + parseNum(e.giren), 0);
     const totCikan = list.reduce((s, e) => s + parseNum(e.cikan), 0);
     c.innerHTML = backBar + `
-      <div class="grid cols-2" style="margin-bottom:18px">
-        <div class="stat"><div class="label">Hesap</div><div class="value" style="font-size:17px">${esc(acc.name || "")}</div><div class="foot">${esc(acc.code || "")}</div></div>
-        <div class="stat"><div class="label">Güncel Bakiye</div><div class="value" style="color:${run<0?'var(--danger)':'inherit'}">${fmtTRY(run)}</div><div class="foot">Açılış: ${fmtTRY(opening)}</div></div>
+      <div class="ledger-hero">
+        <div class="lh-ico">${accEmoji(acc)}</div>
+        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
+        <div class="lh-bal"><div class="lbl">Güncel Bakiye</div><div class="val" ${run < 0 ? 'style="color:#ffd9d0"' : ""}>${fmtTRY(run)}</div></div>
       </div>
       <div class="card">
         <div class="card-head"><h3>Hareketler</h3><span class="hint">${list.length} hareket</span></div>
