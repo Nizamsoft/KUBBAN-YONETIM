@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.33";
+} from "./local-backend.js?v=2026.34";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.33";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.34";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.33";
+const APP_VERSION = "2026.34";
 const CHANGELOG = [
+  { version: "2026.34", date: "2026-08-07", items: [
+    "Hesaplar: 'Hesapları Düzenle' artık Hesap Planı kartının sağ üstünde kalem ikonu",
+    "Arama yaparken alttaki hesap listesi bulanıklaşır (öneriler öne çıkar)",
+  ]},
   { version: "2026.33", date: "2026-08-07", items: [
     "Gün Sonu Aktarım'a 4. adım eklendi: Masraflar (rapordaki 'Masraflar Toplamı' satırları)",
     "Masraflar: 1. sütun ad (sondaki '(Ödenmezler İstihkak)' atılır) · Rapor boş · 3. sütun tutar",
@@ -1881,10 +1885,15 @@ async function viewHesaplar(c) {
       </div>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
-      <button class="btn btn-primary btn-sm" id="edit-toggle">✏️ Hesapları Düzenle</button>
     </div>
-    <div class="card" style="padding:0;overflow:hidden">
-      <div class="acc-plan-head"><span class="ttl">📋 Hesap Planı</span><span class="hint">${roots.length} ana hesap</span></div>
+    <div class="card" id="acc-plan-card" style="padding:0;overflow:hidden">
+      <div class="acc-plan-head">
+        <span class="ttl">📋 Hesap Planı</span>
+        <span class="acc-plan-right">
+          <span class="hint">${roots.length} ana hesap</span>
+          <button class="acc-edit-ic" id="edit-toggle" title="Hesapları Düzenle">✏️</button>
+        </span>
+      </div>
       <div class="acc-list">${roots.map(renderMain).join("")}</div>
     </div>`;
 
@@ -1928,31 +1937,33 @@ async function viewHesaplar(c) {
   };
   const sug = { items: [], active: 0 };
   const qInp = $("#acc-q", c), sugBox = $("#acc-suggest", c);
-  const go = (id) => { if (id) location.hash = "#/hesap-detay?id=" + id; };
+  const setBlur = (on) => $("#acc-plan-card", c)?.classList.toggle("blurred", on);
+  const closeSuggest = () => { sugBox.classList.remove("open"); setBlur(false); };
+  const go = (id) => { if (id) { closeSuggest(); location.hash = "#/hesap-detay?id=" + id; } };
   const paintActive = () => $$(".sug", sugBox).forEach((el, i) => {
     el.classList.toggle("active", i === sug.active);
     if (i === sug.active) el.scrollIntoView({ block: "nearest" });
   });
   const renderSuggest = () => {
     sug.items = searchAccounts(qInp.value); sug.active = 0;
-    if (!sug.items.length) { sugBox.classList.remove("open"); sugBox.innerHTML = ""; return; }
+    if (!sug.items.length) { sugBox.innerHTML = ""; closeSuggest(); return; }
     sugBox.innerHTML = sug.items.map((f, i) => `
       <div class="sug ${i === 0 ? "active" : ""}" data-id="${f.id}">
         <span class="sug-code">${esc(f.code)}</span>
         <span class="sug-name">${esc(f.name)}</span>
       </div>`).join("");
-    sugBox.classList.add("open");
+    sugBox.classList.add("open"); setBlur(true);
     $$(".sug", sugBox).forEach((el) => el.addEventListener("mousedown", (e) => { e.preventDefault(); go(el.dataset.id); }));
   };
   qInp.addEventListener("input", renderSuggest);
   qInp.addEventListener("focus", renderSuggest);
-  qInp.addEventListener("blur", () => setTimeout(() => sugBox.classList.remove("open"), 150));
+  qInp.addEventListener("blur", () => setTimeout(closeSuggest, 150));
   qInp.addEventListener("keydown", (e) => {
     const n = sug.items.length;
     if (e.key === "ArrowDown") { e.preventDefault(); if (n) { sug.active = (sug.active + 1) % n; paintActive(); } }
     else if (e.key === "ArrowUp") { e.preventDefault(); if (n) { sug.active = (sug.active - 1 + n) % n; paintActive(); } }
     else if (e.key === "Enter") { e.preventDefault(); const f = sug.items[sug.active] || sug.items[0]; if (f) go(f.id); }
-    else if (e.key === "Escape") { sugBox.classList.remove("open"); }
+    else if (e.key === "Escape") { closeSuggest(); qInp.blur(); }
   });
   // Üstteki "Yeni Hesap": önce Ana/Alt, Alt ise hangi ana hesabın altında
   const openNewChooser = () => {
@@ -1995,8 +2006,9 @@ async function viewHesaplar(c) {
     const list = $(".acc-list", c);
     const on = list.classList.toggle("edit-mode");
     const btn = $("#edit-toggle", c);
-    btn.textContent = on ? "✓ Bitir" : "✏️ Hesapları Düzenle";
-    btn.classList.toggle("btn-primary", !on);
+    btn.textContent = on ? "✓" : "✏️";
+    btn.title = on ? "Düzenlemeyi Bitir" : "Hesapları Düzenle";
+    btn.classList.toggle("active", on);
     $("#acc-add", c).style.display = on ? "" : "none";
     $("#acc-complete", c).style.display = on ? "" : "none";
   };

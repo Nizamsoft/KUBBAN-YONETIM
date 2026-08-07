@@ -301,11 +301,23 @@ table.data input.num { text-align: right; }
 
 /* Hesap planı kart başlığı */
 .acc-plan-head {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  padding: 16px 16px 12px; border-bottom: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 12px 14px 12px 16px; border-bottom: 1px solid var(--line);
 }
 .acc-plan-head .ttl { font-weight: 800; font-size: 16px; color: var(--gold-dark); }
 .acc-plan-head .hint { font-size: 12px; color: var(--ink-faint); }
+.acc-plan-right { display: flex; align-items: center; gap: 10px; }
+.acc-edit-ic {
+  border: 1px solid var(--line-strong); background: var(--surface); cursor: pointer;
+  width: 34px; height: 34px; border-radius: 9px; font-size: 16px; line-height: 1; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center; color: var(--ink-soft);
+  transition: background .12s, border-color .12s;
+}
+.acc-edit-ic:hover { background: var(--surface-2); }
+.acc-edit-ic.active { background: var(--gold); border-color: var(--gold); color: #fff; }
+/* Arama açıkken plan kartı bulanıklaşır */
+#acc-plan-card { transition: filter .18s ease, opacity .18s ease; }
+#acc-plan-card.blurred { filter: blur(3px); opacity: .55; pointer-events: none; }
 
 /* Satır emoji rozeti */
 .acc-row .acc-ico {
