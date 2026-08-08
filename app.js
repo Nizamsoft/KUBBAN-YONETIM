@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.64";
+} from "./local-backend.js?v=2026.65";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.64";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.65";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.64";
+const APP_VERSION = "2026.65";
 const CHANGELOG = [
+  { version: "2026.65", date: "2026-08-07", items: [
+    "Banka POS dışı: çıkan (ödeme) hareketlerde Rapor artık zorunlu",
+    "'+ açıklama' düğmesi: basınca Gelen/Giden Eft yerine özel açıklama yazılabiliyor (geçmişten hatırlanır)",
+  ]},
   { version: "2026.64", date: "2026-08-07", items: [
     "Banka POS dışı sadeleşti: açıklama otomatik 'Gelen Eft' / 'Giden Eft'; satırda sadece Hesap (çıkanlarda + Rapor)",
     "Alanlar tek satırda, daha kompakt görünüm",
@@ -3311,7 +3315,8 @@ async function viewBanka(c) {
     const aliasMap = {};
     entries.filter((e) => e.source === "banka-diger" && e.bankaAciklama && e.matchedCode).forEach((e) => {
       const s = bkSig(e.bankaAciklama);
-      if (s) aliasMap[s] = { code: e.matchedCode, name: e.matchedName || "", rapor: e.rapor || "", acik: e.aciklama || "" };
+      const custom = (e.aciklama && e.aciklama !== "Gelen Eft" && e.aciklama !== "Giden Eft") ? e.aciklama : "";
+      if (s) aliasMap[s] = { code: e.matchedCode, name: e.matchedName || "", rapor: e.rapor || "", acik: custom };
     });
     const resolveAcc = (val) => {
       const v = String(val || "").trim(); if (!v) return null;
@@ -3357,15 +3362,22 @@ async function viewBanka(c) {
       }
       const accVal = sug ? `${sug.code} · ${sug.name}` : "";
       const rapVal = sug ? sug.rapor : "";
-      // Sade: sadece Hesap (çıkanlarda + Rapor). Açıklama otomatik "Gelen/Giden Eft".
-      const rapInp = o.amt < 0 ? `<input class="bk-rapor" data-seq="${o.seq}" placeholder="Rapor" value="${esc(rapVal)}" />` : "";
+      const acikVal = sug ? sug.acik : "";
+      // Sade: Hesap (çıkanlarda + Rapor zorunlu). Açıklama otomatik "Gelen/Giden Eft"; istersen "+ açıklama" ile özel.
+      const rapInp = o.amt < 0 ? `<input class="bk-rapor" data-seq="${o.seq}" placeholder="Rapor *" value="${esc(rapVal)}" />` : "";
+      const acikField = acikVal
+        ? `<input class="bk-acik" data-seq="${o.seq}" placeholder="Özel açıklama" value="${esc(acikVal)}" />`
+        : `<button class="bk-add-acik" type="button" data-seq="${o.seq}">+ açıklama</button>`;
       return `<div class="bk-grp bk-other" data-seq="${o.seq}">
         <div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
         <div class="mid">
           <div class="nm">${esc(o.desc)}</div>
           <div class="bk-fields">
-            <input class="bk-acc" data-seq="${o.seq}" list="bk-acc-list" placeholder="Hesap — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
-            ${rapInp}
+            <div class="bk-frow">
+              <input class="bk-acc" data-seq="${o.seq}" list="bk-acc-list" placeholder="Hesap — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
+              ${rapInp}
+            </div>
+            <div class="bk-arow">${acikField}</div>
           </div>
         </div>
         <div class="amt"><div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div></div>
@@ -3420,6 +3432,11 @@ async function viewBanka(c) {
         <button class="btn btn-primary" id="bk-save" ${(groups.length || other.length) && bankAcc && blokeAcc ? "" : "disabled"}>💾 İşle</button>
       </div>`;
 
+    $$(".bk-add-acik", editor).forEach((b) => b.onclick = () => {
+      const inp = document.createElement("input");
+      inp.className = "bk-acik"; inp.dataset.seq = b.dataset.seq;
+      inp.placeholder = "Özel açıklama"; b.replaceWith(inp); inp.focus();
+    });
     $("#bk-save", editor).onclick = () => saveAll($("#bk-save", editor), bank, bankAcc, blokeAcc, groups, other, resolveAcc, accLabel);
   }
 
@@ -3445,9 +3462,16 @@ async function viewBanka(c) {
       const inp = $(`.bk-acc[data-seq="${o.seq}"]`, editor);
       const val = inp ? inp.value.trim() : "";
       if (!val) { unmatched++; continue; }
+      const rapor = o.amt < 0 ? ($(`.bk-rapor[data-seq="${o.seq}"]`, editor)?.value || "").trim() : "";
+      // Çıkan (ödeme) hareketlerde rapor zorunlu
+      if (o.amt < 0 && !rapor) {
+        const rp = $(`.bk-rapor[data-seq="${o.seq}"]`, editor);
+        if (rp) rp.focus();
+        return toast("Çıkan hareketlerde Rapor zorunlu.", "err");
+      }
       rows.push({
-        o, val, acc: resolveAcc(val),
-        rapor: o.amt < 0 ? ($(`.bk-rapor[data-seq="${o.seq}"]`, editor)?.value || "").trim() : "",
+        o, val, acc: resolveAcc(val), rapor,
+        acik: ($(`.bk-acik[data-seq="${o.seq}"]`, editor)?.value || "").trim(),
       });
     }
     const ok = rows.filter((r) => r.acc);
@@ -3473,7 +3497,7 @@ async function viewBanka(c) {
           try {
             const extra = [];
             for (let i = 0; i < toCreate.length; i++)
-              extra.push({ o: toCreate[i].o, acc: await createBankCari(toCreate[i].val, types[i]), rapor: toCreate[i].rapor });
+              extra.push({ o: toCreate[i].o, acc: await createBankCari(toCreate[i].val, types[i]), rapor: toCreate[i].rapor, acik: toCreate[i].acik });
             await doSave(btn, bank, bankAcc, blokeAcc, groups, [...ok, ...extra], unmatched, editor);
           } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
         }),
@@ -3532,7 +3556,7 @@ async function viewBanka(c) {
       for (const a of assigns) {
         const { o, acc, rapor } = a;
         const ok = otherKey(o), inn = o.amt >= 0, abs = Math.abs(o.amt);
-        const disp = o.amt >= 0 ? "Gelen Eft" : "Giden Eft";
+        const disp = a.acik || (o.amt >= 0 ? "Gelen Eft" : "Giden Eft");
         const common = {
           date: o.dep, aciklama: disp, rapor, source: "banka-diger", otherKey: ok, banka: bank.key,
           bankaAciklama: o.desc, matchedCode: acc.code, matchedName: acc.name, dekont: o.dekont || "",
