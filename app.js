@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.76";
+} from "./local-backend.js?v=2026.77";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.76";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.77";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.76";
+const APP_VERSION = "2026.77";
 const CHANGELOG = [
+  { version: "2026.77", date: "2026-08-08", items: [
+    "Banka aktarımı POS-dışı 'Rapor' alanı artık Gider Grupları kalemlerinden seçiliyor (yazdıkça tamamlar)",
+  ]},
   { version: "2026.76", date: "2026-08-08", items: [
     "Yeni menü: Tanımlamalar — Gider Grupları + Nakit Akış Verileri buraya taşındı",
     "Gider Grupları sayfası: 6 grup (Ürün/Genel/Personel/Hizmet/Vergi/Bakım) ve alt kalemleri; grup/kalem ekle-düzenle-sil",
@@ -3360,7 +3363,14 @@ async function viewBanka(c) {
     const editor = $("#bk-editor");
     const groups = bkGroupPos(pos);
     const belirsiz = pos.filter((p) => !p.tip);
-    const entries = await fetchAll(C.accountEntries).catch(() => []);
+    const [entries, settings] = await Promise.all([
+      fetchAll(C.accountEntries).catch(() => []),
+      fetchAll(C.settings).catch(() => []),
+    ]);
+    // Rapor önerileri: Gider Grupları kalemleri
+    const eg = settings.find((s) => s.id === "expenseGroups");
+    const egGroups = (eg && Array.isArray(eg.groups)) ? eg.groups : DEFAULT_EXPENSE_GROUPS;
+    const raporItems = egGroups.flatMap((g) => (g.items || []).map((it) => ({ grup: g.name, ad: it })));
 
     // Eşleştirmeye açık (yaprak) hesaplar + geçmişten öğrenilen açıklama→hesap eşleşmeleri
     const parentIds = new Set(allAcc.map((a) => a.parentId).filter(Boolean));
@@ -3413,7 +3423,7 @@ async function viewBanka(c) {
       const rapVal = sug ? sug.rapor : "";
       const acikVal = sug ? sug.acik : "";
       // Tasarım 1: yön + açıklama + (tutar & not simgesi sağ üstte); altta Şahıs (çıkanlarda + Rapor)
-      const rapInp = o.amt < 0 ? `<input class="bk-rapor f" data-seq="${o.seq}" placeholder="Rapor *" value="${esc(rapVal)}" />` : "";
+      const rapInp = o.amt < 0 ? `<input class="bk-rapor f" data-seq="${o.seq}" list="bk-rapor-list" placeholder="Rapor * (gider)" value="${esc(rapVal)}" autocomplete="off" />` : "";
       return `<div class="bk-other" data-seq="${o.seq}">
         <div class="bk-o-top">
           <div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
@@ -3476,6 +3486,7 @@ async function viewBanka(c) {
       </div>
 
       <datalist id="bk-acc-list">${leafAccs.map((a) => `<option value="${esc(accLabel(a))}"></option>`).join("")}</datalist>
+      <datalist id="bk-rapor-list">${raporItems.map((r) => `<option value="${esc(r.ad)}">${esc(r.grup)}</option>`).join("")}</datalist>
       <div class="pv-cta">
         <div class="grow"></div>
         <button class="btn btn-primary" id="bk-save">✓ İşle</button>
