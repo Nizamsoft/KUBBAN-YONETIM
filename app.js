@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.72";
+} from "./local-backend.js?v=2026.73";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.72";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.73";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.72";
+const APP_VERSION = "2026.73";
 const CHANGELOG = [
+  { version: "2026.73", date: "2026-08-07", items: [
+    "Nakit Akış detayında 'Gelen/Giden Eft' yerine şahıs (eşleşen hesap) adı gösteriliyor",
+  ]},
   { version: "2026.72", date: "2026-08-07", items: [
     "POS çekim tarihleri kısa: 12.07.26 (2 haneli yıl); komisyon açıklamasından 'Çekimi' kaldırıldı (ör. '12.07.26 YDK Komisyonu')",
     "Bloke Kontrolü tablosu düzeltildi: tutarlar tek satırda (₺ kaymıyor), sütunlar hizalı",
@@ -3822,7 +3825,8 @@ async function viewNakitAkisRapor(c) {
       const inA = parseNum(e.giren) + parseNum(e.borc), outA = parseNum(e.cikan) + parseNum(e.alacak);
       const o = byDate[e.date] || (byDate[e.date] = { in: 0, out: 0, inDet: [], outDet: [] });
       o.in += inA; o.out += outA;
-      const lbl = e.aciklama || e.islemAdi || "Hareket";
+      let lbl = e.aciklama || e.islemAdi || "Hareket";
+      if ((lbl === "Gelen Eft" || lbl === "Giden Eft") && e.sahis) lbl = e.sahis;
       if (inA) o.inDet.push({ t: lbl, a: inA });
       if (outA) o.outDet.push({ t: lbl, a: outA });
     });
