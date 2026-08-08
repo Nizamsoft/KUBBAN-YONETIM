@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.66";
+} from "./local-backend.js?v=2026.67";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.66";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.67";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -133,6 +133,7 @@ const C = {
   currentMovements: () => collection(db, "currentMovements"),
   bankTransactions: () => collection(db, "bankTransactions"),
   cashflowItems:    () => collection(db, "cashflowItems"),
+  settings:         () => collection(db, "settings"),
   auditLog:         () => collection(db, "auditLog"),
 };
 
@@ -319,8 +320,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.66";
+const APP_VERSION = "2026.67";
 const CHANGELOG = [
+  { version: "2026.67", date: "2026-08-07", items: [
+    "Nakit Akış Raporu yeniden yapıldı: günlük tablo (Garanti/T.Finans/Nakit) — gün sonu bakiyeleri, eksi kırmızı, bloke kolonu",
+    "Öngörülen günlük giriş ayarı; bugüne kadar gerçek, sonrası öngörü",
+    "Tutara dokun → açıklama + giriş/çıkış (yeşil/kırmızı) canlı çevirme",
+    "Tekrarlanan kalemlere Hesap + Rapor kodu; rapor kodlu gerçek hareket öngörünün yerine geçer",
+  ]},
   { version: "2026.66", date: "2026-08-07", items: [
     "Banka POS dışı satır yeniden tasarlandı: not simgesi (📝) sağ üstte; özel açıklamayı oradan aç",
     "Şahıs ve (çıkanlarda) Rapor zorunlu — boş alan kırmızı, dolu yeşil; hepsi dolmadan İşle pasif ('N alan eksik')",
@@ -3636,13 +3643,14 @@ async function viewNakitAkisVeri(c) {
     <div class="card">
       <div class="card-head"><h3>Tekrarlanan Kalemler</h3><span class="hint">${items.length} kalem</span></div>
       ${items.length ? `<div class="table-wrap"><table class="data">
-        <thead><tr><th>Ad</th><th>Tür</th><th>Dönem</th><th class="num">Tutar</th><th class="num">Aylık Karşılık</th><th>Durum</th><th></th></tr></thead>
+        <thead><tr><th>Ad</th><th>Tür</th><th>Hesap</th><th>Gün</th><th>Rapor</th><th class="num">Tutar</th><th>Durum</th><th></th></tr></thead>
         <tbody>${items.map((x) => `<tr>
           <td><b>${esc(x.name)}</b></td>
           <td><span class="tag ${x.type==="gelir"?"ok":"red"}">${x.type==="gelir"?"Gelir":"Gider"}</span></td>
-          <td>${periodLabel(x.period)}</td>
+          <td>${x.account==="tfinans"?"T.Finans":x.account==="nakit"?"Nakit":"Garanti"}</td>
+          <td>Ayın ${x.dayOfMonth || 1}'i</td>
+          <td>${esc(x.rapor || "—")}</td>
           <td class="num">${fmtTRY(x.amount || 0)}</td>
-          <td class="num">${fmtTRY(monthlyEquivalent(x))}</td>
           <td>${x.active===false?'<span class="tag warn">Pasif</span>':'<span class="tag ok">Aktif</span>'}</td>
           <td style="text-align:right">
             <button class="btn btn-sm" data-edit="${x.id}">Düzenle</button>
@@ -3678,6 +3686,14 @@ function cfModal(item) {
       <div class="field"><label>Tutar (₺)</label><input id="cf-amount" class="num" value="${item?.amount ?? ""}" /></div>
       <div class="field"><label>Ayın Günü (1-31)</label><input id="cf-day" class="num" value="${item?.dayOfMonth ?? 1}" /></div>
     </div>
+    <div class="form-row">
+      <div class="field"><label>Hesap</label><select id="cf-account">
+        <option value="garanti" ${(item?.account||"garanti")==="garanti"?"selected":""}>Garanti</option>
+        <option value="tfinans" ${item?.account==="tfinans"?"selected":""}>T.Finans</option>
+        <option value="nakit" ${item?.account==="nakit"?"selected":""}>Nakit</option>
+      </select></div>
+      <div class="field"><label>Rapor Kodu <small>(gerçekleşen eşleşmesi)</small></label><input id="cf-rapor" value="${esc(item?.rapor || "")}" placeholder="ör. KDV / MAAŞ" /></div>
+    </div>
     <div class="field"><label><input type="checkbox" id="cf-active" ${item?.active!==false?"checked":""} style="width:auto"> Aktif</label></div>`;
   const m = openModal({
     title: isNew ? "Yeni Tekrarlanan Kalem" : "Kalemi Düzenle",
@@ -3691,6 +3707,8 @@ function cfModal(item) {
           period: $("#cf-period", body).value,
           amount: parseNum($("#cf-amount", body).value),
           dayOfMonth: Math.min(31, Math.max(1, parseInt($("#cf-day", body).value) || 1)),
+          account: $("#cf-account", body).value,
+          rapor: $("#cf-rapor", body).value.trim(),
           active: $("#cf-active", body).checked,
           updatedAt: serverTimestamp(),
         };
@@ -3708,88 +3726,198 @@ function cfModal(item) {
 // ===========================================================================
 //  MODÜL: NAKİT AKIŞ RAPORU (1 / 3 aylık projeksiyon)
 // ===========================================================================
+// Nakit akışta takip edilen 3 hesap
+const NA_ACCS = [
+  { key: "garanti", label: "Garanti",  code: "102.01" },
+  { key: "tfinans", label: "T.Finans", code: "102.02" },
+  { key: "nakit",   label: "Nakit",    code: "100" },
+];
+const naDelta = (e) => parseNum(e.giren) - parseNum(e.cikan) + parseNum(e.borc) - parseNum(e.alacak);
+const isoOfD = (d) => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+function naOccurs(it, dom, monthOffset) {
+  if ((it.dayOfMonth || 1) !== dom || monthOffset < 0) return false;
+  const p = it.period || "aylik";
+  if (p === "3aylik") return monthOffset % 3 === 0;
+  if (p === "6aylik") return monthOffset % 6 === 0;
+  if (p === "yillik") return monthOffset % 12 === 0;
+  return true; // aylik / haftalik ≈ her ay o gün
+}
+
 async function viewNakitAkisRapor(c) {
-  const [items, accounts, cari, bank, entries] = await Promise.all([
-    fetchAll(C.cashflowItems).catch(() => []),
+  const [accounts, entries, items, settings] = await Promise.all([
     fetchAll(C.accounts).catch(() => []),
-    fetchAll(C.currentMovements).catch(() => []),
-    fetchAll(C.bankTransactions).catch(() => []),
     fetchAll(C.accountEntries).catch(() => []),
+    fetchAll(C.cashflowItems).catch(() => []),
+    fetchAll(C.settings).catch(() => []),
   ]);
-  const bal = computeBalances(accounts, cari, bank, entries);
-  const startCash = accounts
-    .filter((a) => a.type === "kasa" || a.type === "banka")
-    .reduce((s, a) => s + (bal.get(a.id)?.current || 0), 0);
-  let months = 3;
+  const cfgDoc = settings.find((s) => s.id === "cashflow");
+  const dailyIn = Object.assign({ garanti: 0, tfinans: 0, nakit: 0 }, (cfgDoc && cfgDoc.dailyIn) || {});
+  const accByKey = {};
+  NA_ACCS.forEach((a) => { accByKey[a.key] = accounts.find((x) => String(x.code) === a.code) || null; });
+  const missing = NA_ACCS.filter((a) => !accByKey[a.key]);
+  let fwd = 45;
+  const overrides = new Map();
 
   c.innerHTML = `
-    <div class="toolbar">
-      <div class="seg" id="range-seg">
-        <button data-m="1">1 Aylık</button>
-        <button data-m="3" class="active">3 Aylık</button>
-        <button data-m="6">6 Aylık</button>
-        <button data-m="12">12 Aylık</button>
-      </div>
-      <div class="grow"></div>
-      <a class="btn btn-sm" href="#/nakit-akis-veri">🔄 Kalemleri Düzenle</a>
+    <div class="na-strip">
+      <span class="t">Öngörülen Günlük Giriş</span>
+      <span>🏦 Garanti <b id="di-garanti">${fmtNum(dailyIn.garanti)}</b></span>
+      <span>🏦 T.Finans <b id="di-tfinans">${fmtNum(dailyIn.tfinans)}</b></span>
+      <span>💵 Nakit <b id="di-nakit">${fmtNum(dailyIn.nakit)}</b></span>
+      <button class="btn btn-sm" id="di-edit">Ayarla</button>
     </div>
-    <div id="cash-report"></div>`;
+    <div class="toolbar" style="margin:0 0 10px">
+      <div class="seg" id="na-seg"><button data-f="30">+30g</button><button data-f="45" class="active">+45g</button><button data-f="90">+90g</button></div>
+      <div class="grow"></div>
+      <a class="btn btn-sm" href="#/nakit-akis-veri">🔄 Tekrarlanan Kalemler</a>
+    </div>
+    ${missing.length ? `<div class="notice warn">⚠️ Şu hesaplar yok: ${missing.map((m) => m.code + " " + m.label).join(", ")}. <a href="#/hesaplar">Hesaplar</a>'dan varsayılan planı oluşturun.</div>` : ""}
+    <div class="scroll na-scroll"><table class="na-t" id="na-t"></table></div>
+    <div id="na-pop"></div>
+    <div class="pv-fhint" style="margin-top:10px">Tutara dokun → açıklama + giriş/çıkış. Bugüne kadar <b>gerçek</b>, sonrası <b>öngörü</b>. Yeşil kolon = o gün çözülen POS (bilgi).</div>`;
+
+  function compute() {
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const todayISO = isoOfD(now);
+    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    const startISO = isoOfD(start);
+    const end = new Date(now); end.setDate(end.getDate() + fwd);
+    const A = {};
+    NA_ACCS.forEach((a) => {
+      const acc = accByKey[a.key];
+      const es = acc ? entries.filter((e) => e.accountId === acc.id) : [];
+      const byDate = {}, detByDate = {};
+      es.forEach((e) => {
+        byDate[e.date] = (byDate[e.date] || 0) + naDelta(e);
+        (detByDate[e.date] || (detByDate[e.date] = [])).push(e);
+      });
+      let baseline = acc ? parseNum(acc.openingBalance) : 0;
+      Object.keys(byDate).forEach((d) => { if (d < startISO) baseline += byDate[d]; });
+      const its = items.filter((x) => x.active !== false && (x.account || "garanti") === a.key);
+      const raporDone = (rap, y, m) => rap && es.some((e) => String(e.rapor || "") === rap && e.date >= isoOfD(new Date(y, m, 1)) && e.date <= isoOfD(new Date(y, m + 1, 0)));
+      A[a.key] = { byDate, detByDate, run: baseline, its, raporDone };
+    });
+    const blokeByDate = {};
+    entries.filter((e) => e.source === "banka-pos" && String(e.accountCode || "") === "102.01")
+      .forEach((e) => { blokeByDate[e.date] = (blokeByDate[e.date] || 0) + parseNum(e.giren); });
+
+    const days = [];
+    for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
+      const iso = isoOfD(d), dom = d.getDate(), future = iso > todayISO;
+      const monthOffset = (d.getFullYear() - now.getFullYear()) * 12 + (d.getMonth() - now.getMonth());
+      const row = { iso, dObj: new Date(d), future, cells: {}, bals: {}, bloke: blokeByDate[iso] || 0 };
+      NA_ACCS.forEach((a) => {
+        const S = A[a.key]; let pay = 0; const pit = [];
+        if (!future) {
+          pay = S.byDate[iso] || 0;
+          (S.detByDate[iso] || []).forEach((e) => { const v = naDelta(e); if (v) pit.push(`${e.aciklama || e.islemAdi || "Hareket"}: ${fmtNum(v)}`); });
+          S.run += pay;
+        } else {
+          let f = 0;
+          S.its.forEach((it) => {
+            if (!naOccurs(it, dom, monthOffset)) return;
+            if (S.raporDone(it.rapor, d.getFullYear(), d.getMonth())) return;
+            const amt = it.type === "gelir" ? parseNum(it.amount) : -parseNum(it.amount);
+            f += amt; pit.push(`${it.name}: ${fmtNum(amt)}`);
+          });
+          if (overrides.get(a.key + "|" + iso)) f = -f;
+          pay = f;
+          S.run += f + parseNum(dailyIn[a.key]);
+        }
+        row.cells[a.key] = { pay, pit };
+        row.bals[a.key] = S.run;
+      });
+      days.push(row);
+    }
+    return { days, todayISO };
+  }
 
   function draw() {
-    const active = items.filter((x) => x.active !== false);
-    const now = new Date();
-    const cols = [];
-    for (let i = 0; i < months; i++) {
-      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
-      cols.push({
-        key: `${d.getFullYear()}-${d.getMonth()}`,
-        label: d.toLocaleDateString("tr-TR", { month: "long", year: "numeric" }),
-        monthOffset: i,
-      });
+    const { days, todayISO } = compute();
+    const wk = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
+    const payTd = (key, r) => {
+      const cel = r.cells[key], v = cel.pay;
+      if (!v) return "<td></td>";
+      const data = JSON.stringify({ iso: r.iso, key, pit: cel.pit, future: r.future }).replace(/'/g, "&#39;");
+      return `<td class="na-pay${v > 0 ? " gir" : ""}" data-d='${data}'>${fmtNum(Math.abs(v))}</td>`;
+    };
+    const balTd = (key, r) => { const v = r.bals[key]; return `<td class="na-bal${v < 0 ? " neg" : ""}">${fmtNum(v)}</td>`; };
+    let html = `<thead><tr>
+        <th>Tarih</th><th>Garanti</th><th>T.Finans</th><th>Nakit</th>
+        <th>D.Sonu Garanti</th><th>D.Sonu T.Finans</th><th>D.Sonu Nakit</th><th class="bl">Bloke</th>
+      </tr></thead><tbody>`;
+    for (const r of days) {
+      html += `<tr class="${r.future ? "fut" : ""}${r.iso === todayISO ? " today" : ""}">
+        <td class="dt">${fmtDate(r.iso).slice(0, 5)}<small>${wk[r.dObj.getDay()]}</small></td>
+        ${payTd("garanti", r)}${payTd("tfinans", r)}${payTd("nakit", r)}
+        ${balTd("garanti", r)}${balTd("tfinans", r)}${balTd("nakit", r)}
+        <td class="na-bloke">${r.bloke ? fmtNum(r.bloke) : ""}</td>
+      </tr>`;
     }
-    const inflow = cols.map((col) => sumForMonth(active, "gelir", col.monthOffset, now));
-    const outflow = cols.map((col) => sumForMonth(active, "gider", col.monthOffset, now));
-    let running = startCash;
-    const rows = cols.map((col, i) => {
-      const net = inflow[i] - outflow[i];
-      running += net;
-      return { label: col.label, in: inflow[i], out: outflow[i], net, balance: running };
-    });
-    const totIn = inflow.reduce((a, b) => a + b, 0);
-    const totOut = outflow.reduce((a, b) => a + b, 0);
-
-    $("#cash-report").innerHTML = `
-      <div class="grid cols-4">
-        <div class="stat"><div class="label">Başlangıç Nakit</div><div class="value">${fmtTRY(startCash)}</div><div class="foot">Kasa + Banka</div></div>
-        <div class="stat green"><div class="label">Toplam Giriş (${months} ay)</div><div class="value">${fmtTRY(totIn)}</div></div>
-        <div class="stat red"><div class="label">Toplam Çıkış (${months} ay)</div><div class="value">${fmtTRY(totOut)}</div></div>
-        <div class="stat"><div class="label">Dönem Sonu Nakit</div><div class="value" style="color:${running>=0?'var(--ok)':'var(--danger)'}">${fmtTRY(running)}</div></div>
-      </div>
-      <div class="card" style="margin-top:18px">
-        <div class="card-head"><h3>Aylık Nakit Akış Projeksiyonu</h3><span class="hint">${active.length} tekrarlanan kalem baz alındı</span></div>
-        ${active.length ? `<div class="table-wrap"><table class="data">
-          <thead><tr><th>Dönem</th><th class="num">Giriş</th><th class="num">Çıkış</th><th class="num">Net</th><th class="num">Kümülatif Nakit</th></tr></thead>
-          <tbody>${rows.map((r) => `<tr>
-            <td><b>${esc(r.label)}</b></td>
-            <td class="num" style="color:var(--ok)">${fmtTRY(r.in)}</td>
-            <td class="num" style="color:var(--danger)">${fmtTRY(r.out)}</td>
-            <td class="num" style="color:${r.net>=0?'var(--ok)':'var(--danger)'}">${fmtTRY(r.net)}</td>
-            <td class="num"><b style="color:${r.balance>=0?'inherit':'var(--danger)'}">${fmtTRY(r.balance)}</b></td>
-          </tr>`).join("")}</tbody>
-          <tfoot><tr style="font-weight:700;background:var(--surface-2)">
-            <td>Toplam</td><td class="num">${fmtTRY(totIn)}</td><td class="num">${fmtTRY(totOut)}</td>
-            <td class="num">${fmtTRY(totIn-totOut)}</td><td class="num">${fmtTRY(running)}</td>
-          </tr></tfoot>
-        </table></div>
-        ${miniBars(rows)}`
-          : `<div class="empty"><div class="ico">📈</div><p>Projeksiyon için önce <b>Nakit Akış Verileri</b> ekleyin.</p><a class="btn btn-primary btn-sm" href="#/nakit-akis-veri">Kalem Ekle</a></div>`}
-      </div>`;
+    $("#na-t").innerHTML = html + "</tbody>";
+    wirePop();
   }
-  $$("#range-seg button", c).forEach((b) => b.onclick = () => {
-    $$("#range-seg button", c).forEach((x) => x.classList.remove("active"));
-    b.classList.add("active"); months = parseInt(b.dataset.m); draw();
+
+  const pop = () => $("#na-pop");
+  function closePop() { pop().style.display = "none"; }
+  function wirePop() {
+    const T = $("#na-t");
+    T.onclick = (e) => {
+      const td = e.target.closest("td.na-pay"); if (!td) { closePop(); return; }
+      e.stopPropagation();
+      const d = JSON.parse(td.dataset.d.replace(/&#39;/g, "'"));
+      const gir = td.classList.contains("gir");
+      const P = pop();
+      P.innerHTML = `<div class="pt">${fmtDate(d.iso).slice(0, 5)} · ${NA_ACCS.find((a) => a.key === d.key).label} <span style="color:${gir ? "#a8e0bf" : "#f0a5a5"}">(${gir ? "giriş" : "çıkış"})</span></div>`
+        + (d.pit.length ? `<ul>${d.pit.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<div class="none">Açıklama yok</div>`)
+        + (d.future ? `<button class="tgl ${gir ? "toCik" : "toGir"}">${gir ? "↓ Çıkışa çevir" : "↑ Girişe çevir"}</button>` : "");
+      P.style.display = "block"; P.style.visibility = "hidden";
+      const rect = td.getBoundingClientRect(), pw = Math.min(P.offsetWidth, 250);
+      let left = Math.max(8, Math.min(rect.left + rect.width / 2 - pw / 2, window.innerWidth - pw - 8));
+      let top = rect.top - P.offsetHeight - 10; if (top < 8) top = rect.bottom + 10;
+      P.style.left = left + "px"; P.style.top = top + "px"; P.style.visibility = "visible";
+      const btn = $(".tgl", P);
+      if (btn) btn.onclick = (ev) => {
+        ev.stopPropagation();
+        const k = d.key + "|" + d.iso;
+        overrides.set(k, !overrides.get(k));
+        closePop(); draw();
+      };
+    };
+  }
+
+  $$("#na-seg button", c).forEach((b) => b.onclick = () => {
+    $$("#na-seg button", c).forEach((x) => x.classList.remove("active"));
+    b.classList.add("active"); fwd = parseInt(b.dataset.f); draw();
   });
+  $("#di-edit", c).onclick = () => naDailyModal(dailyIn, () => {
+    $("#di-garanti", c).textContent = fmtNum(dailyIn.garanti);
+    $("#di-tfinans", c).textContent = fmtNum(dailyIn.tfinans);
+    $("#di-nakit", c).textContent = fmtNum(dailyIn.nakit);
+    draw();
+  });
+  document.addEventListener("click", (e) => { if (!e.target.closest("#na-pop") && !e.target.closest("#na-t")) closePop(); });
   draw();
+}
+
+// Öngörülen günlük giriş ayarı (settings/cashflow)
+function naDailyModal(dailyIn, onSave) {
+  const body = document.createElement("div");
+  body.innerHTML = `
+    <div class="mg-note">Her gün her hesaba beklediğin ortalama giriş (ciro tahmini). Bakiyeye eklenir.</div>
+    ${["garanti", "tfinans", "nakit"].map((k) => `
+      <div class="field"><label>${k === "garanti" ? "Garanti" : k === "tfinans" ? "T.Finans" : "Nakit"} — günlük giriş (₺)</label>
+        <input class="num di-in" data-k="${k}" inputmode="decimal" value="${dailyIn[k] ? fmtNum(dailyIn[k]) : ""}" placeholder="0,00" /></div>`).join("")}`;
+  const m = openModal({ title: "Öngörülen Günlük Giriş", body, footer: [
+    mkBtn("Vazgeç", "", () => m.close()),
+    mkBtn("Kaydet", "btn-primary", async () => {
+      $$(".di-in", body).forEach((inp) => { dailyIn[inp.dataset.k] = parseNum(inp.value); });
+      try {
+        await setDoc(doc(db, "settings", "cashflow"), { dailyIn, updatedAt: serverTimestamp() });
+        m.close(); toast("Kaydedildi.", "ok"); onSave && onSave();
+      } catch (e) { toast("Hata: " + e.message, "err"); }
+    }),
+  ] });
 }
 // Bir ayın belirli türdeki toplamı (tekrarlanan kalemlerden)
 function sumForMonth(items, type, monthOffset, now) {
