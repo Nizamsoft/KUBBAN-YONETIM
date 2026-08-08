@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.61";
+} from "./local-backend.js?v=2026.62";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.61";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.62";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.61";
+const APP_VERSION = "2026.62";
 const CHANGELOG = [
+  { version: "2026.62", date: "2026-08-07", items: [
+    "Banka POS dışı hareketler işlenebiliyor: her satıra hesap adı (zorunlu, yazdıkça tamamlanır), rapor ve açıklama",
+    "Benzer açıklamadan otomatik hesap önerisi (geçmişten öğrenir; ilk seferde ada göre tahmin)",
+    "Kayıt banka + eşleşen hesaba çift taraflı yazılır; banka açıklaması ve tutar aynen saklanır",
+    "Tek 'İşle' düğmesi hem POS çözülmelerini hem eşleştirilen transferleri kaydeder (dekont ile idempotent)",
+  ]},
   { version: "2026.61", date: "2026-08-07", items: [
     "Banka: POS dışı hareketler artık ayrı kartta değil, ait olduğu günün bloke çözümlerinin altında, banka kayıt sırasında",
     "Uzun açıklamalar tutarın üstüne binmiyor (taşma düzeltmesi)",
@@ -3184,6 +3190,14 @@ function bkParseDate(s) {
   const m = String(s).match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? new Date(+m[3], +m[2] - 1, +m[1]) : null;
 }
 function bkISO(d) { return d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); }
+// Banka açıklamasından "imza": ref/numara öncesi metin (benzer açıklamaları eşlemek için)
+function bkSig(desc) {
+  let s = String(desc || "").toLocaleLowerCase("tr").trim();
+  const cut = s.search(/\d{4,}/);
+  if (cut > 2) s = s.slice(0, cut);
+  s = s.replace(/[^a-zçğıöşü ]/gi, " ").replace(/\s+/g, " ").trim();
+  return s.length >= 3 ? s : String(desc || "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim().slice(0, 18);
+}
 // Garanti POS satırını ayrıştır: PK.. KARTKODU AA/GG K: komisyon  → tip gün farkından
 function bkClassifyGaranti(aoa) {
   const low = (x) => String(x).toLocaleLowerCase("tr");
@@ -3282,6 +3296,23 @@ async function viewBanka(c) {
     const belirsiz = pos.filter((p) => !p.tip);
     const entries = await fetchAll(C.accountEntries).catch(() => []);
 
+    // Eşleştirmeye açık (yaprak) hesaplar + geçmişten öğrenilen açıklama→hesap eşleşmeleri
+    const parentIds = new Set(allAcc.map((a) => a.parentId).filter(Boolean));
+    const leafAccs = allAcc.filter((a) => !parentIds.has(a.id) && a.code).sort((a, b) => String(a.code).localeCompare(String(b.code)));
+    const accLabel = (a) => `${a.code} · ${a.name}`;
+    const aliasMap = {};
+    entries.filter((e) => e.source === "banka-diger" && e.bankaAciklama && e.matchedCode).forEach((e) => {
+      const s = bkSig(e.bankaAciklama);
+      if (s) aliasMap[s] = { code: e.matchedCode, name: e.matchedName || "", rapor: e.rapor || "", acik: e.aciklama || "" };
+    });
+    const resolveAcc = (val) => {
+      const v = String(val || "").trim(); if (!v) return null;
+      return leafAccs.find((a) => accLabel(a) === v)
+        || leafAccs.find((a) => String(a.code) === v)
+        || leafAccs.find((a) => normTr(a.name) === normTr(v))
+        || (v.length >= 3 ? leafAccs.find((a) => normTr(a.name).startsWith(normTr(v))) : null) || null;
+    };
+
     // Gün sonu blokesiyle eşleşme (kontrol)
     const tipMatch = (acik, tip) => {
       const a = String(acik || "");
@@ -3308,10 +3339,32 @@ async function viewBanka(c) {
           <div class="mt">${g.n} hareket${g.kom ? ` · komisyon ${fmtTRY(g.kom)}` : ""}</div></div>
         <div class="amt"><div class="v">${fmtTRY(brut)}</div>${g.kom ? `<div class="k">brüt</div>` : ""}</div></div>`;
     };
-    const otherRow = (o) => `<div class="bk-grp bk-other"><div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
-      <div class="mid"><div class="nm">${esc(o.desc)}</div>
-        <div class="mt">${esc(o.etiket || "Hareket")} · <span class="bk-pend">eşleştirilecek</span></div></div>
-      <div class="amt"><div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div></div></div>`;
+    const otherRow = (o) => {
+      let sug = aliasMap[bkSig(o.desc)];
+      if (!sug) {
+        // Geçmiş yoksa: açıklama imzasıyla ada göre ilk tahmin
+        const s = normTr(bkSig(o.desc));
+        const a = s && leafAccs.find((x) => normTr(x.name).length >= 4 && (s.startsWith(normTr(x.name)) || normTr(x.name).startsWith(s)));
+        if (a) sug = { code: a.code, name: a.name, rapor: "", acik: "" };
+      }
+      const accVal = sug ? `${sug.code} · ${sug.name}` : "";
+      const rapVal = sug ? sug.rapor : "";
+      const acikVal = sug ? sug.acik : titleCase(bkSig(o.desc));
+      return `<div class="bk-grp bk-other" data-seq="${o.seq}">
+        <div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
+        <div class="mid">
+          <div class="nm">${esc(o.desc)}</div>
+          <div class="bk-fields">
+            <input class="bk-acc" data-seq="${o.seq}" list="bk-acc-list" placeholder="Hesap adı (zorunlu)" value="${esc(accVal)}" autocomplete="off" />
+            <div class="bk-frow">
+              <input class="bk-rapor" data-seq="${o.seq}" placeholder="Rapor" value="${esc(rapVal)}" />
+              <input class="bk-acik" data-seq="${o.seq}" placeholder="Açıklama" value="${esc(acikVal)}" />
+            </div>
+          </div>
+        </div>
+        <div class="amt"><div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div></div>
+      </div>`;
+    };
 
     const dayHtml = days.map((d) => {
       const items = byDay[d].items.slice().sort((a, b) => a.ord - b.ord);
@@ -3346,7 +3399,7 @@ async function viewBanka(c) {
           <div class="pv-sub">${groups.length} POS grubu · ${other.length} POS dışı · net ${fmtTRY(posNet)}${posKom ? ` · komisyon ${fmtTRY(posKom)}` : ""}</div></div>
         <div>${dayHtml || `<div class="empty" style="padding:16px">Hareket yok.</div>`}</div>
         ${belirsiz.length ? `<div class="notice warn" style="margin:12px 0 0">⚠️ ${belirsiz.length} hareketin kart tipi belirsiz (gün farkı 23/16/1 değil). Bunlar işlenmez; bana ilet.</div>` : ""}
-        ${other.length ? `<div class="pv-fhint" style="margin-top:10px">↘️/↗️ POS dışı hareketler bir sonraki adımda hesap eşleştirmesiyle işlenecek.</div>` : ""}
+        ${other.length ? `<div class="pv-fhint" style="margin-top:10px">↘️/↗️ POS dışı satırlarda <b>hesap adı</b> zorunlu (yazdıkça tamamlanır). Boş bırakılan işlenmez.</div>` : ""}
       </div>
 
       <div class="card">
@@ -3355,20 +3408,42 @@ async function viewBanka(c) {
         <div class="pv-fhint" style="margin-top:8px">Sarı satır = gün sonu bloke ile çözülen tutar tutmuyor.</div>
       </div>
 
+      <datalist id="bk-acc-list">${leafAccs.map((a) => `<option value="${esc(accLabel(a))}"></option>`).join("")}</datalist>
       <div class="pv-cta">
         <div class="grow"></div>
-        <button class="btn btn-primary" id="bk-save" ${groups.length && bankAcc && blokeAcc ? "" : "disabled"}>💾 POS Çözülmelerini İşle (${groups.length})</button>
+        <button class="btn btn-primary" id="bk-save" ${(groups.length || other.length) && bankAcc && blokeAcc ? "" : "disabled"}>💾 İşle</button>
       </div>`;
 
-    $("#bk-save", editor).onclick = () => savePos($("#bk-save", editor), bank, bankAcc, blokeAcc, groups);
+    $("#bk-save", editor).onclick = () => saveAll($("#bk-save", editor), bank, bankAcc, blokeAcc, groups, other, resolveAcc, accLabel);
   }
 
-  async function savePos(btn, bank, bankAcc, blokeAcc, groups) {
+  async function saveAll(btn, bank, bankAcc, blokeAcc, groups, other, resolveAcc) {
+    const editor = $("#bk-editor");
+    // POS dışı eşleştirmelerini oku (hesap zorunlu)
+    const assigns = []; let unmatched = 0;
+    for (const o of other) {
+      const inp = $(`.bk-acc[data-seq="${o.seq}"]`, editor);
+      const val = inp ? inp.value.trim() : "";
+      if (!val) { unmatched++; continue; }
+      const acc = resolveAcc(val);
+      if (!acc) { inp.focus(); return toast(`Hesap bulunamadı: "${val}". Listeden seç.`, "err"); }
+      assigns.push({
+        o, acc,
+        rapor: ($(`.bk-rapor[data-seq="${o.seq}"]`, editor)?.value || "").trim(),
+        acik: ($(`.bk-acik[data-seq="${o.seq}"]`, editor)?.value || "").trim(),
+      });
+    }
+    if (!groups.length && !assigns.length) return toast("İşlenecek kayıt yok.", "err");
+
     btn.disabled = true;
     try {
       const fresh = await fetchAll(C.accountEntries).catch(() => []);
-      const newKeys = new Set(groups.map((g) => `${bank.key}|${g.dep}|${g.cek}|${g.tip}`));
-      const isStale = (e) => (e.source === "banka-pos" || e.source === "banka-pos-komisyon") && newKeys.has(e.posKey);
+      const posKeys = new Set(groups.map((g) => `${bank.key}|${g.dep}|${g.cek}|${g.tip}`));
+      const otherKey = (o) => `${bank.key}|${o.dekont || o.dep + "|" + o.seq}`;
+      const otherKeys = new Set(assigns.map((a) => otherKey(a.o)));
+      const isStale = (e) =>
+        ((e.source === "banka-pos" || e.source === "banka-pos-komisyon") && posKeys.has(e.posKey)) ||
+        (e.source === "banka-diger" && otherKeys.has(e.otherKey));
       for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
       const remaining = fresh.filter((e) => !isStale(e));
       let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
@@ -3378,26 +3453,23 @@ async function viewBanka(c) {
         const n = cnoMap.get(id) + 1; cnoMap.set(id, n); return n;
       };
       const docs = [];
+      // ---- POS çözülmeleri (bloke → banka + komisyon) ----
       for (const g of groups) {
         const brut = g.net + g.kom;
         const posKey = `${bank.key}|${g.dep}|${g.cek}|${g.tip}`;
         const acik = `${fmtDate(g.cek)} ${g.tip} Çekimi`;
-        // Ledger tarihi = yatış (kayıt) günü — hesap defterinde kayıt sırasında dursun
-        // 1) Bloke → çıkış (alacak)
         docs.push({
           accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
           date: g.dep, islemAdi: "POS ÇÖZÜLME", sahis: "", aciklama: acik, rapor: "",
           borc: 0, alacak: brut, faturaTuru: "", faturaNo: "",
           source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
-        // 2) Banka → giriş (giren, komisyonlu/brüt)
         docs.push({
           accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
           date: g.dep, islemAdi: "POS", sahis: "", aciklama: acik, rapor: "",
           giren: brut, cikan: 0,
           source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
-        // 3) Komisyon → bankadan çıkış
         if (g.kom > 0.005) {
           docs.push({
             accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
@@ -3407,11 +3479,33 @@ async function viewBanka(c) {
           });
         }
       }
+      // ---- POS dışı transferler (banka ↔ eşleşen hesap) ----
+      for (const a of assigns) {
+        const { o, acc, rapor } = a;
+        const ok = otherKey(o), inn = o.amt >= 0, abs = Math.abs(o.amt);
+        const disp = a.acik || titleCase(bkSig(o.desc));
+        const common = {
+          date: o.dep, aciklama: disp, rapor, source: "banka-diger", otherKey: ok, banka: bank.key,
+          bankaAciklama: o.desc, matchedCode: acc.code, matchedName: acc.name, dekont: o.dekont || "",
+          createdAt: serverTimestamp(), createdBy: currentUser.email,
+        };
+        // 1) Banka tarafı (giren/çıkan)
+        docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
+          islemAdi: "Para Transferi", sahis: acc.name, giren: inn ? abs : 0, cikan: inn ? 0 : abs });
+        // 2) Eşleşen hesap tarafı (karşı kayıt — muhasebe mantığı)
+        const cariStyle = isCari(acc.type) || String(acc.code || "").startsWith("108");
+        const side = cariStyle
+          ? { borc: inn ? 0 : abs, alacak: inn ? abs : 0 }
+          : { giren: inn ? 0 : abs, cikan: inn ? abs : 0 };
+        docs.push({ ...common, accountId: acc.id, accountCode: acc.code, islemNo: ++gno,
+          ...(cariStyle ? { cariNo: nextCno(acc.id) } : {}),
+          islemAdi: "Para Transferi", sahis: bankAcc.name, ...side });
+      }
       await batchAdd(C.accountEntries, docs);
-      await logAction("İçe Aktarma", "Banka POS", `${bank.label} · ${groups.length} grup · ${docs.length} kayıt`);
-      toast(`${groups.length} POS grubu işlendi (${docs.length} kayıt).`, "ok");
-      $("#bk-editor").innerHTML = `<div class="notice info">✔ ${groups.length} POS çözülmesi işlendi.
-        <a href="#/hesap-detay?id=${bankAcc.id}">102.01 Garanti</a> ve <a href="#/hesap-detay?id=${blokeAcc.id}">108.01 Bloke</a> defterlerinde görebilirsin.</div>`;
+      await logAction("İçe Aktarma", "Banka", `${bank.label} · ${groups.length} POS + ${assigns.length} transfer · ${docs.length} kayıt`);
+      toast(`${groups.length} POS + ${assigns.length} transfer işlendi.${unmatched ? ` (${unmatched} boş atlandı)` : ""}`, "ok");
+      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${groups.length}</b> POS çözülmesi, <b>${assigns.length}</b> para transferi.${unmatched ? ` ${unmatched} POS dışı hareket (hesap girilmedi) atlandı.` : ""}
+        <a href="#/hesap-detay?id=${bankAcc.id}">102.01 Garanti</a> defterinde görebilirsin.</div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
 }
