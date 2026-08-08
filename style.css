@@ -964,3 +964,9 @@ table.data input.num { text-align: right; }
 .bk-fields input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(166,123,46,.12); }
 .bk-fields .bk-acc { font-weight: 700; }
 .bk-fields .bk-frow { display: grid; grid-template-columns: 1fr 1.4fr; gap: 7px; }
+
+/* ===== Banka: yeni hesap onayı ===== */
+.bk-new { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }
+.bk-new:last-child { border-bottom: none; }
+.bk-new-nm { flex: 1; min-width: 0; font-weight: 700; font-size: 14px; color: var(--ink); overflow-wrap: anywhere; }
+.bk-new-type { flex: 0 0 auto; border: 1px solid var(--line-strong); border-radius: 9px; padding: 7px 9px; font: inherit; font-size: 13px; background: var(--surface); color: var(--ink); }

@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.62";
+} from "./local-backend.js?v=2026.63";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.62";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.63";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.62";
+const APP_VERSION = "2026.63";
 const CHANGELOG = [
+  { version: "2026.63", date: "2026-08-07", items: [
+    "Banka POS dışı: eşleşmeyen hesap adı yazılınca yeni hesap (Müşteri/Tedarikçi) olarak eklenip işlenebiliyor",
+    "Rapor alanı yalnızca çıkan (ödeme) hareketlerde görünüyor; giren tutarlarda kaldırıldı",
+  ]},
   { version: "2026.62", date: "2026-08-07", items: [
     "Banka POS dışı hareketler işlenebiliyor: her satıra hesap adı (zorunlu, yazdıkça tamamlanır), rapor ve açıklama",
     "Benzer açıklamadan otomatik hesap önerisi (geçmişten öğrenir; ilk seferde ada göre tahmin)",
@@ -3350,16 +3354,18 @@ async function viewBanka(c) {
       const accVal = sug ? `${sug.code} · ${sug.name}` : "";
       const rapVal = sug ? sug.rapor : "";
       const acikVal = sug ? sug.acik : titleCase(bkSig(o.desc));
+      const acikInp = `<input class="bk-acik" data-seq="${o.seq}" placeholder="Açıklama" value="${esc(acikVal)}" />`;
+      // Rapor yalnızca çıkan (negatif) hareketlerde
+      const fields = o.amt < 0
+        ? `<div class="bk-frow"><input class="bk-rapor" data-seq="${o.seq}" placeholder="Rapor" value="${esc(rapVal)}" />${acikInp}</div>`
+        : acikInp;
       return `<div class="bk-grp bk-other" data-seq="${o.seq}">
         <div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
         <div class="mid">
           <div class="nm">${esc(o.desc)}</div>
           <div class="bk-fields">
-            <input class="bk-acc" data-seq="${o.seq}" list="bk-acc-list" placeholder="Hesap adı (zorunlu)" value="${esc(accVal)}" autocomplete="off" />
-            <div class="bk-frow">
-              <input class="bk-rapor" data-seq="${o.seq}" placeholder="Rapor" value="${esc(rapVal)}" />
-              <input class="bk-acik" data-seq="${o.seq}" placeholder="Açıklama" value="${esc(acikVal)}" />
-            </div>
+            <input class="bk-acc" data-seq="${o.seq}" list="bk-acc-list" placeholder="Hesap adı — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
+            ${fields}
           </div>
         </div>
         <div class="amt"><div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div></div>
@@ -3417,25 +3423,69 @@ async function viewBanka(c) {
     $("#bk-save", editor).onclick = () => saveAll($("#bk-save", editor), bank, bankAcc, blokeAcc, groups, other, resolveAcc, accLabel);
   }
 
+  // Eşleşmeyen isim için yeni cari aç (120 müşteri / 320 tedarikçi)
+  async function createBankCari(name, type) {
+    const main = allAcc.find((a) => a.type === type && !a.parentId) || allAcc.find((a) => a.type === type);
+    if (!main) throw new Error((type === "tedarikci" ? "320 Tedarikçiler" : "120 Alıcılar") + " ana hesabı yok.");
+    const siblings = allAcc.filter((a) => a.parentId === main.id);
+    const code = nextSubCode(main, siblings);
+    const payload = { code, name: titleCase(name), type: main.type, parentId: main.id, parentCode: main.code, vkn: "", openingBalance: 0, createdAt: serverTimestamp() };
+    const ref = await addDoc(C.accounts(), payload);
+    const acc = { id: ref.id, ...payload };
+    allAcc.push(acc);
+    await logAction("Ekleme", "Cari Hesap", `${code} ${payload.name}`);
+    return acc;
+  }
+
   async function saveAll(btn, bank, bankAcc, blokeAcc, groups, other, resolveAcc) {
     const editor = $("#bk-editor");
-    // POS dışı eşleştirmelerini oku (hesap zorunlu)
-    const assigns = []; let unmatched = 0;
+    // POS dışı satırları oku (rapor yalnızca çıkanlarda)
+    const rows = []; let unmatched = 0;
     for (const o of other) {
       const inp = $(`.bk-acc[data-seq="${o.seq}"]`, editor);
       const val = inp ? inp.value.trim() : "";
       if (!val) { unmatched++; continue; }
-      const acc = resolveAcc(val);
-      if (!acc) { inp.focus(); return toast(`Hesap bulunamadı: "${val}". Listeden seç.`, "err"); }
-      assigns.push({
-        o, acc,
-        rapor: ($(`.bk-rapor[data-seq="${o.seq}"]`, editor)?.value || "").trim(),
+      rows.push({
+        o, val, acc: resolveAcc(val),
+        rapor: o.amt < 0 ? ($(`.bk-rapor[data-seq="${o.seq}"]`, editor)?.value || "").trim() : "",
         acik: ($(`.bk-acik[data-seq="${o.seq}"]`, editor)?.value || "").trim(),
       });
     }
-    if (!groups.length && !assigns.length) return toast("İşlenecek kayıt yok.", "err");
+    const ok = rows.filter((r) => r.acc);
+    const toCreate = rows.filter((r) => !r.acc);
+    if (!groups.length && !rows.length) return toast("İşlenecek kayıt yok.", "err");
 
+    // Eşleşmeyen isimler varsa: yeni hesap onayı
+    if (toCreate.length) {
+      const body = document.createElement("div");
+      body.innerHTML = `<div class="mg-note">Şu isimler mevcut hesaplarla eşleşmedi. <b>Yeni hesap</b> olarak eklensin mi?</div>` +
+        toCreate.map((r, i) => `<div class="bk-new">
+          <div class="bk-new-nm">${esc(titleCase(r.val))}</div>
+          <select class="bk-new-type" data-i="${i}">
+            <option value="musteri" ${r.o.amt >= 0 ? "selected" : ""}>Müşteri (120)</option>
+            <option value="tedarikci" ${r.o.amt < 0 ? "selected" : ""}>Tedarikçi (320)</option>
+          </select>
+        </div>`).join("");
+      const m = openModal({ title: "Yeni Hesaplar", body, footer: [
+        mkBtn("Vazgeç", "", () => m.close()),
+        mkBtn("Ekle ve İşle", "btn-primary", async () => {
+          const types = toCreate.map((r, i) => $(`.bk-new-type[data-i="${i}"]`, body)?.value || (r.o.amt >= 0 ? "musteri" : "tedarikci"));
+          m.close(); btn.disabled = true;
+          try {
+            const extra = [];
+            for (let i = 0; i < toCreate.length; i++)
+              extra.push({ o: toCreate[i].o, acc: await createBankCari(toCreate[i].val, types[i]), rapor: toCreate[i].rapor, acik: toCreate[i].acik });
+            await doSave(btn, bank, bankAcc, blokeAcc, groups, [...ok, ...extra], unmatched, editor);
+          } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
+        }),
+      ]});
+      return;
+    }
     btn.disabled = true;
+    await doSave(btn, bank, bankAcc, blokeAcc, groups, ok, unmatched, editor);
+  }
+
+  async function doSave(btn, bank, bankAcc, blokeAcc, groups, assigns, unmatched, editor) {
     try {
       const fresh = await fetchAll(C.accountEntries).catch(() => []);
       const posKeys = new Set(groups.map((g) => `${bank.key}|${g.dep}|${g.cek}|${g.tip}`));
