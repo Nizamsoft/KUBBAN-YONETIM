@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.67";
+} from "./local-backend.js?v=2026.68";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.67";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.68";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -320,8 +320,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.67";
+const APP_VERSION = "2026.68";
 const CHANGELOG = [
+  { version: "2026.68", date: "2026-08-07", items: [
+    "Nakit Akış: tek hesap görünümü — üstte seçici (Garanti/T.Finans/Nakit), sütunlar Tarih·Giren·Çıkan·Güncel Bakiye, tüm günler",
+    "Giren/Çıkan'a dokununca o günkü kalemler açılır; bugünkü bakiye bandı",
+  ]},
   { version: "2026.67", date: "2026-08-07", items: [
     "Nakit Akış Raporu yeniden yapıldı: günlük tablo (Garanti/T.Finans/Nakit) — gün sonu bakiyeleri, eksi kırmızı, bloke kolonu",
     "Öngörülen günlük giriş ayarı; bugüne kadar gerçek, sonrası öngörü",
@@ -3754,9 +3758,7 @@ async function viewNakitAkisRapor(c) {
   const dailyIn = Object.assign({ garanti: 0, tfinans: 0, nakit: 0 }, (cfgDoc && cfgDoc.dailyIn) || {});
   const accByKey = {};
   NA_ACCS.forEach((a) => { accByKey[a.key] = accounts.find((x) => String(x.code) === a.code) || null; });
-  const missing = NA_ACCS.filter((a) => !accByKey[a.key]);
-  let fwd = 45;
-  const overrides = new Map();
+  let selKey = "garanti", fwd = 45;
 
   c.innerHTML = `
     <div class="na-strip">
@@ -3766,126 +3768,115 @@ async function viewNakitAkisRapor(c) {
       <span>💵 Nakit <b id="di-nakit">${fmtNum(dailyIn.nakit)}</b></span>
       <button class="btn btn-sm" id="di-edit">Ayarla</button>
     </div>
+    <div class="na-tabs" id="na-tabs">
+      ${NA_ACCS.map((a) => `<div class="na-tab${a.key === selKey ? " on" : ""}" data-k="${a.key}"><span class="em">${a.key === "nakit" ? "💵" : "🏦"}</span>${esc(a.label)}${accByKey[a.key] ? "" : " ⚠️"}</div>`).join("")}
+    </div>
+    <div class="na-bnr"><span class="l">Bugünkü Bakiye</span><span class="v tl" id="na-bnrv">—</span></div>
     <div class="toolbar" style="margin:0 0 10px">
       <div class="seg" id="na-seg"><button data-f="30">+30g</button><button data-f="45" class="active">+45g</button><button data-f="90">+90g</button></div>
       <div class="grow"></div>
       <a class="btn btn-sm" href="#/nakit-akis-veri">🔄 Tekrarlanan Kalemler</a>
     </div>
-    ${missing.length ? `<div class="notice warn">⚠️ Şu hesaplar yok: ${missing.map((m) => m.code + " " + m.label).join(", ")}. <a href="#/hesaplar">Hesaplar</a>'dan varsayılan planı oluşturun.</div>` : ""}
-    <div class="scroll na-scroll"><table class="na-t" id="na-t"></table></div>
+    <div class="na-tbl">
+      <table>
+        <colgroup><col class="c-dt"><col class="c-num"><col class="c-num"><col class="c-num"></colgroup>
+        <thead><tr><th class="l">Tarih</th><th class="r">Giren Tutar</th><th class="r">Çıkan Tutar</th><th class="r">Güncel Bakiye</th></tr></thead>
+        <tbody id="na-tb"></tbody>
+      </table>
+    </div>
     <div id="na-pop"></div>
-    <div class="pv-fhint" style="margin-top:10px">Tutara dokun → açıklama + giriş/çıkış. Bugüne kadar <b>gerçek</b>, sonrası <b>öngörü</b>. Yeşil kolon = o gün çözülen POS (bilgi).</div>`;
+    <div class="pv-fhint" style="margin-top:10px">Giren/Çıkan'a dokun → ne olduğu çıkar. Bugüne kadar <b>gerçek</b>, sonrası <b>öngörü</b> (öngörülen giriş + tekrarlanan kalemler).</div>`;
 
-  function compute() {
+  function compute(key) {
+    const acc = accByKey[key];
     const now = new Date(); now.setHours(0, 0, 0, 0);
     const todayISO = isoOfD(now);
     const start = new Date(now.getFullYear(), now.getMonth(), 1);
     const startISO = isoOfD(start);
     const end = new Date(now); end.setDate(end.getDate() + fwd);
-    const A = {};
-    NA_ACCS.forEach((a) => {
-      const acc = accByKey[a.key];
-      const es = acc ? entries.filter((e) => e.accountId === acc.id) : [];
-      const byDate = {}, detByDate = {};
-      es.forEach((e) => {
-        byDate[e.date] = (byDate[e.date] || 0) + naDelta(e);
-        (detByDate[e.date] || (detByDate[e.date] = [])).push(e);
-      });
-      let baseline = acc ? parseNum(acc.openingBalance) : 0;
-      Object.keys(byDate).forEach((d) => { if (d < startISO) baseline += byDate[d]; });
-      const its = items.filter((x) => x.active !== false && (x.account || "garanti") === a.key);
-      const raporDone = (rap, y, m) => rap && es.some((e) => String(e.rapor || "") === rap && e.date >= isoOfD(new Date(y, m, 1)) && e.date <= isoOfD(new Date(y, m + 1, 0)));
-      A[a.key] = { byDate, detByDate, run: baseline, its, raporDone };
+    const es = acc ? entries.filter((e) => e.accountId === acc.id) : [];
+    const byDate = {};
+    es.forEach((e) => {
+      const inA = parseNum(e.giren) + parseNum(e.borc), outA = parseNum(e.cikan) + parseNum(e.alacak);
+      const o = byDate[e.date] || (byDate[e.date] = { in: 0, out: 0, inDet: [], outDet: [] });
+      o.in += inA; o.out += outA;
+      const lbl = e.aciklama || e.islemAdi || "Hareket";
+      if (inA) o.inDet.push(`${lbl}: ${fmtNum(inA)}`);
+      if (outA) o.outDet.push(`${lbl}: ${fmtNum(outA)}`);
     });
-    const blokeByDate = {};
-    entries.filter((e) => e.source === "banka-pos" && String(e.accountCode || "") === "102.01")
-      .forEach((e) => { blokeByDate[e.date] = (blokeByDate[e.date] || 0) + parseNum(e.giren); });
-
-    const days = [];
+    let baseline = acc ? parseNum(acc.openingBalance) : 0;
+    Object.keys(byDate).forEach((d) => { if (d < startISO) baseline += byDate[d].in - byDate[d].out; });
+    const its = items.filter((x) => x.active !== false && (x.account || "garanti") === key);
+    const raporDone = (rap, y, m) => rap && es.some((e) => String(e.rapor || "") === rap && e.date >= isoOfD(new Date(y, m, 1)) && e.date <= isoOfD(new Date(y, m + 1, 0)));
+    let run = baseline; const days = [];
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-      const iso = isoOfD(d), dom = d.getDate(), future = iso > todayISO;
+      const iso = isoOfD(d), dom = d.getDate(), future = iso > todayISO, isToday = iso === todayISO;
       const monthOffset = (d.getFullYear() - now.getFullYear()) * 12 + (d.getMonth() - now.getMonth());
-      const row = { iso, dObj: new Date(d), future, cells: {}, bals: {}, bloke: blokeByDate[iso] || 0 };
-      NA_ACCS.forEach((a) => {
-        const S = A[a.key]; let pay = 0; const pit = [];
-        if (!future) {
-          pay = S.byDate[iso] || 0;
-          (S.detByDate[iso] || []).forEach((e) => { const v = naDelta(e); if (v) pit.push(`${e.aciklama || e.islemAdi || "Hareket"}: ${fmtNum(v)}`); });
-          S.run += pay;
-        } else {
-          let f = 0;
-          S.its.forEach((it) => {
-            if (!naOccurs(it, dom, monthOffset)) return;
-            if (S.raporDone(it.rapor, d.getFullYear(), d.getMonth())) return;
-            const amt = it.type === "gelir" ? parseNum(it.amount) : -parseNum(it.amount);
-            f += amt; pit.push(`${it.name}: ${fmtNum(amt)}`);
-          });
-          if (overrides.get(a.key + "|" + iso)) f = -f;
-          pay = f;
-          S.run += f + parseNum(dailyIn[a.key]);
-        }
-        row.cells[a.key] = { pay, pit };
-        row.bals[a.key] = S.run;
-      });
-      days.push(row);
+      let giren = 0, cikan = 0; const gd = [], cd = [];
+      if (!future) {
+        const o = byDate[iso];
+        if (o) { giren = o.in; cikan = o.out; gd.push(...o.inDet); cd.push(...o.outDet); }
+      } else {
+        const di = parseNum(dailyIn[key]);
+        if (di) { giren += di; gd.push(`Öngörülen giriş: ${fmtNum(di)}`); }
+        its.forEach((it) => {
+          if (!naOccurs(it, dom, monthOffset)) return;
+          if (raporDone(it.rapor, d.getFullYear(), d.getMonth())) return;
+          const amt = parseNum(it.amount);
+          if (it.type === "gelir") { giren += amt; gd.push(`${it.name}: ${fmtNum(amt)}`); }
+          else { cikan += amt; cd.push(`${it.name}: ${fmtNum(amt)}`); }
+        });
+      }
+      run += giren - cikan;
+      days.push({ iso, dObj: new Date(d), future, isToday, giren, cikan, gd, cd, bal: run });
     }
-    return { days, todayISO };
+    return { days };
   }
 
+  const WK = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
   function draw() {
-    const { days, todayISO } = compute();
-    const wk = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
-    const payTd = (key, r) => {
-      const cel = r.cells[key], v = cel.pay;
-      if (!v) return "<td></td>";
-      const data = JSON.stringify({ iso: r.iso, key, pit: cel.pit, future: r.future }).replace(/'/g, "&#39;");
-      return `<td class="na-pay${v > 0 ? " gir" : ""}" data-d='${data}'>${fmtNum(Math.abs(v))}</td>`;
-    };
-    const balTd = (key, r) => { const v = r.bals[key]; return `<td class="na-bal${v < 0 ? " neg" : ""}">${fmtNum(v)}</td>`; };
-    let html = `<thead><tr>
-        <th>Tarih</th><th>Garanti</th><th>T.Finans</th><th>Nakit</th>
-        <th>D.Sonu Garanti</th><th>D.Sonu T.Finans</th><th>D.Sonu Nakit</th><th class="bl">Bloke</th>
-      </tr></thead><tbody>`;
+    const { days } = compute(selKey);
+    let html = "", todayBal = null, lastPast = null;
     for (const r of days) {
-      html += `<tr class="${r.future ? "fut" : ""}${r.iso === todayISO ? " today" : ""}">
-        <td class="dt">${fmtDate(r.iso).slice(0, 5)}<small>${wk[r.dObj.getDay()]}</small></td>
-        ${payTd("garanti", r)}${payTd("tfinans", r)}${payTd("nakit", r)}
-        ${balTd("garanti", r)}${balTd("tfinans", r)}${balTd("nakit", r)}
-        <td class="na-bloke">${r.bloke ? fmtNum(r.bloke) : ""}</td>
+      if (!r.future) lastPast = r.bal;
+      if (r.isToday) todayBal = r.bal;
+      const gTap = r.giren && r.gd.length, cTap = r.cikan && r.cd.length;
+      html += `<tr class="${r.future ? "fut" : ""}${r.isToday ? " today" : ""}">
+        <td class="dt l">${fmtDate(r.iso).slice(0, 5)}<small>${WK[r.dObj.getDay()]}</small></td>
+        <td class="gir r ${r.giren ? (gTap ? "tap" : "") : "z"}" ${gTap ? `data-x='${JSON.stringify({ dt: fmtDate(r.iso).slice(0, 5), t: "Giren", d: r.gd }).replace(/'/g, "&#39;")}'` : ""}>${r.giren ? fmtNum(r.giren) : "—"}</td>
+        <td class="cik r ${r.cikan ? (cTap ? "tap" : "") : "z"}" ${cTap ? `data-x='${JSON.stringify({ dt: fmtDate(r.iso).slice(0, 5), t: "Çıkan", d: r.cd }).replace(/'/g, "&#39;")}'` : ""}>${r.cikan ? fmtNum(r.cikan) : "—"}</td>
+        <td class="bal r ${r.bal < 0 ? "neg" : ""}">${fmtNum(r.bal)}</td>
       </tr>`;
     }
-    $("#na-t").innerHTML = html + "</tbody>";
+    $("#na-tb").innerHTML = html;
+    const bv = todayBal != null ? todayBal : (lastPast != null ? lastPast : 0);
+    const bnr = $("#na-bnrv", c); bnr.textContent = fmtNum(bv) + " ₺"; bnr.className = "v tl" + (bv < 0 ? " neg" : "");
     wirePop();
   }
 
   const pop = () => $("#na-pop");
   function closePop() { pop().style.display = "none"; }
   function wirePop() {
-    const T = $("#na-t");
+    const T = $("#na-tb");
     T.onclick = (e) => {
-      const td = e.target.closest("td.na-pay"); if (!td) { closePop(); return; }
+      const td = e.target.closest("td.tap"); if (!td) { closePop(); return; }
       e.stopPropagation();
-      const d = JSON.parse(td.dataset.d.replace(/&#39;/g, "'"));
-      const gir = td.classList.contains("gir");
+      const d = JSON.parse(td.dataset.x.replace(/&#39;/g, "'"));
       const P = pop();
-      P.innerHTML = `<div class="pt">${fmtDate(d.iso).slice(0, 5)} · ${NA_ACCS.find((a) => a.key === d.key).label} <span style="color:${gir ? "#a8e0bf" : "#f0a5a5"}">(${gir ? "giriş" : "çıkış"})</span></div>`
-        + (d.pit.length ? `<ul>${d.pit.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : `<div class="none">Açıklama yok</div>`)
-        + (d.future ? `<button class="tgl ${gir ? "toCik" : "toGir"}">${gir ? "↓ Çıkışa çevir" : "↑ Girişe çevir"}</button>` : "");
+      P.innerHTML = `<div class="pt">${d.dt} · ${d.t}</div><ul>${d.d.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
       P.style.display = "block"; P.style.visibility = "hidden";
       const rect = td.getBoundingClientRect(), pw = Math.min(P.offsetWidth, 250);
       let left = Math.max(8, Math.min(rect.left + rect.width / 2 - pw / 2, window.innerWidth - pw - 8));
       let top = rect.top - P.offsetHeight - 10; if (top < 8) top = rect.bottom + 10;
       P.style.left = left + "px"; P.style.top = top + "px"; P.style.visibility = "visible";
-      const btn = $(".tgl", P);
-      if (btn) btn.onclick = (ev) => {
-        ev.stopPropagation();
-        const k = d.key + "|" + d.iso;
-        overrides.set(k, !overrides.get(k));
-        closePop(); draw();
-      };
     };
   }
 
+  $$("#na-tabs .na-tab", c).forEach((t) => t.onclick = () => {
+    selKey = t.dataset.k;
+    $$("#na-tabs .na-tab", c).forEach((x) => x.classList.toggle("on", x === t));
+    closePop(); draw();
+  });
   $$("#na-seg button", c).forEach((b) => b.onclick = () => {
     $$("#na-seg button", c).forEach((x) => x.classList.remove("active"));
     b.classList.add("active"); fwd = parseInt(b.dataset.f); draw();
@@ -3896,7 +3887,7 @@ async function viewNakitAkisRapor(c) {
     $("#di-nakit", c).textContent = fmtNum(dailyIn.nakit);
     draw();
   });
-  document.addEventListener("click", (e) => { if (!e.target.closest("#na-pop") && !e.target.closest("#na-t")) closePop(); });
+  document.addEventListener("click", (e) => { if (!e.target.closest("#na-pop") && !e.target.closest("#na-tb")) closePop(); });
   draw();
 }
 

@@ -1013,3 +1013,28 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 #na-pop .none { opacity: .65; margin-bottom: 8px; font-style: italic; }
 #na-pop .tgl { width: 100%; border: none; border-radius: 8px; padding: 8px; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; color: #fff; }
 #na-pop .tgl.toGir { background: var(--ok); } #na-pop .tgl.toCik { background: var(--danger); }
+
+/* ===== Nakit Akış — tek hesap tasarımı ===== */
+.na-tabs { display: flex; gap: 7px; margin-bottom: 10px; }
+.na-tab { flex: 1; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 11px; padding: 9px 6px; text-align: center; cursor: pointer; font-weight: 800; font-size: 13px; color: var(--ink-soft); }
+.na-tab .em { display: block; font-size: 17px; margin-bottom: 2px; }
+.na-tab.on { background: linear-gradient(135deg, var(--gold-dark), var(--gold)); color: #fff; border-color: transparent; box-shadow: 0 5px 14px rgba(122,90,32,.25); }
+.na-bnr { display: flex; justify-content: space-between; align-items: baseline; background: var(--surface); border: 1px solid var(--line); border-radius: 13px; padding: 12px 15px; margin-bottom: 12px; }
+.na-bnr .l { font-size: 12px; color: var(--ink-soft); font-weight: 700; text-transform: uppercase; letter-spacing: .3px; }
+.na-bnr .v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.na-bnr .v.neg { color: var(--danger); }
+.na-tbl { border: 1px solid var(--line); border-radius: 13px; overflow: hidden; background: var(--surface); }
+.na-tbl table { border-collapse: collapse; width: 100%; font-size: 12.5px; table-layout: fixed; }
+.na-tbl col.c-dt { width: 21%; } .na-tbl col.c-num { width: 26.3%; }
+.na-tbl th, .na-tbl td { padding: 8px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.na-tbl th { background: var(--gold-dark); color: #fff; font-size: 9.5px; text-transform: uppercase; letter-spacing: .2px; font-weight: 800; }
+.na-tbl th.r, .na-tbl td.r { text-align: right; } .na-tbl th.l, .na-tbl td.l { text-align: left; }
+.na-tbl td.dt { font-weight: 700; } .na-tbl td.dt small { color: var(--ink-faint); font-weight: 600; font-size: 10px; margin-left: 3px; }
+.na-tbl td.gir { color: var(--ok); font-weight: 700; cursor: pointer; }
+.na-tbl td.cik { color: var(--danger); font-weight: 700; cursor: pointer; }
+.na-tbl td.gir.z, .na-tbl td.cik.z { color: var(--ink-faint); font-weight: 400; cursor: default; }
+.na-tbl td.tap { text-decoration: underline dotted; text-underline-offset: 3px; }
+.na-tbl td.tap::after { content: "›"; font-size: 8px; opacity: .55; vertical-align: super; margin-left: 1px; }
+.na-tbl td.bal { font-weight: 800; } .na-tbl td.bal.neg { color: var(--danger); background: #fbeaea; }
+.na-tbl tr.fut td { background: #fffdf6; } .na-tbl tr.fut td.bal.neg { background: #fbeaea; }
+.na-tbl tr.today td { box-shadow: inset 0 2px 0 var(--gold); } .na-tbl tr.today td.dt { color: var(--gold-dark); }
