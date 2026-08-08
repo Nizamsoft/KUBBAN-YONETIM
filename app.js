@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.68";
+} from "./local-backend.js?v=2026.69";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.68";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.69";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -320,8 +320,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.68";
+const APP_VERSION = "2026.69";
 const CHANGELOG = [
+  { version: "2026.69", date: "2026-08-07", items: [
+    "Nakit Akış sadeleşti: tepedeki öngörülen giriş şeridi, bugünkü bakiye ve tekrarlanan kalemler düğmesi kaldırıldı",
+    "Öngörülen (gelecek) satırlar soluk gösteriliyor; günlük giriş ayarı Tekrarlanan Kalemler sayfasına taşındı",
+  ]},
   { version: "2026.68", date: "2026-08-07", items: [
     "Nakit Akış: tek hesap görünümü — üstte seçici (Garanti/T.Finans/Nakit), sütunlar Tarih·Giren·Çıkan·Güncel Bakiye, tüm günler",
     "Giren/Çıkan'a dokununca o günkü kalemler açılır; bugünkü bakiye bandı",
@@ -3635,11 +3639,24 @@ const PERIODS = [
 const periodLabel = (v) => PERIODS.find((p) => p.value === v)?.label || v;
 
 async function viewNakitAkisVeri(c) {
-  const items = (await fetchAll(C.cashflowItems))
-    .sort((a, b) => (a.type || "").localeCompare(b.type || ""));
+  const [items0, settings] = await Promise.all([
+    fetchAll(C.cashflowItems).catch(() => []),
+    fetchAll(C.settings).catch(() => []),
+  ]);
+  const items = items0.sort((a, b) => (a.type || "").localeCompare(b.type || ""));
+  const cfgDoc = settings.find((s) => s.id === "cashflow");
+  const dailyIn = Object.assign({ garanti: 0, tfinans: 0, nakit: 0 }, (cfgDoc && cfgDoc.dailyIn) || {});
   c.innerHTML = `
     <div class="notice info">🔄 Her dönem tekrarlanan <b>gelir ve giderlerinizi</b> buradan tanımlayın.
       Tanımladıklarınız <b>Nakit Akış Raporu</b>'nda otomatik yer alır.</div>
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-head"><h3>Öngörülen Günlük Giriş</h3><button class="btn btn-sm" id="di-edit">Ayarla</button></div>
+      <div class="toolbar" style="margin:0;gap:14px;flex-wrap:wrap;font-size:13px">
+        <span>🏦 Garanti <b id="di-garanti">${fmtNum(dailyIn.garanti)}</b> ₺</span>
+        <span>🏦 T.Finans <b id="di-tfinans">${fmtNum(dailyIn.tfinans)}</b> ₺</span>
+        <span>💵 Nakit <b id="di-nakit">${fmtNum(dailyIn.nakit)}</b> ₺</span>
+      </div>
+    </div>
     <div class="toolbar">
       <div class="grow"></div>
       <button class="btn btn-primary btn-sm" id="cf-add">+ Yeni Tanım</button>
@@ -3664,6 +3681,11 @@ async function viewNakitAkisVeri(c) {
         : `<div class="empty"><div class="ico">🔄</div><p>Henüz tekrarlanan kalem tanımlanmamış.</p></div>`}
     </div>`;
 
+  $("#di-edit", c).onclick = () => naDailyModal(dailyIn, () => {
+    $("#di-garanti", c).textContent = fmtNum(dailyIn.garanti);
+    $("#di-tfinans", c).textContent = fmtNum(dailyIn.tfinans);
+    $("#di-nakit", c).textContent = fmtNum(dailyIn.nakit);
+  });
   $("#cf-add").onclick = () => cfModal(null);
   $$("[data-edit]", c).forEach((b) => b.onclick = () => cfModal(items.find((x) => x.id === b.dataset.edit)));
   $$("[data-del]", c).forEach((b) => b.onclick = () =>
@@ -3761,21 +3783,11 @@ async function viewNakitAkisRapor(c) {
   let selKey = "garanti", fwd = 45;
 
   c.innerHTML = `
-    <div class="na-strip">
-      <span class="t">Öngörülen Günlük Giriş</span>
-      <span>🏦 Garanti <b id="di-garanti">${fmtNum(dailyIn.garanti)}</b></span>
-      <span>🏦 T.Finans <b id="di-tfinans">${fmtNum(dailyIn.tfinans)}</b></span>
-      <span>💵 Nakit <b id="di-nakit">${fmtNum(dailyIn.nakit)}</b></span>
-      <button class="btn btn-sm" id="di-edit">Ayarla</button>
-    </div>
     <div class="na-tabs" id="na-tabs">
       ${NA_ACCS.map((a) => `<div class="na-tab${a.key === selKey ? " on" : ""}" data-k="${a.key}"><span class="em">${a.key === "nakit" ? "💵" : "🏦"}</span>${esc(a.label)}${accByKey[a.key] ? "" : " ⚠️"}</div>`).join("")}
     </div>
-    <div class="na-bnr"><span class="l">Bugünkü Bakiye</span><span class="v tl" id="na-bnrv">—</span></div>
-    <div class="toolbar" style="margin:0 0 10px">
+    <div class="toolbar" style="margin:0 0 10px;justify-content:center">
       <div class="seg" id="na-seg"><button data-f="30">+30g</button><button data-f="45" class="active">+45g</button><button data-f="90">+90g</button></div>
-      <div class="grow"></div>
-      <a class="btn btn-sm" href="#/nakit-akis-veri">🔄 Tekrarlanan Kalemler</a>
     </div>
     <div class="na-tbl">
       <table>
@@ -3836,10 +3848,8 @@ async function viewNakitAkisRapor(c) {
   const WK = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
   function draw() {
     const { days } = compute(selKey);
-    let html = "", todayBal = null, lastPast = null;
+    let html = "";
     for (const r of days) {
-      if (!r.future) lastPast = r.bal;
-      if (r.isToday) todayBal = r.bal;
       const gTap = r.giren && r.gd.length, cTap = r.cikan && r.cd.length;
       html += `<tr class="${r.future ? "fut" : ""}${r.isToday ? " today" : ""}">
         <td class="dt l">${fmtDate(r.iso).slice(0, 5)}<small>${WK[r.dObj.getDay()]}</small></td>
@@ -3849,8 +3859,6 @@ async function viewNakitAkisRapor(c) {
       </tr>`;
     }
     $("#na-tb").innerHTML = html;
-    const bv = todayBal != null ? todayBal : (lastPast != null ? lastPast : 0);
-    const bnr = $("#na-bnrv", c); bnr.textContent = fmtNum(bv) + " ₺"; bnr.className = "v tl" + (bv < 0 ? " neg" : "");
     wirePop();
   }
 
@@ -3880,12 +3888,6 @@ async function viewNakitAkisRapor(c) {
   $$("#na-seg button", c).forEach((b) => b.onclick = () => {
     $$("#na-seg button", c).forEach((x) => x.classList.remove("active"));
     b.classList.add("active"); fwd = parseInt(b.dataset.f); draw();
-  });
-  $("#di-edit", c).onclick = () => naDailyModal(dailyIn, () => {
-    $("#di-garanti", c).textContent = fmtNum(dailyIn.garanti);
-    $("#di-tfinans", c).textContent = fmtNum(dailyIn.tfinans);
-    $("#di-nakit", c).textContent = fmtNum(dailyIn.nakit);
-    draw();
   });
   document.addEventListener("click", (e) => { if (!e.target.closest("#na-pop") && !e.target.closest("#na-tb")) closePop(); });
   draw();
