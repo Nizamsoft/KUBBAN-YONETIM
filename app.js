@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.73";
+} from "./local-backend.js?v=2026.74";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.73";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.74";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.73";
+const APP_VERSION = "2026.74";
 const CHANGELOG = [
+  { version: "2026.74", date: "2026-08-08", items: [
+    "Uygulama ikonu yenilendi: logonun altında zarif altın çizgi + serif 'MUHASEBE' yazısı",
+  ]},
   { version: "2026.73", date: "2026-08-07", items: [
     "Nakit Akış detayında 'Gelen/Giden Eft' yerine şahıs (eşleşen hesap) adı gösteriliyor",
   ]},
