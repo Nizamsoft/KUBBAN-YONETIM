@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.65";
+} from "./local-backend.js?v=2026.66";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.65";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.66";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.65";
+const APP_VERSION = "2026.66";
 const CHANGELOG = [
+  { version: "2026.66", date: "2026-08-07", items: [
+    "Banka POS dışı satır yeniden tasarlandı: not simgesi (📝) sağ üstte; özel açıklamayı oradan aç",
+    "Şahıs ve (çıkanlarda) Rapor zorunlu — boş alan kırmızı, dolu yeşil; hepsi dolmadan İşle pasif ('N alan eksik')",
+  ]},
   { version: "2026.65", date: "2026-08-07", items: [
     "Banka POS dışı: çıkan (ödeme) hareketlerde Rapor artık zorunlu",
     "'+ açıklama' düğmesi: basınca Gelen/Giden Eft yerine özel açıklama yazılabiliyor (geçmişten hatırlanır)",
@@ -3363,24 +3367,24 @@ async function viewBanka(c) {
       const accVal = sug ? `${sug.code} · ${sug.name}` : "";
       const rapVal = sug ? sug.rapor : "";
       const acikVal = sug ? sug.acik : "";
-      // Sade: Hesap (çıkanlarda + Rapor zorunlu). Açıklama otomatik "Gelen/Giden Eft"; istersen "+ açıklama" ile özel.
-      const rapInp = o.amt < 0 ? `<input class="bk-rapor" data-seq="${o.seq}" placeholder="Rapor *" value="${esc(rapVal)}" />` : "";
-      const acikField = acikVal
-        ? `<input class="bk-acik" data-seq="${o.seq}" placeholder="Özel açıklama" value="${esc(acikVal)}" />`
-        : `<button class="bk-add-acik" type="button" data-seq="${o.seq}">+ açıklama</button>`;
-      return `<div class="bk-grp bk-other" data-seq="${o.seq}">
-        <div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
-        <div class="mid">
-          <div class="nm">${esc(o.desc)}</div>
-          <div class="bk-fields">
-            <div class="bk-frow">
-              <input class="bk-acc" data-seq="${o.seq}" list="bk-acc-list" placeholder="Hesap — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
-              ${rapInp}
-            </div>
-            <div class="bk-arow">${acikField}</div>
+      // Tasarım 1: yön + açıklama + (tutar & not simgesi sağ üstte); altta Şahıs (çıkanlarda + Rapor)
+      const rapInp = o.amt < 0 ? `<input class="bk-rapor f" data-seq="${o.seq}" placeholder="Rapor *" value="${esc(rapVal)}" />` : "";
+      return `<div class="bk-other" data-seq="${o.seq}">
+        <div class="bk-o-top">
+          <div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
+          <div class="mid"><div class="nm">${esc(o.desc)}</div></div>
+          <div class="bk-rt">
+            <div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div>
+            <button class="bk-note ${acikVal ? "on" : ""}" type="button" data-seq="${o.seq}" title="Özel açıklama">📝</button>
           </div>
         </div>
-        <div class="amt"><div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div></div>
+        <div class="bk-fields">
+          <input class="bk-acc f" data-seq="${o.seq}" list="bk-acc-list" placeholder="Şahıs / Hesap — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
+          ${rapInp}
+        </div>
+        <div class="bk-arow" data-seq="${o.seq}" ${acikVal ? "" : `style="display:none"`}>
+          <input class="bk-acik f" data-seq="${o.seq}" placeholder="Özel açıklama (boşsa 'Gelen/Giden Eft')" value="${esc(acikVal)}" />
+        </div>
       </div>`;
     };
 
@@ -3429,15 +3433,41 @@ async function viewBanka(c) {
       <datalist id="bk-acc-list">${leafAccs.map((a) => `<option value="${esc(accLabel(a))}"></option>`).join("")}</datalist>
       <div class="pv-cta">
         <div class="grow"></div>
-        <button class="btn btn-primary" id="bk-save" ${(groups.length || other.length) && bankAcc && blokeAcc ? "" : "disabled"}>💾 İşle</button>
+        <button class="btn btn-primary" id="bk-save">✓ İşle</button>
       </div>`;
 
-    $$(".bk-add-acik", editor).forEach((b) => b.onclick = () => {
-      const inp = document.createElement("input");
-      inp.className = "bk-acik"; inp.dataset.seq = b.dataset.seq;
-      inp.placeholder = "Özel açıklama"; b.replaceWith(inp); inp.focus();
+    const saveBtn = $("#bk-save", editor);
+    // Not simgesi → özel açıklama aç/kapat
+    $$(".bk-note", editor).forEach((b) => b.onclick = () => {
+      const row = b.closest(".bk-other"), arow = $(".bk-arow", row);
+      const show = arow.style.display === "none";
+      arow.style.display = show ? "block" : "none";
+      b.classList.toggle("on", show);
+      if (show) $(".bk-acik", arow)?.focus(); else { const i = $(".bk-acik", arow); if (i) i.value = ""; }
+      bkSync();
     });
-    $("#bk-save", editor).onclick = () => saveAll($("#bk-save", editor), bank, bankAcc, blokeAcc, groups, other, resolveAcc, accLabel);
+    // Canlı doğrulama: şahıs (+ çıkanlarda rapor) dolmadan İşle pasif
+    function bkSync() {
+      let missing = 0;
+      $$(".bk-other", editor).forEach((row) => {
+        const acc = $(".bk-acc", row), rap = $(".bk-rapor", row);
+        const ae = !acc.value.trim();
+        acc.classList.toggle("bk-req", ae); acc.classList.toggle("bk-ok", !ae);
+        if (ae) missing++;
+        if (rap) {
+          const re = !rap.value.trim();
+          rap.classList.toggle("bk-req", re); rap.classList.toggle("bk-ok", !re);
+          if (re) missing++;
+        }
+      });
+      const nothing = !groups.length && !other.length;
+      if (!bankAcc || !blokeAcc || nothing) { saveBtn.disabled = true; saveBtn.textContent = "İşlenecek yok"; }
+      else if (missing > 0) { saveBtn.disabled = true; saveBtn.textContent = `${missing} alan eksik`; }
+      else { saveBtn.disabled = false; saveBtn.textContent = `✓ İşle (${groups.length + other.length})`; }
+    }
+    editor.addEventListener("input", bkSync);
+    bkSync();
+    saveBtn.onclick = () => saveAll(saveBtn, bank, bankAcc, blokeAcc, groups, other, resolveAcc, accLabel);
   }
 
   // Eşleşmeyen isim için yeni cari aç (120 müşteri / 320 tedarikçi)
@@ -3456,17 +3486,15 @@ async function viewBanka(c) {
 
   async function saveAll(btn, bank, bankAcc, blokeAcc, groups, other, resolveAcc) {
     const editor = $("#bk-editor");
-    // POS dışı satırları oku (rapor yalnızca çıkanlarda)
-    const rows = []; let unmatched = 0;
+    // POS dışı satırlar: Şahıs zorunlu, çıkanlarda Rapor zorunlu
+    const rows = [];
     for (const o of other) {
       const inp = $(`.bk-acc[data-seq="${o.seq}"]`, editor);
       const val = inp ? inp.value.trim() : "";
-      if (!val) { unmatched++; continue; }
+      if (!val) { inp?.focus(); return toast("Tüm hareketlerde Şahıs / Hesap zorunlu.", "err"); }
       const rapor = o.amt < 0 ? ($(`.bk-rapor[data-seq="${o.seq}"]`, editor)?.value || "").trim() : "";
-      // Çıkan (ödeme) hareketlerde rapor zorunlu
       if (o.amt < 0 && !rapor) {
-        const rp = $(`.bk-rapor[data-seq="${o.seq}"]`, editor);
-        if (rp) rp.focus();
+        $(`.bk-rapor[data-seq="${o.seq}"]`, editor)?.focus();
         return toast("Çıkan hareketlerde Rapor zorunlu.", "err");
       }
       rows.push({
@@ -3498,17 +3526,17 @@ async function viewBanka(c) {
             const extra = [];
             for (let i = 0; i < toCreate.length; i++)
               extra.push({ o: toCreate[i].o, acc: await createBankCari(toCreate[i].val, types[i]), rapor: toCreate[i].rapor, acik: toCreate[i].acik });
-            await doSave(btn, bank, bankAcc, blokeAcc, groups, [...ok, ...extra], unmatched, editor);
+            await doSave(btn, bank, bankAcc, blokeAcc, groups, [...ok, ...extra], editor);
           } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
         }),
       ]});
       return;
     }
     btn.disabled = true;
-    await doSave(btn, bank, bankAcc, blokeAcc, groups, ok, unmatched, editor);
+    await doSave(btn, bank, bankAcc, blokeAcc, groups, ok, editor);
   }
 
-  async function doSave(btn, bank, bankAcc, blokeAcc, groups, assigns, unmatched, editor) {
+  async function doSave(btn, bank, bankAcc, blokeAcc, groups, assigns, editor) {
     try {
       const fresh = await fetchAll(C.accountEntries).catch(() => []);
       const posKeys = new Set(groups.map((g) => `${bank.key}|${g.dep}|${g.cek}|${g.tip}`));
@@ -3576,8 +3604,8 @@ async function viewBanka(c) {
       }
       await batchAdd(C.accountEntries, docs);
       await logAction("İçe Aktarma", "Banka", `${bank.label} · ${groups.length} POS + ${assigns.length} transfer · ${docs.length} kayıt`);
-      toast(`${groups.length} POS + ${assigns.length} transfer işlendi.${unmatched ? ` (${unmatched} boş atlandı)` : ""}`, "ok");
-      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${groups.length}</b> POS çözülmesi, <b>${assigns.length}</b> para transferi.${unmatched ? ` ${unmatched} POS dışı hareket (hesap girilmedi) atlandı.` : ""}
+      toast(`${groups.length} POS + ${assigns.length} transfer işlendi.`, "ok");
+      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${groups.length}</b> POS çözülmesi, <b>${assigns.length}</b> para transferi.
         <a href="#/hesap-detay?id=${bankAcc.id}">102.01 Garanti</a> defterinde görebilirsin.</div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
