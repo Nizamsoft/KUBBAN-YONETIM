@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.74";
+} from "./local-backend.js?v=2026.75";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.74";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.75";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.74";
+const APP_VERSION = "2026.75";
 const CHANGELOG = [
+  { version: "2026.75", date: "2026-08-08", items: [
+    "Ana Ekrana Ekle rehberi: iOS'ta 'Paylaş → Ana Ekrana Ekle' anlatımı (WhatsApp içi tarayıcıda 'Safari'de Aç' uyarısı), Android'de tek-dokunuş kurulum",
+  ]},
   { version: "2026.74", date: "2026-08-08", items: [
     "Uygulama ikonu yenilendi: logonun altında zarif altın çizgi + serif 'MUHASEBE' yazısı",
   ]},
@@ -4154,6 +4157,48 @@ async function batchAdd(colFn, docs) {
     await batch.commit();
   }
 }
+
+// ---------------------------------------------------------------------------
+//  ANA EKRANA EKLE — kurulum rehberi (iOS anlatım + Android tek-dokunuş)
+// ---------------------------------------------------------------------------
+function initA2HS() {
+  const standalone = window.matchMedia("(display-mode: standalone)").matches || window.navigator.standalone === true;
+  if (standalone || localStorage.getItem("a2hs-dismiss") === "1") return;
+  const ua = navigator.userAgent || "";
+  const isIOS = /iphone|ipad|ipod/i.test(ua);
+  const isAndroid = /android/i.test(ua);
+  const isRealSafari = isIOS && /Version\/\d+/.test(ua) && /Safari/.test(ua) && !/(CriOS|FxiOS|EdgiOS|GSA)/.test(ua);
+  if (!isIOS && !isAndroid) return; // masaüstünde gösterme
+
+  const el = document.createElement("div");
+  el.className = "a2hs";
+  const msg = isIOS
+    ? (isRealSafari
+        ? `Alttaki <b>Paylaş ⬆︎</b> → <b>“Ana Ekrana Ekle”</b>`
+        : `Sağ alttaki <b>•••</b> → <b>“Safari’de Aç”</b>, sonra <b>Paylaş</b> → <b>“Ana Ekrana Ekle”</b>`)
+    : `Menü <b>⋮</b> → <b>“Ana ekrana ekle / Uygulamayı yükle”</b>`;
+  el.innerHTML = `
+    <img class="ico" src="apple-touch-icon.jpg?v=${APP_VERSION}" alt="" />
+    <div class="txt"><b>Kübban’ı ana ekrana ekle</b><span id="a2hs-msg">${msg}</span></div>
+    <button class="add hidden" id="a2hs-add">Ekle</button>
+    <button class="x" id="a2hs-x" aria-label="Kapat">✕</button>`;
+  document.body.appendChild(el);
+  requestAnimationFrame(() => el.classList.add("show"));
+
+  const close = (remember) => { el.classList.remove("show"); if (remember) localStorage.setItem("a2hs-dismiss", "1"); setTimeout(() => el.remove(), 300); };
+  el.querySelector("#a2hs-x").onclick = () => close(true);
+
+  // Android/Chrome: gerçek kurulum istemi
+  let deferred = null;
+  window.addEventListener("beforeinstallprompt", (e) => {
+    e.preventDefault(); deferred = e;
+    const btn = el.querySelector("#a2hs-add"); const m = el.querySelector("#a2hs-msg");
+    btn.classList.remove("hidden"); if (m) m.textContent = "Tek dokunuşla kur:";
+    btn.onclick = async () => { deferred.prompt(); const r = await deferred.userChoice; deferred = null; if (r.outcome === "accepted") close(true); };
+  });
+  window.addEventListener("appinstalled", () => close(true));
+}
+setTimeout(initA2HS, 900);
 
 // ---------------------------------------------------------------------------
 //  BAŞLAT
