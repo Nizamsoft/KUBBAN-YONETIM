@@ -957,13 +957,13 @@ table.data input.num { text-align: right; }
 .bk-grp.bk-other .ic { background: transparent; }
 .bk-pend { color: var(--warn); font-weight: 700; }
 
-/* ===== Banka POS dışı: satır içi hesap eşleştirme alanları ===== */
+/* ===== Banka POS dışı: satır içi hesap eşleştirme alanları (sade) ===== */
 .bk-grp.bk-other { align-items: flex-start; }
-.bk-fields { margin-top: 8px; display: flex; flex-direction: column; gap: 7px; }
-.bk-fields input { width: 100%; border: 1px solid var(--line-strong); border-radius: 9px; padding: 8px 10px; font: inherit; font-size: 13px; background: var(--surface); color: var(--ink); }
-.bk-fields input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(166,123,46,.12); }
+.bk-fields { margin-top: 7px; display: flex; gap: 7px; align-items: center; }
+.bk-fields input { flex: 1 1 auto; min-width: 0; border: 1px solid var(--line-strong); border-radius: 8px; padding: 7px 10px; font: inherit; font-size: 12.5px; background: var(--surface-2); color: var(--ink); }
+.bk-fields input:focus { outline: none; border-color: var(--gold); background: var(--surface); box-shadow: 0 0 0 3px rgba(166,123,46,.12); }
 .bk-fields .bk-acc { font-weight: 700; }
-.bk-fields .bk-frow { display: grid; grid-template-columns: 1fr 1.4fr; gap: 7px; }
+.bk-fields .bk-rapor { flex: 0 1 92px; }
 
 /* ===== Banka: yeni hesap onayı ===== */
 .bk-new { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--line); }

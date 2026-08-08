@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.63";
+} from "./local-backend.js?v=2026.64";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.63";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.64";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -319,8 +319,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.63";
+const APP_VERSION = "2026.64";
 const CHANGELOG = [
+  { version: "2026.64", date: "2026-08-07", items: [
+    "Banka POS dışı sadeleşti: açıklama otomatik 'Gelen Eft' / 'Giden Eft'; satırda sadece Hesap (çıkanlarda + Rapor)",
+    "Alanlar tek satırda, daha kompakt görünüm",
+  ]},
   { version: "2026.63", date: "2026-08-07", items: [
     "Banka POS dışı: eşleşmeyen hesap adı yazılınca yeni hesap (Müşteri/Tedarikçi) olarak eklenip işlenebiliyor",
     "Rapor alanı yalnızca çıkan (ödeme) hareketlerde görünüyor; giren tutarlarda kaldırıldı",
@@ -3353,19 +3357,15 @@ async function viewBanka(c) {
       }
       const accVal = sug ? `${sug.code} · ${sug.name}` : "";
       const rapVal = sug ? sug.rapor : "";
-      const acikVal = sug ? sug.acik : titleCase(bkSig(o.desc));
-      const acikInp = `<input class="bk-acik" data-seq="${o.seq}" placeholder="Açıklama" value="${esc(acikVal)}" />`;
-      // Rapor yalnızca çıkan (negatif) hareketlerde
-      const fields = o.amt < 0
-        ? `<div class="bk-frow"><input class="bk-rapor" data-seq="${o.seq}" placeholder="Rapor" value="${esc(rapVal)}" />${acikInp}</div>`
-        : acikInp;
+      // Sade: sadece Hesap (çıkanlarda + Rapor). Açıklama otomatik "Gelen/Giden Eft".
+      const rapInp = o.amt < 0 ? `<input class="bk-rapor" data-seq="${o.seq}" placeholder="Rapor" value="${esc(rapVal)}" />` : "";
       return `<div class="bk-grp bk-other" data-seq="${o.seq}">
         <div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
         <div class="mid">
           <div class="nm">${esc(o.desc)}</div>
           <div class="bk-fields">
-            <input class="bk-acc" data-seq="${o.seq}" list="bk-acc-list" placeholder="Hesap adı — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
-            ${fields}
+            <input class="bk-acc" data-seq="${o.seq}" list="bk-acc-list" placeholder="Hesap — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
+            ${rapInp}
           </div>
         </div>
         <div class="amt"><div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div></div>
@@ -3448,7 +3448,6 @@ async function viewBanka(c) {
       rows.push({
         o, val, acc: resolveAcc(val),
         rapor: o.amt < 0 ? ($(`.bk-rapor[data-seq="${o.seq}"]`, editor)?.value || "").trim() : "",
-        acik: ($(`.bk-acik[data-seq="${o.seq}"]`, editor)?.value || "").trim(),
       });
     }
     const ok = rows.filter((r) => r.acc);
@@ -3474,7 +3473,7 @@ async function viewBanka(c) {
           try {
             const extra = [];
             for (let i = 0; i < toCreate.length; i++)
-              extra.push({ o: toCreate[i].o, acc: await createBankCari(toCreate[i].val, types[i]), rapor: toCreate[i].rapor, acik: toCreate[i].acik });
+              extra.push({ o: toCreate[i].o, acc: await createBankCari(toCreate[i].val, types[i]), rapor: toCreate[i].rapor });
             await doSave(btn, bank, bankAcc, blokeAcc, groups, [...ok, ...extra], unmatched, editor);
           } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
         }),
@@ -3533,7 +3532,7 @@ async function viewBanka(c) {
       for (const a of assigns) {
         const { o, acc, rapor } = a;
         const ok = otherKey(o), inn = o.amt >= 0, abs = Math.abs(o.amt);
-        const disp = a.acik || titleCase(bkSig(o.desc));
+        const disp = o.amt >= 0 ? "Gelen Eft" : "Giden Eft";
         const common = {
           date: o.dep, aciklama: disp, rapor, source: "banka-diger", otherKey: ok, banka: bank.key,
           bankaAciklama: o.desc, matchedCode: acc.code, matchedName: acc.name, dekont: o.dekont || "",
