@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.70";
+} from "./local-backend.js?v=2026.71";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.70";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.71";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -320,8 +320,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.70";
+const APP_VERSION = "2026.71";
 const CHANGELOG = [
+  { version: "2026.71", date: "2026-08-07", items: [
+    "POS/bloke kart tipleri kısaltıldı: Kredi Kartı→KK, Debit Kartı→DK, Yurt Dışı Kredi Kartı→YDK (ör. '12.07.2026 YDK Çekimi')",
+  ]},
   { version: "2026.70", date: "2026-08-07", items: [
     "Nakit Akış: gün aralığı seçimi kaldırıldı, sabit 90 gün",
     "Giren/Çıkan baloncuğu büyükten küçüğe sıralanıyor, tutarların sonunda ₺",
@@ -1185,9 +1188,9 @@ function gsComputeBlokeRows(state, codeToName) {
     const name = (codeToName && codeToName[m.code]) || m.method;
     if (m.garanti) {
       const kredi = parseNum(bl.garantiKredi), debit = parseNum(bl.garantiDebit);
-      out.push({ code: m.code, name, aciklama: "Kredi Kartı", tip: "kredi", manual: true, borc: kredi, ger });
-      out.push({ code: m.code, name, aciklama: "Debit Kartı", tip: "debit", manual: true, borc: debit, ger });
-      out.push({ code: m.code, name, aciklama: "Yurt Dışı", tip: "yurtdisi", manual: false, borc: ger - kredi - debit, ger });
+      out.push({ code: m.code, name, aciklama: "KK", tip: "kredi", manual: true, borc: kredi, ger });
+      out.push({ code: m.code, name, aciklama: "DK", tip: "debit", manual: true, borc: debit, ger });
+      out.push({ code: m.code, name, aciklama: "YDK", tip: "yurtdisi", manual: false, borc: ger - kredi - debit, ger });
     } else {
       out.push({ code: m.code, name, aciklama: "", tip: "tek", manual: false, borc: ger, ger });
     }
@@ -3250,7 +3253,7 @@ function bkClassifyGaranti(aoa) {
       let cek = new Date(dep.getFullYear(), +m[3] - 1, +m[4]);
       if (cek > dep) cek = new Date(dep.getFullYear() - 1, +m[3] - 1, +m[4]);
       const diff = Math.round((dep - cek) / 86400000);
-      const tip = diff === 23 ? "Kredi Kartı" : diff === 16 ? "Debit Kartı" : diff === 1 ? "Yurt Dışı Kredi Kartı" : null;
+      const tip = diff === 23 ? "KK" : diff === 16 ? "DK" : diff === 1 ? "YDK" : null;
       pos.push({ seq, dep: bkISO(dep), cek: bkISO(cek), diff, tip, kart: m[2], kom: parseNum(m[5]), amt, dekont, desc });
     } else {
       other.push({ seq, dep: bkISO(dep), etiket: String(r[ci.etiket] || ""), amt, dekont, desc });
@@ -3350,17 +3353,12 @@ async function viewBanka(c) {
     };
 
     // Gün sonu blokesiyle eşleşme (kontrol)
-    const tipMatch = (acik, tip) => {
-      const a = String(acik || "");
-      if (tip.startsWith("Yurt Dışı")) return a.includes("Yurt Dışı");
-      if (tip === "Debit Kartı") return a.includes("Debit");
-      return a.includes("Kredi Kartı") && !a.includes("Yurt Dışı");
-    };
+    const tipMatch = (acik, tip) => String(acik || "").includes(" " + tip + " ");
     const blokeBorcOf = (g) => !blokeAcc ? 0 : entries
       .filter((e) => e.accountId === blokeAcc.id && e.source === "gunsonu-bloke" && e.date === g.cek && tipMatch(e.aciklama, g.tip))
       .reduce((s, e) => s + parseNum(e.borc), 0);
 
-    const tipIco = (t) => t.startsWith("Yurt Dışı") ? "🌍" : t === "Debit Kartı" ? "💳" : "🏦";
+    const tipIco = (t) => t === "YDK" ? "🌍" : t === "DK" ? "💳" : "🏦";
     // Yatış günü bazında birleşik liste: her günde önce POS blokeleri, sonra POS dışı — hepsi banka kayıt sırasında
     const byDay = {};
     const day = (d) => byDay[d] || (byDay[d] = { pos: [], items: [] });
