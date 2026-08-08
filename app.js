@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.75";
+} from "./local-backend.js?v=2026.76";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.75";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.76";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.75";
+const APP_VERSION = "2026.76";
 const CHANGELOG = [
+  { version: "2026.76", date: "2026-08-08", items: [
+    "Yeni menü: Tanımlamalar — Gider Grupları + Nakit Akış Verileri buraya taşındı",
+    "Gider Grupları sayfası: 6 grup (Ürün/Genel/Personel/Hizmet/Vergi/Bakım) ve alt kalemleri; grup/kalem ekle-düzenle-sil",
+  ]},
   { version: "2026.75", date: "2026-08-08", items: [
     "Ana Ekrana Ekle rehberi: iOS'ta 'Paylaş → Ana Ekrana Ekle' anlatımı (WhatsApp içi tarayıcıda 'Safari'de Aç' uyarısı), Android'de tek-dokunuş kurulum",
   ]},
@@ -692,8 +696,11 @@ const NAV = [
   { label: "Hesaplar", icon: "💼", path: "hesaplar" },
   { label: "Raporlar", icon: "📈", children: [
     { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
-    { label: "Nakit Akış Verileri", icon: "🔄", path: "nakit-akis-veri" },
     { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
+  ]},
+  { label: "Tanımlamalar", icon: "🗂️", children: [
+    { label: "Gider Grupları",      icon: "🧾", path: "gider-gruplari" },
+    { label: "Nakit Akış Verileri", icon: "🔄", path: "nakit-akis-veri" },
   ]},
   { label: "Sistem", icon: "⚙️", children: [
     { label: "Değişiklik Kaydı", icon: "📋", path: "audit" },
@@ -712,7 +719,8 @@ const ROUTES = {
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
-  "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Raporlar", render: viewNakitAkisVeri },
+  "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Tanımlamalar", render: viewNakitAkisVeri },
+  "gider-gruplari":   { title: "Gider Grupları", crumb: "Tanımlamalar", render: viewGiderGruplari },
   "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
   "guncelleme":       { title: "Güncelleme", crumb: "Sistem", render: viewGuncelleme },
   "audit":            { title: "Değişiklik Kaydı", crumb: "Sistem", render: viewAuditLog },
@@ -3659,6 +3667,71 @@ const PERIODS = [
   { value: "yillik", label: "Yıllık" },
 ];
 const periodLabel = (v) => PERIODS.find((p) => p.value === v)?.label || v;
+
+// ===========================================================================
+//  MODÜL: TANIMLAMALAR — Gider Grupları
+// ===========================================================================
+const DEFAULT_EXPENSE_GROUPS = [
+  { name: "Ürün Alımları", items: ["Kübban Gıda", "Güllüoğlu Gıda", "Sarf Malzemeleri", "Temizlik Giderleri", "Kırtasiye Giderleri", "Demirbaş ve M. Alımları", "Döviz Alımı"] },
+  { name: "Genel Giderler", items: ["Kira", "Elektrik", "Su", "Doğalgaz"] },
+  { name: "Personel Giderleri", items: ["Sabit Maaş (SGK Dahil)", "Ekstra Maaş", "Pirim", "Personel Harcamaları", "Tazminat"] },
+  { name: "Hizmet Giderleri", items: ["Yazılım Programları", "İlaçlama", "Kargo", "Reklam", "Tlf-İnt", "Yakıt"] },
+  { name: "Vergi Giderleri", items: [] },
+  { name: "Bakım Onarım Giderleri", items: ["Bina Bakım - Onarım", "Araç Bakım - Onarım"] },
+];
+
+// Tek metin girişli küçük pencere
+function textModal(title, label, value, onSave) {
+  const body = document.createElement("div");
+  body.innerHTML = `<div class="field"><label>${esc(label)}</label><input id="tm-in" value="${esc(value || "")}" /></div>`;
+  const m = openModal({ title, body, footer: [
+    mkBtn("Vazgeç", "", () => m.close()),
+    mkBtn("Kaydet", "btn-primary", () => {
+      const v = $("#tm-in", body).value.trim();
+      if (!v) return toast("Boş olamaz.", "err");
+      m.close(); onSave(v);
+    }),
+  ] });
+  setTimeout(() => $("#tm-in", body)?.focus(), 50);
+}
+
+async function viewGiderGruplari(c) {
+  const settings = await fetchAll(C.settings).catch(() => []);
+  const cfg = settings.find((s) => s.id === "expenseGroups");
+  let groups = cfg && Array.isArray(cfg.groups) ? cfg.groups : null;
+  const save = async () => { await setDoc(doc(db, "settings", "expenseGroups"), { groups, updatedAt: serverTimestamp() }); };
+  if (!groups) { groups = DEFAULT_EXPENSE_GROUPS.map((g) => ({ name: g.name, items: [...g.items] })); await save(); }
+  const persist = () => save().then(render).catch((e) => toast("Hata: " + e.message, "err"));
+
+  function render() {
+    c.innerHTML = `
+      <div class="notice info">🗂️ <b>Gider gruplarını</b> ve alt kalemlerini buradan tanımlayın. İleride banka ödemeleri ve raporlarda kullanılacak.</div>
+      <div class="toolbar" style="margin-bottom:12px"><div class="grow"></div><button class="btn btn-primary btn-sm" id="add-grp">+ Yeni Grup</button></div>
+      ${groups.map((g, gi) => `
+        <div class="card eg-card">
+          <div class="card-head">
+            <h3>${esc(g.name)}</h3>
+            <span class="hint">${g.items.length} kalem</span>
+            <button class="btn btn-sm" data-editg="${gi}" title="Adı düzenle">✎</button>
+            <button class="btn btn-sm btn-danger" data-delg="${gi}">Sil</button>
+          </div>
+          <div class="eg-items">
+            ${g.items.length ? g.items.map((it, ii) => `
+              <div class="eg-item"><span class="nm">${esc(it)}</span>
+                <span class="act"><button class="btn btn-sm" data-edit="${gi}.${ii}">✎</button><button class="btn btn-sm btn-danger" data-del="${gi}.${ii}">✕</button></span>
+              </div>`).join("") : `<div class="eg-empty">Alt kalem yok</div>`}
+          </div>
+          <button class="btn btn-sm eg-add" data-additem="${gi}">+ Kalem Ekle</button>
+        </div>`).join("")}`;
+    $("#add-grp", c).onclick = () => textModal("Yeni Grup", "Grup adı", "", (v) => { groups.push({ name: v, items: [] }); persist(); });
+    $$("[data-editg]", c).forEach((b) => b.onclick = () => { const gi = +b.dataset.editg; textModal("Grup Adı", "Grup adı", groups[gi].name, (v) => { groups[gi].name = v; persist(); }); });
+    $$("[data-delg]", c).forEach((b) => b.onclick = () => confirmDialog(`"${groups[+b.dataset.delg].name}" grubu silinsin mi?`, () => { groups.splice(+b.dataset.delg, 1); persist(); }));
+    $$("[data-additem]", c).forEach((b) => b.onclick = () => { const gi = +b.dataset.additem; textModal("Yeni Kalem", "Kalem adı", "", (v) => { groups[gi].items.push(v); persist(); }); });
+    $$("[data-edit]", c).forEach((b) => b.onclick = () => { const [gi, ii] = b.dataset.edit.split(".").map(Number); textModal("Kalem Adı", "Kalem adı", groups[gi].items[ii], (v) => { groups[gi].items[ii] = v; persist(); }); });
+    $$("[data-del]", c).forEach((b) => b.onclick = () => { const [gi, ii] = b.dataset.del.split(".").map(Number); groups[gi].items.splice(ii, 1); persist(); });
+  }
+  render();
+}
 
 async function viewNakitAkisVeri(c) {
   const [items0, settings] = await Promise.all([

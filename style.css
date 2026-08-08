@@ -1061,3 +1061,13 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
   border-radius: 10px; padding: 9px 14px; font-weight: 800; font-size: 13px; cursor: pointer; }
 .a2hs .x { flex: 0 0 auto; background: none; border: none; color: #b7a889; font-size: 16px; cursor: pointer; padding: 4px 6px; align-self: flex-start; }
 @media (max-width: 420px) { .a2hs .txt { font-size: 12.5px; } }
+
+/* ===== Tanımlamalar — Gider Grupları ===== */
+.eg-card { margin-bottom: 12px; }
+.eg-card .card-head h3 { flex: 1; }
+.eg-items { display: flex; flex-direction: column; gap: 6px; margin: 4px 0 10px; }
+.eg-item { display: flex; align-items: center; gap: 8px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 8px 11px; }
+.eg-item .nm { flex: 1; min-width: 0; font-weight: 600; font-size: 13.5px; color: var(--ink); }
+.eg-item .act { flex: 0 0 auto; display: flex; gap: 5px; }
+.eg-empty { color: var(--ink-faint); font-size: 12.5px; font-style: italic; padding: 4px 2px; }
+.eg-add { border-style: dashed; }
