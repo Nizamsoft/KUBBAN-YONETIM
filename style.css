@@ -937,9 +937,10 @@ table.data input.num { text-align: right; }
 .bk-grp .amt { text-align: right; flex: 0 0 auto; }
 .bk-grp .amt .v { font-weight: 800; font-size: 14px; font-variant-numeric: tabular-nums; color: var(--ink); }
 .bk-grp .amt .k { font-size: 10.5px; color: var(--warn); font-weight: 700; margin-top: 2px; }
-.bk-ctrl { display: grid; grid-template-columns: 1.4fr 1fr 1fr 1fr; gap: 6px; font-size: 12px; padding: 9px 8px; border-radius: 9px; align-items: center; }
-.bk-ctrl.head { color: var(--ink-faint); font-weight: 700; text-transform: uppercase; font-size: 10px; letter-spacing: .3px; }
-.bk-ctrl .num { text-align: right; font-variant-numeric: tabular-nums; }
+.bk-ctrl { display: grid; grid-template-columns: 88px 1fr 1fr 1fr; gap: 8px; font-size: 11px; padding: 9px 8px; border-radius: 9px; align-items: center; }
+.bk-ctrl.head { color: var(--ink-faint); font-weight: 700; text-transform: uppercase; font-size: 9.5px; letter-spacing: .2px; }
+.bk-ctrl .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bk-ctrl > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .bk-ctrl.warn { background: var(--warn-bg); }
 .bk-ctrl .ok { color: var(--ok); }
 .bk-ctrl .bad { color: var(--danger); font-weight: 700; }

@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.71";
+} from "./local-backend.js?v=2026.72";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.71";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.72";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -32,6 +32,13 @@ function fmtDate(iso) {
   const d = typeof iso === "string" ? iso : new Date(iso).toISOString().slice(0, 10);
   const [y, m, dd] = d.slice(0, 10).split("-");
   return `${dd}.${m}.${y}`;
+}
+// Kısa tarih: 12.07.26 (2 haneli yıl)
+function fmtDateShort(iso) {
+  if (!iso) return "—";
+  const d = typeof iso === "string" ? iso : new Date(iso).toISOString().slice(0, 10);
+  const [y, m, dd] = d.slice(0, 10).split("-");
+  return `${dd}.${m}.${y.slice(-2)}`;
 }
 function parseNum(v) {
   if (typeof v === "number") return v;
@@ -320,10 +327,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.71";
+const APP_VERSION = "2026.72";
 const CHANGELOG = [
+  { version: "2026.72", date: "2026-08-07", items: [
+    "POS çekim tarihleri kısa: 12.07.26 (2 haneli yıl); komisyon açıklamasından 'Çekimi' kaldırıldı (ör. '12.07.26 YDK Komisyonu')",
+    "Bloke Kontrolü tablosu düzeltildi: tutarlar tek satırda (₺ kaymıyor), sütunlar hizalı",
+  ]},
   { version: "2026.71", date: "2026-08-07", items: [
-    "POS/bloke kart tipleri kısaltıldı: Kredi Kartı→KK, Debit Kartı→DK, Yurt Dışı Kredi Kartı→YDK (ör. '12.07.2026 YDK Çekimi')",
+    "POS/bloke kart tipleri kısaltıldı: Kredi Kartı→KK, Debit Kartı→DK, Yurt Dışı Kredi Kartı→YDK (ör. '12.07.26 YDK Çekimi')",
   ]},
   { version: "2026.70", date: "2026-08-07", items: [
     "Nakit Akış: gün aralığı seçimi kaldırıldı, sabit 90 gün",
@@ -3369,7 +3380,7 @@ async function viewBanka(c) {
     const posRow = (g) => {
       const brut = g.net + g.kom;
       return `<div class="bk-grp"><div class="ic">${tipIco(g.tip)}</div>
-        <div class="mid"><div class="nm">${fmtDate(g.cek)} · ${esc(g.tip)} Çekimi</div>
+        <div class="mid"><div class="nm">${fmtDateShort(g.cek)} · ${esc(g.tip)} Çekimi</div>
           <div class="mt">${g.n} hareket${g.kom ? ` · komisyon ${fmtTRY(g.kom)}` : ""}</div></div>
         <div class="amt"><div class="v">${fmtTRY(brut)}</div>${g.kom ? `<div class="k">brüt</div>` : ""}</div></div>`;
     };
@@ -3422,10 +3433,10 @@ async function viewBanka(c) {
           const brut = g.net + g.kom, bb = blokeBorcOf(g), fark = bb - brut;
           const warn = Math.abs(fark) > 1;
           return `<div class="bk-ctrl ${warn ? "warn" : ""}">
-            <span>${fmtDate(g.cek)} · ${esc(g.tip)}</span>
-            <span class="num">${bb ? fmtTRY(bb) : "—"}</span>
-            <span class="num">${fmtTRY(brut)}</span>
-            <span class="num ${warn ? "bad" : "ok"}">${fmtTRY(fark)}</span>
+            <span>${fmtDateShort(g.cek)} · ${esc(g.tip)}</span>
+            <span class="num">${bb ? fmtNum(bb) : "—"}</span>
+            <span class="num">${fmtNum(brut)}</span>
+            <span class="num ${warn ? "bad" : "ok"}">${fmtNum(fark)}</span>
           </div>`;
         }).join("")}`).join("")}`;
 
@@ -3575,7 +3586,7 @@ async function viewBanka(c) {
       for (const g of groups) {
         const brut = g.net + g.kom;
         const posKey = `${bank.key}|${g.dep}|${g.cek}|${g.tip}`;
-        const acik = `${fmtDate(g.cek)} ${g.tip} Çekimi`;
+        const acik = `${fmtDateShort(g.cek)} ${g.tip} Çekimi`;
         docs.push({
           accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
           date: g.dep, islemAdi: "POS ÇÖZÜLME", sahis: "", aciklama: acik, rapor: "",
@@ -3591,7 +3602,7 @@ async function viewBanka(c) {
         if (g.kom > 0.005) {
           docs.push({
             accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
-            date: g.dep, islemAdi: "Komisyon", sahis: "", aciklama: `${acik} Komisyonu`, rapor: "",
+            date: g.dep, islemAdi: "Komisyon", sahis: "", aciklama: `${fmtDateShort(g.cek)} ${g.tip} Komisyonu`, rapor: "",
             giren: 0, cikan: g.kom,
             source: "banka-pos-komisyon", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
           });
