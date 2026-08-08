@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.69";
+} from "./local-backend.js?v=2026.70";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.69";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.70";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -320,8 +320,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.69";
+const APP_VERSION = "2026.70";
 const CHANGELOG = [
+  { version: "2026.70", date: "2026-08-07", items: [
+    "Nakit Akış: gün aralığı seçimi kaldırıldı, sabit 90 gün",
+    "Giren/Çıkan baloncuğu büyükten küçüğe sıralanıyor, tutarların sonunda ₺",
+  ]},
   { version: "2026.69", date: "2026-08-07", items: [
     "Nakit Akış sadeleşti: tepedeki öngörülen giriş şeridi, bugünkü bakiye ve tekrarlanan kalemler düğmesi kaldırıldı",
     "Öngörülen (gelecek) satırlar soluk gösteriliyor; günlük giriş ayarı Tekrarlanan Kalemler sayfasına taşındı",
@@ -3780,14 +3784,11 @@ async function viewNakitAkisRapor(c) {
   const dailyIn = Object.assign({ garanti: 0, tfinans: 0, nakit: 0 }, (cfgDoc && cfgDoc.dailyIn) || {});
   const accByKey = {};
   NA_ACCS.forEach((a) => { accByKey[a.key] = accounts.find((x) => String(x.code) === a.code) || null; });
-  let selKey = "garanti", fwd = 45;
+  let selKey = "garanti"; const fwd = 90;
 
   c.innerHTML = `
     <div class="na-tabs" id="na-tabs">
       ${NA_ACCS.map((a) => `<div class="na-tab${a.key === selKey ? " on" : ""}" data-k="${a.key}"><span class="em">${a.key === "nakit" ? "💵" : "🏦"}</span>${esc(a.label)}${accByKey[a.key] ? "" : " ⚠️"}</div>`).join("")}
-    </div>
-    <div class="toolbar" style="margin:0 0 10px;justify-content:center">
-      <div class="seg" id="na-seg"><button data-f="30">+30g</button><button data-f="45" class="active">+45g</button><button data-f="90">+90g</button></div>
     </div>
     <div class="na-tbl">
       <table>
@@ -3813,8 +3814,8 @@ async function viewNakitAkisRapor(c) {
       const o = byDate[e.date] || (byDate[e.date] = { in: 0, out: 0, inDet: [], outDet: [] });
       o.in += inA; o.out += outA;
       const lbl = e.aciklama || e.islemAdi || "Hareket";
-      if (inA) o.inDet.push(`${lbl}: ${fmtNum(inA)}`);
-      if (outA) o.outDet.push(`${lbl}: ${fmtNum(outA)}`);
+      if (inA) o.inDet.push({ t: lbl, a: inA });
+      if (outA) o.outDet.push({ t: lbl, a: outA });
     });
     let baseline = acc ? parseNum(acc.openingBalance) : 0;
     Object.keys(byDate).forEach((d) => { if (d < startISO) baseline += byDate[d].in - byDate[d].out; });
@@ -3830,13 +3831,13 @@ async function viewNakitAkisRapor(c) {
         if (o) { giren = o.in; cikan = o.out; gd.push(...o.inDet); cd.push(...o.outDet); }
       } else {
         const di = parseNum(dailyIn[key]);
-        if (di) { giren += di; gd.push(`Öngörülen giriş: ${fmtNum(di)}`); }
+        if (di) { giren += di; gd.push({ t: "Öngörülen giriş", a: di }); }
         its.forEach((it) => {
           if (!naOccurs(it, dom, monthOffset)) return;
           if (raporDone(it.rapor, d.getFullYear(), d.getMonth())) return;
           const amt = parseNum(it.amount);
-          if (it.type === "gelir") { giren += amt; gd.push(`${it.name}: ${fmtNum(amt)}`); }
-          else { cikan += amt; cd.push(`${it.name}: ${fmtNum(amt)}`); }
+          if (it.type === "gelir") { giren += amt; gd.push({ t: it.name, a: amt }); }
+          else { cikan += amt; cd.push({ t: it.name, a: amt }); }
         });
       }
       run += giren - cikan;
@@ -3870,8 +3871,9 @@ async function viewNakitAkisRapor(c) {
       const td = e.target.closest("td.tap"); if (!td) { closePop(); return; }
       e.stopPropagation();
       const d = JSON.parse(td.dataset.x.replace(/&#39;/g, "'"));
+      const list = d.d.slice().sort((a, b) => b.a - a.a);
       const P = pop();
-      P.innerHTML = `<div class="pt">${d.dt} · ${d.t}</div><ul>${d.d.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>`;
+      P.innerHTML = `<div class="pt">${d.dt} · ${d.t}</div><ul>${list.map((x) => `<li>${esc(x.t)}: ${fmtNum(x.a)} ₺</li>`).join("")}</ul>`;
       P.style.display = "block"; P.style.visibility = "hidden";
       const rect = td.getBoundingClientRect(), pw = Math.min(P.offsetWidth, 250);
       let left = Math.max(8, Math.min(rect.left + rect.width / 2 - pw / 2, window.innerWidth - pw - 8));
@@ -3884,10 +3886,6 @@ async function viewNakitAkisRapor(c) {
     selKey = t.dataset.k;
     $$("#na-tabs .na-tab", c).forEach((x) => x.classList.toggle("on", x === t));
     closePop(); draw();
-  });
-  $$("#na-seg button", c).forEach((b) => b.onclick = () => {
-    $$("#na-seg button", c).forEach((x) => x.classList.remove("active"));
-    b.classList.add("active"); fwd = parseInt(b.dataset.f); draw();
   });
   document.addEventListener("click", (e) => { if (!e.target.closest("#na-pop") && !e.target.closest("#na-tb")) closePop(); });
   draw();
