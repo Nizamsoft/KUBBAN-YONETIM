@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.77";
+} from "./local-backend.js?v=2026.78";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.77";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.78";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.77";
+const APP_VERSION = "2026.78";
 const CHANGELOG = [
+  { version: "2026.78", date: "2026-08-09", items: [
+    "Yeni rapor: Kâr / Zarar Durumu — muhasebe bilmeyen için hikâye gibi, bol emojili özet (başta ne vardı, ne kazandın, blokede bekleyen/direkt gelen, çözülen blokeler, gider grupları aç-kapa, borçlar/alacaklar ve 'dükkanı kapatsan cebinde kalan')",
+  ]},
   { version: "2026.77", date: "2026-08-08", items: [
     "Banka aktarımı POS-dışı 'Rapor' alanı artık Gider Grupları kalemlerinden seçiliyor (yazdıkça tamamlar)",
   ]},
@@ -698,6 +701,7 @@ const NAV = [
   ]},
   { label: "Hesaplar", icon: "💼", path: "hesaplar" },
   { label: "Raporlar", icon: "📈", children: [
+    { label: "Kâr / Zarar Durumu",  icon: "💹", path: "kar-zarar" },
     { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
     { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
   ]},
@@ -721,6 +725,7 @@ const ROUTES = {
   "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger },
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
+  "kar-zarar":        { title: "Kâr / Zarar Durumu", crumb: "Raporlar", render: viewKarZarar },
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
   "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Tanımlamalar", render: viewNakitAkisVeri },
   "gider-gruplari":   { title: "Gider Grupları", crumb: "Tanımlamalar", render: viewGiderGruplari },
@@ -3873,6 +3878,129 @@ function naOccurs(it, dom, monthOffset) {
   if (p === "6aylik") return monthOffset % 6 === 0;
   if (p === "yillik") return monthOffset % 12 === 0;
   return true; // aylik / haftalik ≈ her ay o gün
+}
+
+// ===========================================================================
+//  MODÜL: KÂR / ZARAR — hikâye gibi, muhasebesiz durum raporu
+// ===========================================================================
+async function viewKarZarar(c) {
+  const [accounts, entries, settings, cari, bank] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+    fetchAll(C.settings).catch(() => []),
+    fetchAll(C.currentMovements).catch(() => []),
+    fetchAll(C.bankTransactions).catch(() => []),
+  ]);
+  const bal = computeBalances(accounts, cari, bank, entries);
+  const cur = (a) => bal.get(a.id)?.current || 0;
+  const code = (a) => String(a.code || "");
+  const isKasa = (a) => code(a).startsWith("100");
+  const isBanka = (a) => code(a).startsWith("102");
+  const isBloke = (a) => code(a).startsWith("108");
+  const sumCur = (pred) => accounts.filter(pred).reduce((s, a) => s + cur(a), 0);
+
+  const basta = accounts.filter((a) => isKasa(a) || isBanka(a) || isBloke(a)).reduce((s, a) => s + parseNum(a.openingBalance), 0);
+
+  // ---- Akışlar (tüm zamanlar) ----
+  let blokeGiden = 0, nakitDirekt = 0, blokeCozulen = 0, komisyon = 0;
+  entries.forEach((e) => {
+    if (e.source === "gunsonu-bloke") blokeGiden += parseNum(e.borc);
+    else if (e.source === "gunsonu-nakit") nakitDirekt += parseNum(e.giren);
+    else if (e.source === "banka-pos" && String(e.accountCode || "").startsWith("102")) blokeCozulen += parseNum(e.giren);
+    else if (e.source === "banka-pos-komisyon") komisyon += parseNum(e.cikan);
+  });
+
+  // ---- Giderler → Gider Gruplarına göre ----
+  const egGroups = (settings.find((s) => s.id === "expenseGroups") || {}).groups || DEFAULT_EXPENSE_GROUPS;
+  const itemToGroup = {};
+  egGroups.forEach((g) => (g.items || []).forEach((it) => { itemToGroup[normTr(it)] = g.name; }));
+  const gider = {};   // grup -> { total, items:{ad:tutar} }
+  const addGider = (grp, ad, amt) => {
+    const G = gider[grp] || (gider[grp] = { total: 0, items: {} });
+    G.total += amt; G.items[ad] = (G.items[ad] || 0) + amt;
+  };
+  entries.forEach((e) => {
+    let amt = 0;
+    if (e.source === "gunsonu-masraf") amt = parseNum(e.cikan);
+    else if (e.source === "banka-diger" && String(e.accountCode || "").startsWith("102") && parseNum(e.cikan) > 0) amt = parseNum(e.cikan);
+    if (amt > 0) {
+      const rapor = String(e.rapor || "").trim();
+      const grp = itemToGroup[normTr(rapor)] || "Diğer Harcamalar";
+      addGider(grp, rapor || "(belirtilmemiş)", amt);
+    }
+  });
+  if (komisyon > 0) addGider("Kart Komisyonları", "Komisyon", komisyon);
+  const giderTotal = Object.values(gider).reduce((s, g) => s + g.total, 0);
+  const urunAldin = (gider["Ürün Alımları"] || {}).total || 0;
+  const giderList = Object.entries(gider).sort((a, b) => b[1].total - a[1].total);
+
+  // ---- Net durum ----
+  const musteriNet = sumCur((a) => a.type === "musteri");
+  const tedarikciNet = sumCur((a) => a.type === "tedarikci");
+  const owed320 = tedarikciNet < 0 ? -tedarikciNet : 0;
+  const elindeki = sumCur((a) => isKasa(a) || isBanka(a) || isBloke(a));
+  const net = sumCur(() => true);
+  const kazandin = blokeGiden + nakitDirekt;
+
+  const noData = !entries.length;
+
+  c.innerHTML = `
+    <div class="kz">
+      <div class="kz-hero"><div class="e">💰</div><div><b>Kısaca Durumun</b><span>Muhasebe bilmene gerek yok — hikâye gibi anlatıyoruz.</span></div></div>
+      ${noData ? `<div class="empty"><div class="ico">📭</div><p>Henüz veri yok. Gün sonu / banka aktarımı yapınca burası dolar.</p></div>` : `
+
+      <div class="kz-card start">
+        <div class="kz-line"><span class="ic">🏁</span> Başta cebinde <b>${fmtTRY(basta)}</b> vardı.</div>
+      </div>
+
+      <div class="kz-card earn">
+        <div class="kz-line"><span class="ic">💪</span> Bugüne kadar <b>${fmtTRY(kazandin)}</b> kazandın!</div>
+        <div class="kz-sub">Ama hepsi direkt cebine girmedi 👇</div>
+        <div class="kz-split">
+          <div class="sp"><span class="e">🔒</span><span class="t">Kartlar (blokede bekliyor)</span><b>${fmtTRY(blokeGiden)}</b></div>
+          <div class="sp"><span class="e">👛</span><span class="t">Direkt nakit geldi</span><b class="pos">${fmtTRY(nakitDirekt)}</b></div>
+        </div>
+      </div>
+
+      <div class="kz-card resolve">
+        <div class="kz-line"><span class="ic">🔓</span> Eski blokelerin çözülüp bankaya düştü: <b class="pos">${fmtTRY(blokeCozulen)}</b></div>
+        ${komisyon > 0 ? `<div class="kz-sub">💸 Bu arada kart komisyonu olarak <b>${fmtTRY(komisyon)}</b> kesildi.</div>` : ""}
+      </div>
+
+      <div class="kz-card spend">
+        <div class="kz-line"><span class="ic">😰</span> Ama bir sürü harcaman var: <b class="neg">${fmtTRY(giderTotal)}</b></div>
+        <div class="kz-sub">Nerelere gitti? (dokun, aç-kapa) 👇</div>
+        <div class="kz-groups">
+          ${giderList.map(([grp, G], gi) => `
+            <div class="kzg">
+              <button class="kzg-h" data-g="${gi}">
+                <span class="chev">▸</span><span class="nm">${esc(grp)}</span>
+                <b class="neg">${fmtTRY(G.total)}</b>
+              </button>
+              <div class="kzg-items" id="kzg-${gi}">
+                ${Object.entries(G.items).sort((a, b) => b[1] - a[1]).map(([ad, t]) => `<div class="kzg-i"><span>${esc(ad)}</span><b>${fmtTRY(t)}</b></div>`).join("")}
+              </div>
+            </div>`).join("")}
+        </div>
+        ${urunAldin > 0 ? `<div class="kz-sub" style="margin-top:10px">🛒 Bunun <b>${fmtTRY(urunAldin)}</b> kadarı ürün alımı.</div>` : ""}
+      </div>
+
+      ${owed320 > 0 ? `<div class="kz-card debt"><div class="kz-line"><span class="ic">🧾</span> Ayrıca tedarikçilere <b class="neg">${fmtTRY(owed320)}</b> borcun var.</div></div>` : ""}
+      ${musteriNet > 0 ? `<div class="kz-card credit"><div class="kz-line"><span class="ic">🤝</span> Müşteriler de sana <b class="pos">${fmtTRY(musteriNet)}</b> borçlu (alacağın).</div></div>` : ""}
+
+      <div class="kz-final ${net >= 0 ? "" : "bad"}">
+        <div class="ft">🏆 Bugün dükkanı kapatsan…</div>
+        <div class="big">${fmtTRY(net)}</div>
+        <div class="ft2">cebinde ${net >= 0 ? "kalır" : "AÇIK var"}!</div>
+        <div class="kz-break">💵 Elindeki ${fmtTRY(elindeki)} ${musteriNet ? `+ 🤝 alacağın ${fmtTRY(musteriNet)} ` : ""}${owed320 ? `− 🧾 borcun ${fmtTRY(owed320)}` : ""}</div>
+      </div>`}
+    </div>`;
+
+  $$(".kzg-h", c).forEach((b) => b.onclick = () => {
+    const g = $(`#kzg-${b.dataset.g}`, c);
+    const open = g.classList.toggle("open");
+    b.classList.toggle("open", open);
+  });
 }
 
 async function viewNakitAkisRapor(c) {
