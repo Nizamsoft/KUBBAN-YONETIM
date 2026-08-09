@@ -1116,3 +1116,34 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 .kz-final .big { font-size: 34px; font-weight: 900; margin: 4px 0 2px; letter-spacing: -.5px; }
 .kz-final .ft2 { font-size: 14px; opacity: .95; }
 .kz-final .kz-break { margin-top: 12px; padding-top: 11px; border-top: 1px solid rgba(255,255,255,.28); font-size: 12px; opacity: .9; line-height: 1.5; }
+
+/* ---- Kâr/Zarar: dönem seçici + bilanço ---- */
+.kz-period { display: flex; align-items: center; gap: 10px; background: var(--surface); border: 1px solid var(--line); border-radius: 13px; padding: 10px 13px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.kz-period .lbl { font-size: 13.5px; font-weight: 700; color: var(--ink-soft); flex: 0 0 auto; }
+.kz-period select { flex: 1; min-width: 0; font: inherit; font-size: 14.5px; font-weight: 700; color: var(--ink); background: var(--surface-2); border: 1px solid var(--line-strong); border-radius: 10px; padding: 9px 11px; -webkit-appearance: none; appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'><path d='M2 4l4 4 4-4' fill='none' stroke='%23a67b2e' stroke-width='2' stroke-linecap='round'/></svg>"); background-repeat: no-repeat; background-position: right 12px center; padding-right: 30px; }
+.kz-sec-h.out { display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 800; color: var(--gold-dark); text-transform: uppercase; letter-spacing: .4px; margin: 6px 2px -2px; }
+.kz-sec-h.out small { text-transform: none; letter-spacing: 0; font-weight: 600; color: var(--ink-faint); }
+.kz-sec { background: var(--surface); border: 1px solid var(--line); border-radius: 15px; padding: 13px 15px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.kz-sec .kz-sec-h { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 800; color: var(--ink); margin-bottom: 9px; }
+.kz-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 0; font-size: 14px; color: var(--ink); border-bottom: 1px dashed var(--line); }
+.kz-row:last-child { border-bottom: none; }
+.kz-row .l { color: var(--ink-soft); }
+.kz-row .l small { color: var(--ink-faint); font-size: 11.5px; }
+.kz-row b { font-weight: 800; font-size: 14.5px; }
+.kz-row.tot { margin-top: 3px; padding-top: 10px; border-top: 2px solid var(--line-strong); border-bottom: none; }
+.kz-row.tot .l { color: var(--ink); font-weight: 800; }
+.kz-row.tot b { font-size: 17px; }
+.kz-sheet { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.kz-col { background: var(--surface); border: 1px solid var(--line); border-radius: 15px; padding: 12px 13px; box-shadow: 0 1px 3px rgba(0,0,0,.04); }
+.kz-col.assets { border-top: 4px solid var(--ok); }
+.kz-col.debts { border-top: 4px solid var(--danger); }
+.kz-col .ch { font-size: 11.5px; font-weight: 800; letter-spacing: .3px; color: var(--ink-soft); margin-bottom: 9px; }
+.kz-col .ci { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 6px 0; font-size: 13px; color: var(--ink-soft); border-bottom: 1px dashed var(--line); }
+.kz-col .ci span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.kz-col .ci b { flex: 0 0 auto; font-weight: 700; color: var(--ink); font-size: 13px; }
+.kz-col .ci.none { color: var(--ink-faint); font-style: italic; }
+.kz-col .ci.tot { margin-top: 3px; padding-top: 9px; border-top: 2px solid var(--line-strong); border-bottom: none; }
+.kz-col .ci.tot span { font-weight: 800; color: var(--ink); }
+.kz-col .ci.tot b { font-size: 15.5px; }
+@media (max-width: 360px) { .kz-sheet { grid-template-columns: 1fr; } }

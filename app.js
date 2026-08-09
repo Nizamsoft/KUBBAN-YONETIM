@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.78";
+} from "./local-backend.js?v=2026.79";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.78";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.79";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.78";
+const APP_VERSION = "2026.79";
 const CHANGELOG = [
+  { version: "2026.79", date: "2026-08-09", items: [
+    "Kâr / Zarar Durumu → 'Durum Raporu'na dönüştü: basit dille bilanço. Ay seçici (Tüm Zamanlar / aylık) eklendi",
+    "Dönem başında elindeki para + alacak + BORÇ ve net varlık; dönem içi kazanç/harcama; sonunda 2 sütunlu Durum Tablosu (Neyin Var / Ne Borcun Var) ve net",
+  ]},
   { version: "2026.78", date: "2026-08-09", items: [
     "Yeni rapor: Kâr / Zarar Durumu — muhasebe bilmeyen için hikâye gibi, bol emojili özet (başta ne vardı, ne kazandın, blokede bekleyen/direkt gelen, çözülen blokeler, gider grupları aç-kapa, borçlar/alacaklar ve 'dükkanı kapatsan cebinde kalan')",
   ]},
@@ -3883,124 +3887,187 @@ function naOccurs(it, dom, monthOffset) {
 // ===========================================================================
 //  MODÜL: KÂR / ZARAR — hikâye gibi, muhasebesiz durum raporu
 // ===========================================================================
+const KZ_AYLAR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+
 async function viewKarZarar(c) {
-  const [accounts, entries, settings, cari, bank] = await Promise.all([
+  const [accounts, entries, settings] = await Promise.all([
     fetchAll(C.accounts).catch(() => []),
     fetchAll(C.accountEntries).catch(() => []),
     fetchAll(C.settings).catch(() => []),
-    fetchAll(C.currentMovements).catch(() => []),
-    fetchAll(C.bankTransactions).catch(() => []),
   ]);
-  const bal = computeBalances(accounts, cari, bank, entries);
-  const cur = (a) => bal.get(a.id)?.current || 0;
   const code = (a) => String(a.code || "");
   const isKasa = (a) => code(a).startsWith("100");
   const isBanka = (a) => code(a).startsWith("102");
   const isBloke = (a) => code(a).startsWith("108");
-  const sumCur = (pred) => accounts.filter(pred).reduce((s, a) => s + cur(a), 0);
+  const opening = (a) => parseNum(a.openingBalance != null ? a.openingBalance : (a.balance || 0));
 
-  const basta = accounts.filter((a) => isKasa(a) || isBanka(a) || isBloke(a)).reduce((s, a) => s + parseNum(a.openingBalance), 0);
+  // Bir tarihe kadarki bakiye (tüm bakiye-etkisi accountEntries üzerinden gelir)
+  const balAt = (asOfISO) => {
+    const m = new Map();
+    accounts.forEach((a) => m.set(a.id, opening(a)));
+    entries.forEach((e) => {
+      if (!e.accountId || !m.has(e.accountId)) return;
+      if (asOfISO && String(e.date || "") > asOfISO) return;
+      m.set(e.accountId, m.get(e.accountId) + parseNum(e.giren) - parseNum(e.cikan) + parseNum(e.borc) - parseNum(e.alacak));
+    });
+    return m;
+  };
+  const sumMap = (map, pred) => accounts.filter(pred).reduce((s, a) => s + (map.get(a.id) || 0), 0);
+  const sheet = (map) => {
+    const kasa = sumMap(map, isKasa), banka = sumMap(map, isBanka), bloke = sumMap(map, isBloke);
+    const mus = sumMap(map, (a) => a.type === "musteri"), ted = sumMap(map, (a) => a.type === "tedarikci");
+    const alacak = Math.max(0, mus) + Math.max(0, ted);
+    const borc = Math.max(0, -mus) + Math.max(0, -ted);
+    const varlik = kasa + banka + bloke + alacak;
+    return { kasa, banka, bloke, alacak, borc, varlik, net: varlik - borc };
+  };
 
-  // ---- Akışlar (tüm zamanlar) ----
-  let blokeGiden = 0, nakitDirekt = 0, blokeCozulen = 0, komisyon = 0;
-  entries.forEach((e) => {
-    if (e.source === "gunsonu-bloke") blokeGiden += parseNum(e.borc);
-    else if (e.source === "gunsonu-nakit") nakitDirekt += parseNum(e.giren);
-    else if (e.source === "banka-pos" && String(e.accountCode || "").startsWith("102")) blokeCozulen += parseNum(e.giren);
-    else if (e.source === "banka-pos-komisyon") komisyon += parseNum(e.cikan);
-  });
+  // Dönemler (verisi olan aylar)
+  const monthSet = new Set();
+  entries.forEach((e) => { const d = String(e.date || ""); if (d.length >= 7) monthSet.add(d.slice(0, 7)); });
+  const months = [...monthSet].sort().reverse();
+  const monthLabel = (ym) => { const [y, m] = ym.split("-"); return `${KZ_AYLAR[+m - 1]} ${y}`; };
+  const lastDayISO = (ym) => { const [y, m] = ym.split("-").map(Number); return isoOfD(new Date(y, m, 0)); };
+  const prevDayISO = (ym) => { const [y, m] = ym.split("-").map(Number); const d = new Date(y, m - 1, 1); d.setDate(0); return isoOfD(d); };
 
-  // ---- Giderler → Gider Gruplarına göre ----
   const egGroups = (settings.find((s) => s.id === "expenseGroups") || {}).groups || DEFAULT_EXPENSE_GROUPS;
   const itemToGroup = {};
   egGroups.forEach((g) => (g.items || []).forEach((it) => { itemToGroup[normTr(it)] = g.name; }));
-  const gider = {};   // grup -> { total, items:{ad:tutar} }
-  const addGider = (grp, ad, amt) => {
-    const G = gider[grp] || (gider[grp] = { total: 0, items: {} });
-    G.total += amt; G.items[ad] = (G.items[ad] || 0) + amt;
-  };
-  entries.forEach((e) => {
-    let amt = 0;
-    if (e.source === "gunsonu-masraf") amt = parseNum(e.cikan);
-    else if (e.source === "banka-diger" && String(e.accountCode || "").startsWith("102") && parseNum(e.cikan) > 0) amt = parseNum(e.cikan);
-    if (amt > 0) {
-      const rapor = String(e.rapor || "").trim();
-      const grp = itemToGroup[normTr(rapor)] || "Diğer Harcamalar";
-      addGider(grp, rapor || "(belirtilmemiş)", amt);
-    }
-  });
-  if (komisyon > 0) addGider("Kart Komisyonları", "Komisyon", komisyon);
-  const giderTotal = Object.values(gider).reduce((s, g) => s + g.total, 0);
-  const urunAldin = (gider["Ürün Alımları"] || {}).total || 0;
-  const giderList = Object.entries(gider).sort((a, b) => b[1].total - a[1].total);
-
-  // ---- Net durum ----
-  const musteriNet = sumCur((a) => a.type === "musteri");
-  const tedarikciNet = sumCur((a) => a.type === "tedarikci");
-  const owed320 = tedarikciNet < 0 ? -tedarikciNet : 0;
-  const elindeki = sumCur((a) => isKasa(a) || isBanka(a) || isBloke(a));
-  const net = sumCur(() => true);
-  const kazandin = blokeGiden + nakitDirekt;
 
   const noData = !entries.length;
+  let sel = "all";
 
   c.innerHTML = `
     <div class="kz">
-      <div class="kz-hero"><div class="e">💰</div><div><b>Kısaca Durumun</b><span>Muhasebe bilmene gerek yok — hikâye gibi anlatıyoruz.</span></div></div>
+      <div class="kz-hero"><div class="e">📊</div><div><b>Durum Raporu</b><span>Bilanço gibi ama herkesin anlayacağı dille.</span></div></div>
       ${noData ? `<div class="empty"><div class="ico">📭</div><p>Henüz veri yok. Gün sonu / banka aktarımı yapınca burası dolar.</p></div>` : `
+      <div class="kz-period">
+        <span class="lbl">📅 Dönem</span>
+        <select id="kz-per">
+          <option value="all">Tüm Zamanlar</option>
+          ${months.map((ym) => `<option value="${ym}">${monthLabel(ym)}</option>`).join("")}
+        </select>
+      </div>
+      <div id="kz-body"></div>`}
+    </div>`;
 
-      <div class="kz-card start">
-        <div class="kz-line"><span class="ic">🏁</span> Başta cebinde <b>${fmtTRY(basta)}</b> vardı.</div>
+  if (noData) return;
+
+  function draw() {
+    const isAll = sel === "all";
+    const startISO = isAll ? null : `${sel}-01`;
+    const endISO = isAll ? null : lastDayISO(sel);
+    const openMap = isAll ? balAt("0000-01-01") : balAt(prevDayISO(sel));
+    const endMap = isAll ? balAt(null) : balAt(endISO);
+    const S0 = sheet(openMap), S1 = sheet(endMap);
+    const todayISO = isoOfD(new Date());
+    const sonEtiket = (isAll || endISO >= todayISO) ? "Bugün" : `${monthLabel(sel)} sonunda`;
+
+    // Dönem akışları
+    const flow = entries.filter((e) => {
+      const d = String(e.date || "");
+      if (startISO && d < startISO) return false;
+      if (endISO && d > endISO) return false;
+      return true;
+    });
+    let blokeGiden = 0, nakitDirekt = 0, blokeCozulen = 0, komisyon = 0;
+    const gider = {};
+    const addGider = (grp, ad, amt) => { const G = gider[grp] || (gider[grp] = { total: 0, items: {} }); G.total += amt; G.items[ad] = (G.items[ad] || 0) + amt; };
+    flow.forEach((e) => {
+      if (e.source === "gunsonu-bloke") blokeGiden += parseNum(e.borc);
+      else if (e.source === "gunsonu-nakit") nakitDirekt += parseNum(e.giren);
+      else if (e.source === "banka-pos" && String(e.accountCode || "").startsWith("102")) blokeCozulen += parseNum(e.giren);
+      else if (e.source === "banka-pos-komisyon") komisyon += parseNum(e.cikan);
+      let amt = 0;
+      if (e.source === "gunsonu-masraf") amt = parseNum(e.cikan);
+      else if (e.source === "banka-diger" && String(e.accountCode || "").startsWith("102") && parseNum(e.cikan) > 0) amt = parseNum(e.cikan);
+      if (amt > 0) {
+        const rapor = String(e.rapor || "").trim();
+        const grp = itemToGroup[normTr(rapor)] || "Diğer Harcamalar";
+        addGider(grp, rapor || "(belirtilmemiş)", amt);
+      }
+    });
+    if (komisyon > 0) addGider("Kart Komisyonları", "Komisyon", komisyon);
+    const giderTotal = Object.values(gider).reduce((s, g) => s + g.total, 0);
+    const urunAldin = (gider["Ürün Alımları"] || {}).total || 0;
+    const giderList = Object.entries(gider).sort((a, b) => b[1].total - a[1].total);
+    const kazandin = blokeGiden + nakitDirekt;
+    const borcFark = S1.borc - S0.borc;
+    const netFark = S1.net - S0.net;
+    const donemAdi = isAll ? "Bugüne kadar" : `${monthLabel(sel)} boyunca`;
+
+    $("#kz-body", c).innerHTML = `
+      <!-- 1) DÖNEM BAŞI -->
+      <div class="kz-sec">
+        <div class="kz-sec-h"><span>📌</span> ${isAll ? "En baştan" : "Dönem başında"} elinde ne vardı?</div>
+        <div class="kz-row"><span class="l">💼 Paran <small>(kasa+banka+bloke)</small></span><b>${fmtTRY(S0.kasa + S0.banka + S0.bloke)}</b></div>
+        ${S0.alacak ? `<div class="kz-row"><span class="l">🤝 Alacakların</span><b class="pos">${fmtTRY(S0.alacak)}</b></div>` : ""}
+        ${S0.borc ? `<div class="kz-row"><span class="l">🧾 Borçların</span><b class="neg">−${fmtTRY(S0.borc)}</b></div>` : ""}
+        <div class="kz-row tot"><span class="l">📊 Net varlığın</span><b class="${S0.net >= 0 ? "pos" : "neg"}">${fmtTRY(S0.net)}</b></div>
       </div>
 
+      <!-- 2) BU DÖNEMDE -->
+      <div class="kz-sec-h out"><span>🔄</span> ${donemAdi} ne oldu?</div>
       <div class="kz-card earn">
-        <div class="kz-line"><span class="ic">💪</span> Bugüne kadar <b>${fmtTRY(kazandin)}</b> kazandın!</div>
-        <div class="kz-sub">Ama hepsi direkt cebine girmedi 👇</div>
-        <div class="kz-split">
-          <div class="sp"><span class="e">🔒</span><span class="t">Kartlar (blokede bekliyor)</span><b>${fmtTRY(blokeGiden)}</b></div>
+        <div class="kz-line"><span class="ic">💪</span> <b>${fmtTRY(kazandin)}</b> kazandın!</div>
+        ${(blokeGiden || nakitDirekt) ? `<div class="kz-split">
+          <div class="sp"><span class="e">🔒</span><span class="t">Karttan (blokeye gitti)</span><b>${fmtTRY(blokeGiden)}</b></div>
           <div class="sp"><span class="e">👛</span><span class="t">Direkt nakit geldi</span><b class="pos">${fmtTRY(nakitDirekt)}</b></div>
-        </div>
+        </div>` : ""}
       </div>
-
-      <div class="kz-card resolve">
-        <div class="kz-line"><span class="ic">🔓</span> Eski blokelerin çözülüp bankaya düştü: <b class="pos">${fmtTRY(blokeCozulen)}</b></div>
-        ${komisyon > 0 ? `<div class="kz-sub">💸 Bu arada kart komisyonu olarak <b>${fmtTRY(komisyon)}</b> kesildi.</div>` : ""}
-      </div>
-
+      ${blokeCozulen ? `<div class="kz-card resolve"><div class="kz-line"><span class="ic">🔓</span> Eski blokeler çözülüp bankana düştü: <b class="pos">${fmtTRY(blokeCozulen)}</b></div></div>` : ""}
       <div class="kz-card spend">
-        <div class="kz-line"><span class="ic">😰</span> Ama bir sürü harcaman var: <b class="neg">${fmtTRY(giderTotal)}</b></div>
-        <div class="kz-sub">Nerelere gitti? (dokun, aç-kapa) 👇</div>
+        <div class="kz-line"><span class="ic">😰</span> Harcamaların: <b class="neg">${fmtTRY(giderTotal)}</b></div>
+        ${giderList.length ? `<div class="kz-sub">Nerelere gitti? (dokun, aç-kapa) 👇</div>
         <div class="kz-groups">
           ${giderList.map(([grp, G], gi) => `
             <div class="kzg">
-              <button class="kzg-h" data-g="${gi}">
-                <span class="chev">▸</span><span class="nm">${esc(grp)}</span>
-                <b class="neg">${fmtTRY(G.total)}</b>
-              </button>
+              <button class="kzg-h" data-g="${gi}"><span class="chev">▸</span><span class="nm">${esc(grp)}</span><b class="neg">${fmtTRY(G.total)}</b></button>
               <div class="kzg-items" id="kzg-${gi}">
                 ${Object.entries(G.items).sort((a, b) => b[1] - a[1]).map(([ad, t]) => `<div class="kzg-i"><span>${esc(ad)}</span><b>${fmtTRY(t)}</b></div>`).join("")}
               </div>
             </div>`).join("")}
-        </div>
+        </div>` : `<div class="kz-sub">Bu dönemde harcama görünmüyor.</div>`}
         ${urunAldin > 0 ? `<div class="kz-sub" style="margin-top:10px">🛒 Bunun <b>${fmtTRY(urunAldin)}</b> kadarı ürün alımı.</div>` : ""}
       </div>
+      ${borcFark ? `<div class="kz-card ${borcFark > 0 ? "debt" : "credit"}"><div class="kz-line"><span class="ic">${borcFark > 0 ? "📉" : "📈"}</span> Borcun ${borcFark > 0 ? "arttı" : "azaldı"}: <b class="${borcFark > 0 ? "neg" : "pos"}">${borcFark > 0 ? "+" : "−"}${fmtTRY(Math.abs(borcFark))}</b></div></div>` : ""}
 
-      ${owed320 > 0 ? `<div class="kz-card debt"><div class="kz-line"><span class="ic">🧾</span> Ayrıca tedarikçilere <b class="neg">${fmtTRY(owed320)}</b> borcun var.</div></div>` : ""}
-      ${musteriNet > 0 ? `<div class="kz-card credit"><div class="kz-line"><span class="ic">🤝</span> Müşteriler de sana <b class="pos">${fmtTRY(musteriNet)}</b> borçlu (alacağın).</div></div>` : ""}
+      <!-- 3) DURUM TABLOSU (BİLANÇO) -->
+      <div class="kz-sec-h out"><span>🧮</span> Durum Tablosu <small>(${sonEtiket.toLowerCase()})</small></div>
+      <div class="kz-sheet">
+        <div class="kz-col assets">
+          <div class="ch">💼 NEYİN VAR</div>
+          <div class="ci"><span>💵 Kasa</span><b>${fmtTRY(S1.kasa)}</b></div>
+          <div class="ci"><span>🏦 Bankalar</span><b>${fmtTRY(S1.banka)}</b></div>
+          <div class="ci"><span>🔒 Blokede</span><b>${fmtTRY(S1.bloke)}</b></div>
+          ${S1.alacak ? `<div class="ci"><span>🤝 Alacak</span><b>${fmtTRY(S1.alacak)}</b></div>` : ""}
+          <div class="ci tot"><span>Toplam Varlık</span><b class="pos">${fmtTRY(S1.varlik)}</b></div>
+        </div>
+        <div class="kz-col debts">
+          <div class="ch">🧾 NE BORCUN VAR</div>
+          ${S1.borc ? `<div class="ci"><span>🧾 Tedarikçi / borç</span><b>${fmtTRY(S1.borc)}</b></div>` : `<div class="ci none"><span>Borcun yok 🎉</span><b>${fmtTRY(0)}</b></div>`}
+          <div class="ci tot"><span>Toplam Borç</span><b class="neg">${fmtTRY(S1.borc)}</b></div>
+        </div>
+      </div>
 
-      <div class="kz-final ${net >= 0 ? "" : "bad"}">
-        <div class="ft">🏆 Bugün dükkanı kapatsan…</div>
-        <div class="big">${fmtTRY(net)}</div>
-        <div class="ft2">cebinde ${net >= 0 ? "kalır" : "AÇIK var"}!</div>
-        <div class="kz-break">💵 Elindeki ${fmtTRY(elindeki)} ${musteriNet ? `+ 🤝 alacağın ${fmtTRY(musteriNet)} ` : ""}${owed320 ? `− 🧾 borcun ${fmtTRY(owed320)}` : ""}</div>
-      </div>`}
-    </div>`;
+      <!-- 4) NET -->
+      <div class="kz-final ${S1.net >= 0 ? "" : "bad"}">
+        <div class="ft">🏆 ${sonEtiket} her şeyi kapatsan…</div>
+        <div class="big">${fmtTRY(S1.net)}</div>
+        <div class="ft2">cebinde ${S1.net >= 0 ? "kalır" : "AÇIK var"}!</div>
+        <div class="kz-break">💼 Varlık ${fmtTRY(S1.varlik)}${S1.borc ? ` − 🧾 Borç ${fmtTRY(S1.borc)}` : ""}${!isAll ? ` · bu dönem ${netFark >= 0 ? "📈 +" : "📉 −"}${fmtTRY(Math.abs(netFark))}` : ""}</div>
+      </div>`;
 
-  $$(".kzg-h", c).forEach((b) => b.onclick = () => {
-    const g = $(`#kzg-${b.dataset.g}`, c);
-    const open = g.classList.toggle("open");
-    b.classList.toggle("open", open);
-  });
+    $$(".kzg-h", c).forEach((b) => b.onclick = () => {
+      const g = $(`#kzg-${b.dataset.g}`, c);
+      const open = g.classList.toggle("open");
+      b.classList.toggle("open", open);
+    });
+  }
+
+  const perSel = $("#kz-per", c);
+  if (perSel) perSel.onchange = () => { sel = perSel.value; draw(); };
+  draw();
 }
 
 async function viewNakitAkisRapor(c) {
