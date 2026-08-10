@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.89";
+} from "./local-backend.js?v=2026.90";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.89";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.90";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -328,8 +328,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.89";
+const APP_VERSION = "2026.90";
 const CHANGELOG = [
+  { version: "2026.90", date: "2026-08-10", items: [
+    "Hesap sıralaması gruba göre: 320 Tedarikçiler ve 336 Diğer Çeşitli Borçlar küçükten büyüğe (en büyük borç üstte); diğer gruplar büyükten küçüğe",
+  ]},
   { version: "2026.89", date: "2026-08-10", items: [
     "'-0,00' düzeltildi: sıfıra yuvarlanan/negatif sıfır tutarlar artık '0,00' gösteriliyor",
     "Alt hesap sıralaması işaretli oldu: büyükten küçüğe artık eksi değerleri dikkate alıyor (pozitifler üstte, negatifler altta)",
@@ -2348,8 +2351,13 @@ async function viewHesaplar(c) {
     String(x.code || "").localeCompare(String(y.code || ""), undefined, { numeric: true });
   const cur = (a) => balances.get(a.id)?.current || 0;
   roots.sort(byCode);
-  // Alt hesaplar: bakiyeye göre büyükten küçüğe (işaretli — pozitifler üstte, negatifler altta), eşitse koda göre
-  kids.forEach((arr) => arr.sort((x, y) => (cur(y) - cur(x)) || byCode(x, y)));
+  // Alt hesaplar bakiyeye göre (işaretli). 320/336 küçükten büyüğe (en büyük borç üstte),
+  // diğerleri büyükten küçüğe. Eşitse koda göre.
+  kids.forEach((arr, pid) => {
+    const pc = String(byId.get(pid)?.code || "");
+    const asc = pc === "320" || pc === "336";
+    arr.sort((x, y) => (asc ? cur(x) - cur(y) : cur(y) - cur(x)) || byCode(x, y));
+  });
   const rolled = (a) => (kids.get(a.id) || []).reduce((s, ch) => s + rolled(ch), cur(a));
   const grand = roots.reduce((s, a) => s + rolled(a), 0);
 
