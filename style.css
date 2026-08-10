@@ -1168,9 +1168,9 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 .tf-cz-top .v { flex: 0 0 auto; font-weight: 800; font-size: 15px; }
 .tf-cz-top .v.neg { color: var(--danger); }
 .tf-cz-fields { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
-.tf-card-pick, .tf-rapor { width: 100%; font: inherit; font-size: 13.5px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); }
-.tf-rapor.bk-req { border-color: var(--danger); background: var(--danger-bg); }
-.tf-rapor.bk-ok { border-color: var(--ok); }
+.tf-card-pick, .tf-rapor, .tf-acc { width: 100%; font: inherit; font-size: 13.5px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); }
+.tf-rapor.bk-req, .tf-acc.bk-req { border-color: var(--danger); background: var(--danger-bg); }
+.tf-rapor.bk-ok, .tf-acc.bk-ok { border-color: var(--ok); }
 .tf-alma { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px dashed var(--line); }
 .tf-alma:last-of-type { border-bottom: none; }
 .tf-alma .mid { flex: 1; min-width: 0; }

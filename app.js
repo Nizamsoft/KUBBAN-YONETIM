@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.82";
+} from "./local-backend.js?v=2026.83";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.82";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.83";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.82";
+const APP_VERSION = "2026.83";
 const CHANGELOG = [
+  { version: "2026.83", date: "2026-08-10", items: [
+    "T. Finans kart harcamalarına 'Hesap' seçimi eklendi (fatura gibi): mağaza mevcut hesaplardan seçilir veya yeni eklenir; ödeme 102'den çıkıp seçilen cariyi kapatır (tedarikçiye ödeme → 320 borç)",
+    "Mağaza→hesap+rapor hafızası tüm bankalarla ortaklaştı (banka-diger); daha önce eşlenen mağaza otomatik gelir",
+  ]},
   { version: "2026.82", date: "2026-08-10", items: [
     "T. Finans yapısı düzeltildi: bloke borç Gün Sonu'ndan gelir. Banka aktarımında 'Blokeye Alma' 108 blokeyi kapatıp 102'ye 'Çekim Çözüldü' olarak girer + gün sonu 108 borcuyla kontrol eder",
     "'Erken Bloke Çözüm' artık 102 T.Finans Banka'dan normal harcama (kart eşleştirme + Rapor). Fazla ayaklar kaldırıldı",
@@ -3687,10 +3691,28 @@ async function viewBanka(c) {
     const egGroups = (eg && Array.isArray(eg.groups)) ? eg.groups : DEFAULT_EXPENSE_GROUPS;
     const raporItems = egGroups.flatMap((g) => (g.items || []).map((it) => ({ grup: g.name, ad: it })));
 
-    // Mağaza → rapor hafızası (önceki TF çözümlerinden)
-    const memo = {};
-    entries.filter((e) => e.source === "banka-tf-cozum" && e.kartAdi && e.rapor)
-      .forEach((e) => { memo[normTr(e.kartAdi)] = e.rapor; });
+    // Eşleştirilebilir (yaprak) hesaplar + geçmişten öğrenilen açıklama→hesap
+    const parentIds = new Set(allAcc.map((a) => a.parentId).filter(Boolean));
+    const leafAccs = allAcc.filter((a) => !parentIds.has(a.id) && a.code).sort((a, b) => String(a.code).localeCompare(String(b.code)));
+    const accLabel = (a) => `${a.code} · ${a.name}`;
+    const resolveAcc = (val) => {
+      const v = String(val || "").trim(); if (!v) return null;
+      return leafAccs.find((a) => accLabel(a) === v)
+        || leafAccs.find((a) => String(a.code) === v)
+        || leafAccs.find((a) => normTr(a.name) === normTr(v))
+        || (v.length >= 3 ? leafAccs.find((a) => normTr(a.name).startsWith(normTr(v))) : null) || null;
+    };
+    // Mağaza/açıklama → {hesap, rapor} hafızası (geçmiş banka-diger + TF çözümlerinden)
+    const aliasMap = {};
+    entries.filter((e) => e.source === "banka-diger" && e.bankaAciklama && e.matchedCode)
+      .forEach((e) => { aliasMap[bkSig(e.bankaAciklama)] = { code: e.matchedCode, name: e.matchedName || "", rapor: e.rapor || "" }; });
+    const suggest = (merchant) => {
+      if (!merchant) return null;
+      const a = aliasMap[bkSig(merchant)];
+      if (a) return a;
+      const hit = resolveAcc(merchant);
+      return hit ? { code: hit.code, name: hit.name, rapor: "" } : null;
+    };
 
     const { results, cancelCount } = tfMatch(st.hesap.cozum, st.cards);
     const matched = results.filter((r) => r.card);
@@ -3711,19 +3733,22 @@ async function viewBanka(c) {
     const cardOpts = st.cards.map((c, i) => ({ i, label: `${fmtDateShort(c.date)} · ${c.merchant} · ${fmtNum(c.amt)}` }));
 
     const cozumRow = (r, i, kind) => {
-      const rapVal = r.card ? (memo[normTr(r.card.merchant)] || "") : "";
       const merc = r.card ? r.card.merchant : "";
+      const sug = merc ? suggest(merc) : null;
+      const accVal = sug ? `${sug.code} · ${sug.name}` : (merc ? titleCase(merc) : "");
+      const rapVal = sug ? sug.rapor : "";
       return `<div class="tf-cz ${kind}" data-i="${i}" data-kind="${kind}">
         <div class="tf-cz-top">
           <div class="ic">${kind === "match" ? (r.approx ? "🟡" : "🔓") : "❓"}</div>
           <div class="mid">
-            <div class="nm">${merc ? esc(merc) : "Eşleşmedi — kart seç / rapor gir"}</div>
+            <div class="nm">${merc ? esc(merc) : "Eşleşmedi — kart seç"}</div>
             <div class="mt">${fmtDateShort(r.date)}${r.approx ? " · ~tarih farklı" : ""}${r.ref ? " · " + esc(r.ref) : ""}</div>
           </div>
           <div class="v neg">−${fmtNum(r.amt)}</div>
         </div>
         <div class="tf-cz-fields">
           ${kind === "unmatch" ? `<select class="tf-card-pick f" data-i="${i}"><option value="">— kart harcaması seç (ops.) —</option>${cardOpts.map((o) => `<option value="${o.i}">${esc(o.label)}</option>`).join("")}</select>` : ""}
+          <input class="tf-acc f" data-i="${i}" list="tf-acc-list" placeholder="Hesap * — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
           <input class="tf-rapor f" data-i="${i}" list="tf-rapor-list" placeholder="Rapor * (gider grubu)" value="${esc(rapVal)}" autocomplete="off" />
         </div>
       </div>`;
@@ -3753,54 +3778,95 @@ async function viewBanka(c) {
         ${matched.length ? matched.map((r) => cozumRow(r, results.indexOf(r), "match")).join("") : ""}
         ${unmatched.length ? `<div class="tf-sec-h">❓ Eşleşmeyenler — elle</div>${unmatched.map((r) => cozumRow(r, results.indexOf(r), "unmatch")).join("")}` : ""}
         ${!results.length ? `<div class="empty" style="padding:16px">Bloke çözümü yok.</div>` : ""}
-        <div class="pv-fhint" style="margin-top:10px">Her çözüm için <b>Rapor</b> (gider grubu) zorunlu. Bu harcamalar <b>102.02 T.Finans Banka</b>'dan çıkar (normal harcama); gider Durum Raporu'na düşer.</div>
+        <div class="pv-fhint" style="margin-top:10px">Her harcamada <b>Hesap</b> (kime ödendi — 320/120…) ve <b>Rapor</b> zorunlu. Ödeme <b>102.02 T.Finans Banka</b>'dan çıkar ve seçilen hesabı kapatır (tedarikçiye ödeme → 320 borç). Gider Durum Raporu'na düşer.</div>
       </div>
       ${almaHtml}
       ${st.hesap.other.length ? `<div class="card"><div class="notice warn">ℹ️ ${st.hesap.other.length} satır bloke alma/çözüm değil (EFT vb.) — bu ekranda işlenmiyor.</div></div>` : ""}
+      <datalist id="tf-acc-list">${leafAccs.map((a) => `<option value="${esc(accLabel(a))}"></option>`).join("")}</datalist>
       <datalist id="tf-rapor-list">${raporItems.map((r) => `<option value="${esc(r.ad)}">${esc(r.grup)}</option>`).join("")}</datalist>
       <div class="pv-cta"><div class="grow"></div><button class="btn btn-primary" id="tf-save">✓ İşle</button></div>`;
 
-    // Eşleşmeyen kart seçimi → mağaza adını satıra yaz + rapor hafızadan
+    // Eşleşmeyen kart seçimi → mağaza adını + hesap/rapor önerisini satıra yaz
     $$(".tf-card-pick", editor).forEach((sel) => sel.onchange = () => {
-      const row = sel.closest(".tf-cz"), nm = $(".nm", row), rap = $(".tf-rapor", row);
+      const row = sel.closest(".tf-cz"), nm = $(".nm", row), acc = $(".tf-acc", row), rap = $(".tf-rapor", row);
       const ci = sel.value === "" ? -1 : +sel.value;
-      if (ci >= 0) { nm.textContent = st.cards[ci].merchant; if (!rap.value.trim()) rap.value = memo[normTr(st.cards[ci].merchant)] || ""; }
-      else nm.textContent = "Eşleşmedi — kart seç / rapor gir";
+      if (ci >= 0) {
+        const m = st.cards[ci].merchant; nm.textContent = m;
+        const sug = suggest(m);
+        if (!acc.value.trim()) acc.value = sug ? `${sug.code} · ${sug.name}` : titleCase(m);
+        if (!rap.value.trim() && sug) rap.value = sug.rapor || "";
+      } else nm.textContent = "Eşleşmedi — kart seç";
+      tfSync();
     });
 
     const saveBtn = $("#tf-save", editor);
     function tfSync() {
       let missing = 0;
-      $$(".tf-rapor", editor).forEach((rp) => { const e = !rp.value.trim(); rp.classList.toggle("bk-req", e); rp.classList.toggle("bk-ok", !e); if (e) missing++; });
+      $$(".tf-cz", editor).forEach((row) => {
+        const acc = $(".tf-acc", row), rap = $(".tf-rapor", row);
+        const ae = !acc.value.trim(); acc.classList.toggle("bk-req", ae); acc.classList.toggle("bk-ok", !ae); if (ae) missing++;
+        const re = !rap.value.trim(); rap.classList.toggle("bk-req", re); rap.classList.toggle("bk-ok", !re); if (re) missing++;
+      });
       const nothing = !results.length && !almaRows.length;
       if (!blokeAcc || !bankAcc || nothing) { saveBtn.disabled = true; saveBtn.textContent = "İşlenecek yok"; }
-      else if (missing > 0) { saveBtn.disabled = true; saveBtn.textContent = `${missing} rapor eksik`; }
+      else if (missing > 0) { saveBtn.disabled = true; saveBtn.textContent = `${missing} alan eksik`; }
       else { saveBtn.disabled = false; saveBtn.textContent = `✓ İşle (${matched.length + unmatched.length} harcama · ${almaRows.length} blokeye alma)`; }
     }
     editor.addEventListener("input", tfSync);
     tfSync();
 
-    saveBtn.onclick = () => tfDoSave(saveBtn, bank, blokeAcc, bankAcc, results, almaRows, st, editor);
+    saveBtn.onclick = () => tfSave(saveBtn, bank, blokeAcc, bankAcc, results, almaRows, st, editor, resolveAcc);
   }
 
-  async function tfDoSave(btn, bank, blokeAcc, bankAcc, results, almaRows, st, editor) {
-    btn.disabled = true;
-    try {
-      // Rapor + (eşleşmeyende) seçilen mağaza topla
-      const rows = results.map((r) => {
-        const i = results.indexOf(r);
-        const rapor = ($(`.tf-rapor[data-i="${i}"]`, editor)?.value || "").trim();
-        let merchant = r.card ? r.card.merchant : "";
-        const pick = $(`.tf-card-pick[data-i="${i}"]`, editor);
-        if (pick && pick.value !== "") merchant = st.cards[+pick.value].merchant;
-        return { ...r, rapor, merchant };
-      });
-      if (rows.some((r) => !r.rapor)) { btn.disabled = false; return toast("Tüm çözümlerde Rapor zorunlu.", "err"); }
+  async function tfSave(btn, bank, blokeAcc, bankAcc, results, almaRows, st, editor, resolveAcc) {
+    // Her harcama: Hesap + Rapor zorunlu; hesabı çöz
+    const rows = results.map((r) => {
+      const i = results.indexOf(r);
+      const accVal = ($(`.tf-acc[data-i="${i}"]`, editor)?.value || "").trim();
+      const rapor = ($(`.tf-rapor[data-i="${i}"]`, editor)?.value || "").trim();
+      let merchant = r.card ? r.card.merchant : "";
+      const pick = $(`.tf-card-pick[data-i="${i}"]`, editor);
+      if (pick && pick.value !== "") merchant = st.cards[+pick.value].merchant;
+      return { ...r, accVal, rapor, merchant, acc: resolveAcc(accVal) };
+    });
+    if (rows.some((r) => !r.accVal)) return toast("Tüm harcamalarda Hesap zorunlu.", "err");
+    if (rows.some((r) => !r.rapor)) return toast("Tüm harcamalarda Rapor zorunlu.", "err");
 
+    const toCreate = rows.filter((r) => !r.acc);
+    if (toCreate.length) {
+      const body = document.createElement("div");
+      body.innerHTML = `<div class="mg-note">Şu isimler mevcut hesaplarla eşleşmedi. <b>Yeni hesap</b> olarak eklensin mi?</div>` +
+        toCreate.map((r, i) => `<div class="bk-new">
+          <div class="bk-new-nm">${esc(titleCase(r.accVal))}</div>
+          <select class="bk-new-type" data-i="${i}">
+            <option value="tedarikci" selected>Tedarikçi (320)</option>
+            <option value="musteri">Müşteri (120)</option>
+          </select>
+        </div>`).join("");
+      const m = openModal({ title: "Yeni Hesaplar", body, footer: [
+        mkBtn("Vazgeç", "", () => m.close()),
+        mkBtn("Ekle ve İşle", "btn-primary", async () => {
+          const types = toCreate.map((r, i) => $(`.bk-new-type[data-i="${i}"]`, body)?.value || "tedarikci");
+          m.close(); btn.disabled = true;
+          try {
+            for (let i = 0; i < toCreate.length; i++) toCreate[i].acc = await createBankCari(toCreate[i].accVal, types[i]);
+            await tfDoSave(btn, bank, blokeAcc, bankAcc, rows, almaRows, editor);
+          } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
+        }),
+      ]});
+      return;
+    }
+    btn.disabled = true;
+    await tfDoSave(btn, bank, blokeAcc, bankAcc, rows, almaRows, editor);
+  }
+
+  async function tfDoSave(btn, bank, blokeAcc, bankAcc, rows, almaRows, editor) {
+    try {
       const fresh = await fetchAll(C.accountEntries).catch(() => []);
       const cozKeys = new Set(rows.map((r) => `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`));
       const almaKeys = new Set(almaRows.map((a) => `${bank.key}|alma|${a.almaDate}`));
       const isStale = (e) =>
+        (e.source === "banka-diger" && e.banka === bank.key && cozKeys.has(e.otherKey)) ||
         (e.source === "banka-tf-cozum" && cozKeys.has(e.cozumKey)) ||
         (e.source === "banka-tf-alma" && almaKeys.has(e.almaKey));
       for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
@@ -3822,19 +3888,25 @@ async function viewBanka(c) {
         docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
           islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: acik, rapor: "", giren: a.sum, cikan: 0 });
       }
-      // Erken Bloke Çözüm → 102 T.Finans Banka'dan normal harcama (çıkan)
+      // Kart harcaması → 102'den çıkış + seçilen hesabı kapat (karşı kayıt)
       for (const r of rows) {
-        docs.push({
-          accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
-          date: r.date, islemAdi: "KART HARCAMASI", sahis: r.merchant || "", aciklama: r.merchant || "Kart Harcaması", rapor: r.rapor,
-          giren: 0, cikan: r.amt, source: "banka-tf-cozum", cozumKey: `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`,
-          banka: bank.key, kartAdi: r.merchant || "", ref: r.ref || "", createdAt: serverTimestamp(), createdBy: currentUser.email,
-        });
+        const acc = r.acc, ok = `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`;
+        const common = { date: r.date, aciklama: r.merchant || "Kart Harcaması", rapor: r.rapor, source: "banka-diger",
+          otherKey: ok, banka: bank.key, bankaAciklama: r.merchant || "", matchedCode: acc.code, matchedName: acc.name, ref: r.ref || "",
+          createdAt: serverTimestamp(), createdBy: currentUser.email };
+        // 1) Banka çıkışı
+        docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
+          islemAdi: "KART HARCAMASI", sahis: acc.name, giren: 0, cikan: r.amt });
+        // 2) Seçilen hesap kapaması (tedarikçi/müşteri → borç/alacak; diğer → çıkan)
+        const cariStyle = isCari(acc.type) || String(acc.code || "").startsWith("108");
+        const side = cariStyle ? { borc: r.amt, alacak: 0 } : { giren: 0, cikan: r.amt };
+        docs.push({ ...common, accountId: acc.id, accountCode: acc.code, islemNo: ++gno,
+          ...(cariStyle ? { cariNo: nextCno(acc.id) } : {}), islemAdi: "KART HARCAMASI", sahis: bankAcc.name, ...side });
       }
       await batchAdd(C.accountEntries, docs);
       await logAction("İçe Aktarma", "Banka", `${bank.label} · ${almaRows.length} blokeye alma + ${rows.length} harcama · ${docs.length} kayıt`);
       toast(`${rows.length} harcama + ${almaRows.length} blokeye alma işlendi.`, "ok");
-      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${almaRows.length}</b> blokeye alma (108→102), <b>${rows.length}</b> kart harcaması (102 çıkan).
+      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${almaRows.length}</b> blokeye alma (108→102), <b>${rows.length}</b> kart harcaması (102 çıkış + hesap kapama).
         <a href="#/hesap-detay?id=${bankAcc.id}">102.02 T.Finans Banka</a> defterinde görebilirsin.</div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
