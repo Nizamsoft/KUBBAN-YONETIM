@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.81";
+} from "./local-backend.js?v=2026.82";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.81";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.82";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.81";
+const APP_VERSION = "2026.82";
 const CHANGELOG = [
+  { version: "2026.82", date: "2026-08-10", items: [
+    "T. Finans yapısı düzeltildi: bloke borç Gün Sonu'ndan gelir. Banka aktarımında 'Blokeye Alma' 108 blokeyi kapatıp 102'ye 'Çekim Çözüldü' olarak girer + gün sonu 108 borcuyla kontrol eder",
+    "'Erken Bloke Çözüm' artık 102 T.Finans Banka'dan normal harcama (kart eşleştirme + Rapor). Fazla ayaklar kaldırıldı",
+  ]},
   { version: "2026.81", date: "2026-08-10", items: [
     "T. Finans bloke çözümü artık Garanti gibi: blokeden çözülüp 102.02 T.Finans Banka'ya alınır, kart harcaması bankadan çıkar (banka hesabı hareketi görür, gider yine Durum Raporu'na düşer)",
   ]},
@@ -3692,11 +3696,17 @@ async function viewBanka(c) {
     const matched = results.filter((r) => r.card);
     const unmatched = results.filter((r) => !r.card);
 
-    // Blokeye Alma → önceki günün gün sonu (yatış günü bazında topla)
+    // Blokeye Alma: yatış günü bazında topla + gün sonu 108 borç ile kontrol
     const almaByDay = {};
-    st.hesap.alma.forEach((a) => { (almaByDay[a.date] = almaByDay[a.date] || { sum: 0, n: 0, refs: [] }); almaByDay[a.date].sum += a.amt; almaByDay[a.date].n++; almaByDay[a.date].refs.push(a.ref); });
+    st.hesap.alma.forEach((a) => { (almaByDay[a.date] = almaByDay[a.date] || { sum: 0, n: 0 }); almaByDay[a.date].sum += a.amt; almaByDay[a.date].n++; });
     const prevISO = (iso) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() - 1); return bkISO(dt); };
-    const almaRows = Object.keys(almaByDay).sort().map((d) => ({ almaDate: d, gunSonu: prevISO(d), ...almaByDay[d] }));
+    const gsBorcByDay = {};
+    entries.filter((e) => e.source === "gunsonu-bloke" && blokeAcc && e.accountId === blokeAcc.id)
+      .forEach((e) => { gsBorcByDay[e.date] = (gsBorcByDay[e.date] || 0) + parseNum(e.borc); });
+    const almaRows = Object.keys(almaByDay).sort().map((d) => {
+      const gsDate = prevISO(d), gsBorc = gsBorcByDay[gsDate] || 0, sum = almaByDay[d].sum, fark = gsBorc - sum;
+      return { almaDate: d, gsDate, sum, n: almaByDay[d].n, gsBorc, fark, ok: Math.abs(fark) < 1 };
+    });
 
     const cardOpts = st.cards.map((c, i) => ({ i, label: `${fmtDateShort(c.date)} · ${c.merchant} · ${fmtNum(c.amt)}` }));
 
@@ -3719,11 +3729,18 @@ async function viewBanka(c) {
       </div>`;
     };
 
+    const almaBad = almaRows.filter((a) => !a.ok).length;
     const almaHtml = almaRows.length ? `
       <div class="card">
-        <div class="card-head"><h3>🏦 Blokeye Alma → Gün Sonu</h3><span class="hint">yatışın 1 gün öncesi</span></div>
-        ${almaRows.map((a) => `<div class="tf-alma"><div class="mid"><div class="nm">📅 ${fmtDate(a.gunSonu)} Gün Sonu</div><div class="mt">${a.n} satış · yatış ${fmtDateShort(a.almaDate)}</div></div><b class="pos">${fmtTRY(a.sum)}</b></div>`).join("")}
-        <div class="pv-fhint" style="margin-top:8px">Bu tutarlar <b>108.02 T.Finans Bloke</b>'ye gün sonu girişi olarak yazılır. ⚠️ Gün Sonu'nda T.Finans'ı ayrıca girmeyin.</div>
+        <div class="card-head"><h3>🧮 Blokeye Alma Kontrolü</h3><span class="hint">gün sonu 108 ↔ blokeye alma</span></div>
+        <div class="bk-ctrl head"><span>Yatış günü</span><span class="num">Gün Sonu 108</span><span class="num">Blokeye Alma</span><span class="num">Fark</span></div>
+        ${almaRows.map((a) => `<div class="bk-ctrl ${a.ok ? "" : "warn"}">
+          <span>${fmtDateShort(a.almaDate)}<small> gs ${fmtDateShort(a.gsDate)}</small></span>
+          <span class="num">${a.gsBorc ? fmtNum(a.gsBorc) : "—"}</span>
+          <span class="num">${fmtNum(a.sum)}</span>
+          <span class="num ${a.ok ? "ok" : "bad"}">${fmtNum(a.fark)}</span>
+        </div>`).join("")}
+        <div class="pv-fhint" style="margin-top:8px">Blokeye alma tutarları <b>108 blokeyi kapatıp 102 T.Finans Banka</b>'ya "Çekim Çözüldü" olarak girer. ${almaBad ? `⚠️ ${almaBad} günde gün sonuyla tutmuyor (sarı) — yine de işlenir.` : "✓ Hepsi gün sonuyla tutuyor."}</div>
       </div>` : "";
 
     const totMatch = matched.reduce((s, r) => s + r.amt, 0);
@@ -3736,7 +3753,7 @@ async function viewBanka(c) {
         ${matched.length ? matched.map((r) => cozumRow(r, results.indexOf(r), "match")).join("") : ""}
         ${unmatched.length ? `<div class="tf-sec-h">❓ Eşleşmeyenler — elle</div>${unmatched.map((r) => cozumRow(r, results.indexOf(r), "unmatch")).join("")}` : ""}
         ${!results.length ? `<div class="empty" style="padding:16px">Bloke çözümü yok.</div>` : ""}
-        <div class="pv-fhint" style="margin-top:10px">Her çözüm için <b>Rapor</b> (gider grubu) zorunlu. Blokeden çözülüp <b>102.02 T.Finans Banka</b>'ya alınır, kart harcaması bankadan çıkar; gider Durum Raporu'na düşer.</div>
+        <div class="pv-fhint" style="margin-top:10px">Her çözüm için <b>Rapor</b> (gider grubu) zorunlu. Bu harcamalar <b>102.02 T.Finans Banka</b>'dan çıkar (normal harcama); gider Durum Raporu'na düşer.</div>
       </div>
       ${almaHtml}
       ${st.hesap.other.length ? `<div class="card"><div class="notice warn">ℹ️ ${st.hesap.other.length} satır bloke alma/çözüm değil (EFT vb.) — bu ekranda işlenmiyor.</div></div>` : ""}
@@ -3758,7 +3775,7 @@ async function viewBanka(c) {
       const nothing = !results.length && !almaRows.length;
       if (!blokeAcc || !bankAcc || nothing) { saveBtn.disabled = true; saveBtn.textContent = "İşlenecek yok"; }
       else if (missing > 0) { saveBtn.disabled = true; saveBtn.textContent = `${missing} rapor eksik`; }
-      else { saveBtn.disabled = false; saveBtn.textContent = `✓ İşle (${matched.length + unmatched.length} çözüm · ${almaRows.length} gün sonu)`; }
+      else { saveBtn.disabled = false; saveBtn.textContent = `✓ İşle (${matched.length + unmatched.length} harcama · ${almaRows.length} blokeye alma)`; }
     }
     editor.addEventListener("input", tfSync);
     tfSync();
@@ -3782,10 +3799,10 @@ async function viewBanka(c) {
 
       const fresh = await fetchAll(C.accountEntries).catch(() => []);
       const cozKeys = new Set(rows.map((r) => `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`));
-      const almaKeys = new Set(almaRows.map((a) => `${bank.key}|alma|${a.gunSonu}`));
+      const almaKeys = new Set(almaRows.map((a) => `${bank.key}|alma|${a.almaDate}`));
       const isStale = (e) =>
         (e.source === "banka-tf-cozum" && cozKeys.has(e.cozumKey)) ||
-        (e.source === "gunsonu-bloke" && e.almaKey && almaKeys.has(e.almaKey));
+        (e.source === "banka-tf-alma" && almaKeys.has(e.almaKey));
       for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
       const remaining = fresh.filter((e) => !isStale(e));
       let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
@@ -3795,34 +3812,29 @@ async function viewBanka(c) {
         const n = cnoMap.get(id) + 1; cnoMap.set(id, n); return n;
       };
       const docs = [];
-      // Blokeye Alma → gün sonu bloke girişi (bir gün öncesi)
+      // Blokeye Alma → 108 blokeyi kapat (alacak) + 102'ye giriş ("Çekim Çözüldü")
       for (const a of almaRows) {
+        const almaKey = `${bank.key}|alma|${a.almaDate}`;
+        const acik = `${fmtDateShort(a.almaDate)} Çekim Çözüldü`;
+        const common = { date: a.almaDate, source: "banka-tf-alma", almaKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email };
+        docs.push({ ...common, accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
+          islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: acik, rapor: "", borc: 0, alacak: a.sum });
+        docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
+          islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: acik, rapor: "", giren: a.sum, cikan: 0 });
+      }
+      // Erken Bloke Çözüm → 102 T.Finans Banka'dan normal harcama (çıkan)
+      for (const r of rows) {
         docs.push({
-          accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
-          date: a.gunSonu, islemAdi: "GÜN SONU", sahis: "", aciklama: "Gün Sonu (T.Finans POS)", rapor: "",
-          borc: a.sum, alacak: 0, faturaTuru: "", faturaNo: "",
-          source: "gunsonu-bloke", almaKey: `${bank.key}|alma|${a.gunSonu}`, banka: bank.key, imported: true,
-          createdAt: serverTimestamp(), createdBy: currentUser.email,
+          accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
+          date: r.date, islemAdi: "KART HARCAMASI", sahis: r.merchant || "", aciklama: r.merchant || "Kart Harcaması", rapor: r.rapor,
+          giren: 0, cikan: r.amt, source: "banka-tf-cozum", cozumKey: `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`,
+          banka: bank.key, kartAdi: r.merchant || "", ref: r.ref || "", createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
       }
-      // Bloke Çözüm → blokeden çözülür, bankaya alınır, kart harcaması bankadan çıkar
-      for (const r of rows) {
-        const cozumKey = `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`;
-        const common = { date: r.date, source: "banka-tf-cozum", cozumKey, banka: bank.key, kartAdi: r.merchant || "", ref: r.ref || "", createdAt: serverTimestamp(), createdBy: currentUser.email };
-        // 1) Bloke çözüldü (108.02 alacak)
-        docs.push({ ...common, accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
-          islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: "Bloke Çözüm", rapor: "", borc: 0, alacak: r.amt });
-        // 2) Bankaya alındı (102.02 giren)
-        docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
-          islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: "Bloke Çözüm", rapor: "", giren: r.amt, cikan: 0 });
-        // 3) Kart harcaması (102.02 çıkan — gider)
-        docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
-          islemAdi: "KART HARCAMASI", sahis: r.merchant || "", aciklama: r.merchant || "Kart Harcaması", rapor: r.rapor, giren: 0, cikan: r.amt });
-      }
       await batchAdd(C.accountEntries, docs);
-      await logAction("İçe Aktarma", "Banka", `${bank.label} · ${almaRows.length} gün sonu + ${rows.length} çözüm · ${docs.length} kayıt`);
-      toast(`${rows.length} çözüm + ${almaRows.length} gün sonu işlendi.`, "ok");
-      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${rows.length}</b> bloke çözümü (bloke→banka→gider), <b>${almaRows.length}</b> gün sonu girişi.
+      await logAction("İçe Aktarma", "Banka", `${bank.label} · ${almaRows.length} blokeye alma + ${rows.length} harcama · ${docs.length} kayıt`);
+      toast(`${rows.length} harcama + ${almaRows.length} blokeye alma işlendi.`, "ok");
+      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${almaRows.length}</b> blokeye alma (108→102), <b>${rows.length}</b> kart harcaması (102 çıkan).
         <a href="#/hesap-detay?id=${bankAcc.id}">102.02 T.Finans Banka</a> defterinde görebilirsin.</div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
@@ -4269,7 +4281,7 @@ async function viewKarZarar(c) {
       if (e.source === "gunsonu-bloke") blokeGiden += parseNum(e.borc);
       else if (e.source === "gunsonu-nakit") nakitDirekt += parseNum(e.giren);
       else if (e.source === "banka-pos" && String(e.accountCode || "").startsWith("102")) blokeCozulen += parseNum(e.giren);
-      else if (e.source === "banka-tf-cozum" && String(e.accountCode || "").startsWith("102") && parseNum(e.giren) > 0) blokeCozulen += parseNum(e.giren);
+      else if (e.source === "banka-tf-alma" && String(e.accountCode || "").startsWith("102") && parseNum(e.giren) > 0) blokeCozulen += parseNum(e.giren);
       else if (e.source === "banka-pos-komisyon") komisyon += parseNum(e.cikan);
       let amt = 0;
       if (e.source === "gunsonu-masraf") amt = parseNum(e.cikan);
