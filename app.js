@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.90";
+} from "./local-backend.js?v=2026.91";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.90";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.91";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -328,8 +328,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.90";
+const APP_VERSION = "2026.91";
 const CHANGELOG = [
+  { version: "2026.91", date: "2026-08-10", items: [
+    "Fatura Aktarımı: önce Alış/Satış seçtiriyor, sonra dosya yükletiyor (tür seçimi başta)",
+    "Fatura cari eşleştirme güçlendi: şirket eklerini (A.Ş./Ltd/Şti/San/Tic…) yok sayıp çekirdek isimle eşler, tüm cari hesaplarda arar — mevcut cariyi bulamayıp tekrar açma sorunu giderildi",
+  ]},
   { version: "2026.90", date: "2026-08-10", items: [
     "Hesap sıralaması gruba göre: 320 Tedarikçiler ve 336 Diğer Çeşitli Borçlar küçükten büyüğe (en büyük borç üstte); diğer gruplar büyükten küçüğe",
   ]},
@@ -3090,32 +3094,38 @@ function entryModal(acc, entry, opts) {
 async function viewCariHareket(c) {
   const nrm = (s) => String(s || "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim();
 
-  c.innerHTML = `
-    <div class="card" style="padding:12px"><div id="ch-drop"></div></div>
-    <div id="ch-editor"></div>`;
+  showChooser();
 
-  $("#ch-drop").appendChild(fileDrop(async (file) => {
-    try {
-      const { headers, rows } = await parseSpreadsheet(file);
-      if (!rows.length) return toast("Veri bulunamadı.", "err");
-      askType(headers, rows);
-    } catch (e) { toast("Okunamadı: " + e.message, "err"); }
-  }, ".xlsx,.xls,.csv", true));
-
-  function askType(headers, rows) {
-    const body = document.createElement("div");
-    body.innerHTML = `
-      <div class="ft-q">Hangi fatura türünü aktaralım?<small>${rows.length} fatura bulundu</small></div>
-      <div class="ft-cards">
-        <button class="ft-c sat" data-kind="satis"><span class="ic">📤</span><span class="t">Satış Faturası</span></button>
-        <button class="ft-c al" data-kind="alis"><span class="ic">📥</span><span class="t">Alış Faturası</span></button>
+  // 1) Önce fatura türünü seç
+  function showChooser() {
+    c.innerHTML = `
+      <div class="card">
+        <div class="ft-q">Hangi fatura türünü aktaralım?<small>Önce türü seç, sonra dosyayı yükle</small></div>
+        <div class="ft-cards">
+          <button class="ft-c sat" data-kind="satis"><span class="ic">📤</span><span class="t">Satış Faturası</span></button>
+          <button class="ft-c al" data-kind="alis"><span class="ic">📥</span><span class="t">Alış Faturası</span></button>
+        </div>
       </div>`;
-    const m = openModal({
-      title: "Fatura Türü",
-      body,
-      footer: [mkBtn("Vazgeç", "", () => m.close())],
-    });
-    $$(".ft-c", body).forEach((b) => b.onclick = () => { m.close(); buildPreview(headers, rows, b.dataset.kind); });
+    $$(".ft-c", c).forEach((b) => b.onclick = () => showDrop(b.dataset.kind));
+  }
+
+  // 2) Sonra dosya yükle
+  function showDrop(kind) {
+    const label = kind === "alis" ? "📥 Alış Faturası" : "📤 Satış Faturası";
+    c.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h3>${label} · Dosya Yükle</h3><button class="btn btn-sm" id="ch-back">← Tür</button></div>
+        <div id="ch-drop"></div>
+      </div>
+      <div id="ch-editor"></div>`;
+    $("#ch-back").onclick = showChooser;
+    $("#ch-drop").appendChild(fileDrop(async (file) => {
+      try {
+        const { headers, rows } = await parseSpreadsheet(file);
+        if (!rows.length) return toast("Veri bulunamadı.", "err");
+        buildPreview(headers, rows, kind);
+      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+    }, ".xlsx,.xls,.csv", true));
   }
 
   async function buildPreview(headers, rows, kind) {
@@ -3157,9 +3167,22 @@ async function viewCariHareket(c) {
       // (Başlama/Bitiş/Süre/Belge Sayısı gibi özet satırları elenir)
       /\d/.test(it.faturaNo) && !it.faturaNo.includes(":") && (it.vkn || it.amount));
 
-    const findAcc = (it) =>
-      cariAccounts.find((a) => a.vkn && it.vkn && String(a.vkn) === it.vkn) ||
-      cariAccounts.find((a) => nrm(a.name) === nrm(it.ad));
+    // Ad eşleştirme: şirket eklerini (A.Ş., Ltd, Şti, San, Tic…) atıp çekirdek isimle karşılaştır
+    const CH_STOP = new Set(["a", "s", "ş", "as", "anonim", "sirketi", "şirketi", "sti", "şti", "ltd", "limited", "san", "sanayi", "tic", "ticaret", "ve", "paz", "pazarlama", "ith", "ihracat", "ihr", "dis", "dış", "org", "org."]);
+    const chNorm = (s) => nrm(s).replace(/[^0-9a-zçğıöşü ]/gi, " ").replace(/\s+/g, " ").trim();
+    const chCore = (s) => chNorm(s).split(" ").filter((w) => w.length > 1 && !CH_STOP.has(w)).join(" ");
+    const nameMatch = (aName, itAd) => {
+      const A = chCore(aName), B = chCore(itAd);
+      if (!A || !B) return chNorm(aName) === chNorm(itAd) && !!chNorm(aName);
+      if (A === B) return true;
+      return A.length >= 4 && B.length >= 4 && (A.startsWith(B) || B.startsWith(A));
+    };
+    const allCari = accounts.filter((a) => isCari(a.type) && a.parentId);
+    const findIn = (pool, it) =>
+      (it.vkn && pool.find((a) => a.vkn && String(a.vkn) === it.vkn)) ||
+      pool.find((a) => nameMatch(a.name, it.ad)) || null;
+    // Önce doğru tür (320/120), bulamazsa tüm cari hesaplar
+    const findAcc = (it) => findIn(cariAccounts, it) || findIn(allCari, it);
     const statusOf = (it) => {
       const acc = findAcc(it);
       if (!acc) return { code: "nocari" };
