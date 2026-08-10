@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.88";
+} from "./local-backend.js?v=2026.89";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.88";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.89";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -24,8 +24,9 @@ const $$ = (sel, root = document) => [...root.querySelectorAll(sel)];
 const CONFIG_READY = true; // Yerel mod her zaman hazır
 
 const nf  = new Intl.NumberFormat("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-const fmtTRY = (n) => (isFinite(n) ? nf.format(n) : "0,00") + " ₺";
-const fmtNum = (n) => (isFinite(n) ? nf.format(n) : "0,00");
+const z0  = (n) => (isFinite(n) && Math.abs(n) < 0.005) ? 0 : n;   // -0 ve yuvarlama artığını 0 yap
+const fmtTRY = (n) => (isFinite(n) ? nf.format(z0(n)) : "0,00") + " ₺";
+const fmtNum = (n) => (isFinite(n) ? nf.format(z0(n)) : "0,00");
 const todayISO = () => new Date().toISOString().slice(0, 10);
 function fmtDate(iso) {
   if (!iso) return "—";
@@ -327,8 +328,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.88";
+const APP_VERSION = "2026.89";
 const CHANGELOG = [
+  { version: "2026.89", date: "2026-08-10", items: [
+    "'-0,00' düzeltildi: sıfıra yuvarlanan/negatif sıfır tutarlar artık '0,00' gösteriliyor",
+    "Alt hesap sıralaması işaretli oldu: büyükten küçüğe artık eksi değerleri dikkate alıyor (pozitifler üstte, negatifler altta)",
+    "Toplu Cari: dosya bakiyesi tek biçimli sayılıyor — (+) = Alacak, (−) = Borç (120 dahil tüm türler). Aynı dosyayı yeniden yükleyince düzelir",
+  ]},
   { version: "2026.88", date: "2026-08-10", items: [
     "Toplu Cari İçe Aktar düzeltmesi: kaynak bakiyedeki eksi işareti korunuyor — 320'de −tutar artık Borç bakiye (senin alacağın), +tutar Alacak bakiye. Eksi/parantez biçimleri de tanınır. Aynı dosyayı yeniden yükleyince düzelir",
   ]},
@@ -2342,8 +2348,8 @@ async function viewHesaplar(c) {
     String(x.code || "").localeCompare(String(y.code || ""), undefined, { numeric: true });
   const cur = (a) => balances.get(a.id)?.current || 0;
   roots.sort(byCode);
-  // Alt hesaplar: bakiyeye göre büyükten küçüğe (tutar), eşitse koda göre
-  kids.forEach((arr) => arr.sort((x, y) => Math.abs(cur(y)) - Math.abs(cur(x)) || byCode(x, y)));
+  // Alt hesaplar: bakiyeye göre büyükten küçüğe (işaretli — pozitifler üstte, negatifler altta), eşitse koda göre
+  kids.forEach((arr) => arr.sort((x, y) => (cur(y) - cur(x)) || byCode(x, y)));
   const rolled = (a) => (kids.get(a.id) || []).reduce((s, ch) => s + rolled(ch), cur(a));
   const grand = roots.reduce((s, a) => s + rolled(a), 0);
 
@@ -2640,11 +2646,12 @@ const FATURA_TURU = ["", "Satış Faturası", "Alış Faturası", "İade Faturas
 // ===========================================================================
 // Hesap türü → { ana kod, ad, tip, işaret }. İşaret: borçlu olduğun (320/336)
 // → açılış negatif (alacak bakiye); alacaklı (120) → pozitif (borç bakiye).
+// Dosya bakiyesi tek biçimli: (+) = Alacak, (−) = Borç → açılış = −bakiye (tüm türler).
 const CI_TUR = {
   "320": { code: "320", name: "Tedarikçiler", type: "tedarikci", sign: -1 },
   "336": { code: "336", name: "Diğer Çeşitli Borçlar", type: "tedarikci", sign: -1 },
-  "120": { code: "120", name: "Alıcılar (Müşteriler)", type: "musteri", sign: 1 },
-  "121": { code: "121", name: "Alacak Senetleri", type: "musteri", sign: 1 },
+  "120": { code: "120", name: "Alıcılar (Müşteriler)", type: "musteri", sign: -1 },
+  "121": { code: "121", name: "Alacak Senetleri", type: "musteri", sign: -1 },
 };
 function ciParseBal(v) {
   if (typeof v === "number") return v;
@@ -2724,7 +2731,7 @@ async function viewCariImport(c) {
             <td>${esc(it.ad)}</td>
             <td>${esc(it.tur)}</td>
             <td class="num">${fmtTRY(Math.abs(it.bakiye))}</td>
-            <td>${it.opening < 0 ? '<span style="color:var(--danger)">Alacak (borcun)</span>' : it.opening > 0 ? '<span style="color:var(--ok)">Borç (alacağın)</span>' : "—"}</td>
+            <td>${it.opening < 0 ? '<span style="color:var(--danger)">Alacak</span>' : it.opening > 0 ? '<span style="color:var(--ok)">Borç</span>' : "0"}</td>
             <td>${it.exist ? '<span style="color:var(--gold-dark)">Güncelle</span>' : "Yeni"}</td>
           </tr>`).join("")}</tbody>
         </table></div>
