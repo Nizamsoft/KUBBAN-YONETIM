@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.85";
+} from "./local-backend.js?v=2026.86";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.85";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.86";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.85";
+const APP_VERSION = "2026.86";
 const CHANGELOG = [
+  { version: "2026.86", date: "2026-08-10", items: [
+    "Toplu Cari İçe Aktar (Hesaplar → 📥 Toplu Cari): Excel/CSV yükle → cariler + açılış bakiyeleriyle otomatik oluşur/güncellenir",
+    "Sütunlar: Cari No · Cari Adı · Bakiye · Hesap Türü. 320/336 borçlusun (Alacak bakiye), 120 alacağın (Borç bakiye). 336 için 'Diğer Çeşitli Borçlar' grubu otomatik açılır",
+  ]},
   { version: "2026.85", date: "2026-08-10", items: [
     "Banka/kasa (102/100) hareket kartı yeniden dizildi: üstte şahıs, altında işlem adı, en altta tarih (şahıs yoksa işlem adı üste geçer)",
   ]},
@@ -749,6 +753,7 @@ const ROUTES = {
   "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu Aktarımı", render: viewGunSonuKayitlar },
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
   "hesaplar":         { title: "Hesaplar", crumb: "Hesaplar", render: viewHesaplar },
+  "cari-import":      { title: "Toplu Cari İçe Aktar", crumb: "Hesaplar", render: viewCariImport },
   "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger },
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
@@ -2375,6 +2380,7 @@ async function viewHesaplar(c) {
         <input id="acc-q" type="search" autocomplete="off" placeholder="🔍 Hesap ara — ör. 'Ga' → Garanti Bankası" />
         <div class="acc-suggest" id="acc-suggest"></div>
       </div>
+      <button class="btn btn-sm" id="acc-import">📥 Toplu Cari</button>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
     </div>
@@ -2493,6 +2499,7 @@ async function viewHesaplar(c) {
   };
 
   $("#acc-add").onclick = openNewChooser;
+  $("#acc-import").onclick = () => { location.hash = "#/cari-import"; };
   // "Hesapları Düzenle" modu: düzenle/alt ekle ikonları görünür olur
   $("#edit-toggle").onclick = () => {
     const list = $(".acc-list", c);
@@ -2621,6 +2628,154 @@ function hashQuery(key) {
 // Cari hesap mı? (320 Tedarikçi / 120 Müşteri) → Borç/Alacak + Fatura defteri
 function isCari(type) { return type === "musteri" || type === "tedarikci"; }
 const FATURA_TURU = ["", "Satış Faturası", "Alış Faturası", "İade Faturası", "Proforma", "İrsaliye", "Diğer"];
+
+// ===========================================================================
+//  MODÜL: TOPLU CARİ İÇE AKTAR (Excel/CSV → hesaplar + açılış bakiyeleri)
+// ===========================================================================
+// Hesap türü → { ana kod, ad, tip, işaret }. İşaret: borçlu olduğun (320/336)
+// → açılış negatif (alacak bakiye); alacaklı (120) → pozitif (borç bakiye).
+const CI_TUR = {
+  "320": { code: "320", name: "Tedarikçiler", type: "tedarikci", sign: -1 },
+  "336": { code: "336", name: "Diğer Çeşitli Borçlar", type: "tedarikci", sign: -1 },
+  "120": { code: "120", name: "Alıcılar (Müşteriler)", type: "musteri", sign: 1 },
+  "121": { code: "121", name: "Alacak Senetleri", type: "musteri", sign: 1 },
+};
+function ciParseBal(v) {
+  if (typeof v === "number") return v;
+  let s = String(v || "").replace(/[₺\s]/g, "");
+  const neg = /^-/.test(s) || /-$/.test(s);
+  s = s.replace(/[^\d.,]/g, "").replace(/\./g, "").replace(",", ".");
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : (neg ? -Math.abs(n) : n);
+}
+
+async function viewCariImport(c) {
+  let accounts = await fetchAll(C.accounts).catch(() => []);
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head"><h3>📥 Toplu Cari İçe Aktar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
+      <div class="pv-fhint">Excel/CSV yükle — sütunlar: <b>Cari No · Cari Adı · Bakiye · Hesap Türü</b>.<br>
+        <b>320/336</b> = ona borçlusun (Alacak bakiye) · <b>120</b> = senin alacağın (Borç bakiye). Mevcut cari varsa <b>bakiyesi güncellenir</b>.</div>
+      <div id="ci-drop" style="margin-top:12px"></div>
+    </div>
+    <div id="ci-editor"></div>`;
+
+  $("#ci-drop").appendChild(fileDrop(async (file) => {
+    try {
+      const { headers, rows } = await parseSpreadsheet(file);
+      if (!rows.length) return toast("Veri bulunamadı.", "err");
+      build(headers, rows);
+    } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+  }, ".xlsx,.xls,.csv", true));
+
+  function build(headers, rows) {
+    const col = {
+      no: guessCol(headers, ["cari no", "carino", "cari kod", "kod"]),
+      ad: guessCol(headers, ["cari ad", "cari ünvan", "cari unvan", "ünvan", "unvan", "ad"]),
+      bakiye: guessCol(headers, ["bakiye", "tutar"]),
+      tur: guessCol(headers, ["hesap tür", "hesap tur", "tür", "tur"]),
+    };
+    if (!col.ad || !col.bakiye) return toast("'Cari Adı' ve 'Bakiye' sütunları bulunamadı.", "err");
+
+    const items = [], skipped = [];
+    rows.forEach((r) => {
+      const ad = String(r[col.ad] ?? "").trim();
+      const turRaw = String(r[col.tur] ?? "").trim();
+      const tur = (turRaw.match(/\d{3}/) || [])[0] || turRaw;
+      const cfg = CI_TUR[tur];
+      const no = String(r[col.no] ?? "").trim();
+      const bakiye = ciParseBal(r[col.bakiye]);
+      if (!ad) return;
+      if (!cfg) { skipped.push({ ad, tur: turRaw }); return; }
+      items.push({ no, ad, bakiye, tur, cfg });
+    });
+    if (!items.length) return toast("İşlenecek cari bulunamadı (Hesap Türü 320/336/120 olmalı).", "err");
+
+    // Mevcut eşleştirme: aynı ana kod altında extNo ya da ada göre
+    const findExisting = (it) => {
+      const list = accounts.filter((a) => a.parentCode === it.cfg.code);
+      return list.find((a) => a.extNo && it.no && String(a.extNo) === it.no)
+          || list.find((a) => normTr(a.name) === normTr(it.ad)) || null;
+    };
+    items.forEach((it) => { it.exist = findExisting(it); it.opening = it.cfg.sign * Math.abs(it.bakiye); });
+
+    const yeni = items.filter((it) => !it.exist).length;
+    const guncelle = items.length - yeni;
+    const byTur = {};
+    items.forEach((it) => { byTur[it.tur] = (byTur[it.tur] || 0) + 1; });
+    const turOzet = Object.entries(byTur).map(([t, n]) => `${t}: ${n}`).join(" · ");
+
+    const editor = $("#ci-editor");
+    editor.innerHTML = `
+      <div class="card">
+        <div class="pv-head"><div class="pv-title">${items.length} cari okundu</div>
+          <div class="pv-sub">${yeni} yeni · ${guncelle} güncelle · ${turOzet}${skipped.length ? ` · ${skipped.length} atlandı` : ""}</div></div>
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Cari No</th><th>Cari Adı</th><th>Tür</th><th class="num">Bakiye</th><th>Yön</th><th>Durum</th></tr></thead>
+          <tbody>${items.slice(0, 300).map((it) => `<tr>
+            <td>${esc(it.no || "—")}</td>
+            <td>${esc(it.ad)}</td>
+            <td>${esc(it.tur)}</td>
+            <td class="num">${fmtTRY(Math.abs(it.bakiye))}</td>
+            <td>${it.opening < 0 ? '<span style="color:var(--danger)">Alacak (borcun)</span>' : it.opening > 0 ? '<span style="color:var(--ok)">Borç (alacağın)</span>' : "—"}</td>
+            <td>${it.exist ? '<span style="color:var(--gold-dark)">Güncelle</span>' : "Yeni"}</td>
+          </tr>`).join("")}</tbody>
+        </table></div>
+        ${items.length > 300 ? `<div class="pv-fhint">İlk 300 satır gösteriliyor; hepsi (${items.length}) işlenecek.</div>` : ""}
+        ${skipped.length ? `<div class="notice warn" style="margin-top:10px">⚠️ ${skipped.length} satır atlandı (Hesap Türü 320/336/120 değil): ${esc(skipped.slice(0, 6).map((s) => s.ad + (s.tur ? " [" + s.tur + "]" : "")).join(", "))}${skipped.length > 6 ? "…" : ""}</div>` : ""}
+      </div>
+      <div class="pv-cta"><div class="grow"></div><button class="btn btn-primary" id="ci-save">✓ ${items.length} Cariyi İçe Aktar</button></div>`;
+
+    $("#ci-save", editor).onclick = () => apply(items, editor);
+  }
+
+  async function apply(items, editor) {
+    const btn = $("#ci-save", editor); btn.disabled = true;
+    try {
+      // Ana grupları hazırla (yoksa oluştur: 336 gibi)
+      const ensureParent = async (cfg) => {
+        let p = accounts.find((a) => String(a.code) === cfg.code && !a.parentId);
+        if (p) return p;
+        const ref = await addDoc(C.accounts(), { code: cfg.code, name: cfg.name, type: cfg.type, parentId: null, parentCode: null, openingBalance: 0, createdAt: serverTimestamp() });
+        p = { id: ref.id, code: cfg.code, name: cfg.name, type: cfg.type, parentId: null };
+        accounts.push(p);
+        return p;
+      };
+      // Ana kod başına yerel sayaç (kod çakışmasın)
+      const counter = {};
+      const nextCode = (parentCode) => {
+        if (counter[parentCode] == null)
+          counter[parentCode] = accounts.filter((a) => a.parentCode === parentCode)
+            .reduce((m, a) => { const n = parseInt(String(a.code || "").split(".")[1], 10); return isNaN(n) ? m : Math.max(m, n); }, 0);
+        counter[parentCode] += 1;
+        return `${parentCode}.${String(counter[parentCode]).padStart(2, "0")}`;
+      };
+
+      let created = 0, updated = 0, done = 0;
+      const total = items.length;
+      for (const it of items) {
+        const parent = await ensureParent(it.cfg);
+        if (it.exist) {
+          await updateDoc(doc(db, "accounts", it.exist.id), { openingBalance: it.opening, ...(it.no ? { extNo: it.no } : {}) });
+          it.exist.openingBalance = it.opening;
+          updated++;
+        } else {
+          const code = nextCode(it.cfg.code);
+          const payload = { code, name: titleCase(it.ad), type: it.cfg.type, parentId: parent.id, parentCode: it.cfg.code, vkn: "", extNo: it.no || "", openingBalance: it.opening, createdAt: serverTimestamp() };
+          const ref = await addDoc(C.accounts(), payload);
+          accounts.push({ id: ref.id, ...payload });
+          created++;
+        }
+        done++;
+        if (done % 10 === 0 || done === total) btn.textContent = `İşleniyor… ${done}/${total}`;
+      }
+      await logAction("İçe Aktarma", "Cari", `Toplu: ${created} yeni, ${updated} güncelleme`);
+      toast(`${created} yeni cari, ${updated} güncelleme.`, "ok");
+      editor.innerHTML = `<div class="notice info">✔ İçe aktarıldı: <b>${created}</b> yeni cari, <b>${updated}</b> güncelleme.
+        <a href="#/hesaplar">← Hesaplara dön</a></div>`;
+    } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
+  }
+}
 
 async function viewAccountLedger(c) {
   const id = hashQuery("id");
