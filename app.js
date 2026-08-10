@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.87";
+} from "./local-backend.js?v=2026.88";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.87";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.88";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.87";
+const APP_VERSION = "2026.88";
 const CHANGELOG = [
+  { version: "2026.88", date: "2026-08-10", items: [
+    "Toplu Cari İçe Aktar düzeltmesi: kaynak bakiyedeki eksi işareti korunuyor — 320'de −tutar artık Borç bakiye (senin alacağın), +tutar Alacak bakiye. Eksi/parantez biçimleri de tanınır. Aynı dosyayı yeniden yükleyince düzelir",
+  ]},
   { version: "2026.87", date: "2026-08-10", items: [
     "Hesap planında alt hesaplar bakiyeye göre büyükten küçüğe sıralanıyor (en yüksek tutar üstte)",
   ]},
@@ -2646,7 +2649,7 @@ const CI_TUR = {
 function ciParseBal(v) {
   if (typeof v === "number") return v;
   let s = String(v || "").replace(/[₺\s]/g, "");
-  const neg = /^-/.test(s) || /-$/.test(s);
+  const neg = /^-/.test(s) || /-$/.test(s) || /^\(.*\)$/.test(s);
   s = s.replace(/[^\d.,]/g, "").replace(/\./g, "").replace(",", ".");
   const n = parseFloat(s);
   return isNaN(n) ? 0 : (neg ? -Math.abs(n) : n);
@@ -2700,7 +2703,8 @@ async function viewCariImport(c) {
       return list.find((a) => a.extNo && it.no && String(a.extNo) === it.no)
           || list.find((a) => normTr(a.name) === normTr(it.ad)) || null;
     };
-    items.forEach((it) => { it.exist = findExisting(it); it.opening = it.cfg.sign * Math.abs(it.bakiye); });
+    // İşaret korunur: 320'de +bakiye = borcun (alacak/negatif), −bakiye = alacağın (borç/pozitif)
+    items.forEach((it) => { it.exist = findExisting(it); it.opening = it.cfg.sign * it.bakiye; });
 
     const yeni = items.filter((it) => !it.exist).length;
     const guncelle = items.length - yeni;
