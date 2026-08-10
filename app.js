@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.84";
+} from "./local-backend.js?v=2026.85";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.84";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.85";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.84";
+const APP_VERSION = "2026.85";
 const CHANGELOG = [
+  { version: "2026.85", date: "2026-08-10", items: [
+    "Banka/kasa (102/100) hareket kartı yeniden dizildi: üstte şahıs, altında işlem adı, en altta tarih (şahıs yoksa işlem adı üste geçer)",
+  ]},
   { version: "2026.84", date: "2026-08-10", items: [
     "Cari (120/320) hareket kartı yeniden dizildi: üstte cari/mağaza adı, altında neyle ödendiği (ör. 'T. Finans ile ödendi'), en altta tarih",
     "Banka ödemelerinin karşı kaydı artık cari adını üste, ödeme yöntemini açıklamaya yazıyor (Garanti + T.Finans)",
@@ -2647,9 +2650,11 @@ async function viewAccountLedger(c) {
   const kasaCard = ({ e, bakiye }) => `
     <button class="tx-card" data-edit="${e.id}">
       <div class="tx-left">
-        <div class="tx-title">${esc(e.islemAdi || "Hareket")}</div>
-        <div class="tx-sub">${fmtDate(e.date)}${e.sahis ? " · " + esc(e.sahis) : ""}</div>
-        ${e.aciklama ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : ""}
+        <div class="tx-title">${esc(e.sahis || e.islemAdi || "Hareket")}</div>
+        ${e.sahis
+          ? `<div class="tx-desc">${esc(e.islemAdi || "Hareket")}</div>`
+          : (e.aciklama ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : "")}
+        <div class="tx-sub">${fmtDate(e.date)}${e.rapor ? " · " + esc(e.rapor) : ""}</div>
       </div>
       <div class="tx-right">
         ${e.giren ? `<div class="tx-amt in">+${fmtTRY(parseNum(e.giren))}</div>` : ""}
