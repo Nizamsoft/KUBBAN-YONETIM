@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.92";
+} from "./local-backend.js?v=2026.93";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.92";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.93";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -328,8 +328,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.92";
+const APP_VERSION = "2026.93";
 const CHANGELOG = [
+  { version: "2026.93", date: "2026-08-10", items: [
+    "Fatura cari eşleştirme güçlendi: artık 'önek' yerine kelime-örtüşmesi — kayıt ile fatura adı arasındaki kelime sırası/orta kelime farkları eşleşmeyi bozmuyor (farklı firmalar yine eşleşmez)",
+  ]},
   { version: "2026.92", date: "2026-08-10", items: [
     "Fatura cari eşleştirme düzeltildi: ı/i ve ş/s gibi harf farkları artık eşleşmeyi bozmuyor (ASCII katlamalı normTr). Coşkun, Atlas Ship Supply gibi mevcut cariler artık bulunuyor",
   ]},
@@ -3178,7 +3181,14 @@ async function viewCariHareket(c) {
       const A = chCore(aName), B = chCore(itAd);
       if (!A || !B) return chNorm(aName) === chNorm(itAd) && !!chNorm(aName);
       if (A === B) return true;
-      return A.length >= 4 && B.length >= 4 && (A.startsWith(B) || B.startsWith(A));
+      // Kelime örtüşmesi (sıra/orta kelime önemsiz): kısa ismin çekirdek kelimeleri diğerinde varsa eşleş
+      const ta = [...new Set(A.split(" "))], tb = [...new Set(B.split(" "))];
+      const setB = new Set(tb);
+      const inter = ta.filter((w) => setB.has(w)).length;
+      const minLen = Math.min(ta.length, tb.length);
+      if (minLen >= 2 && inter >= minLen) return true;        // kısa ismin tüm kelimeleri diğerinde
+      if (minLen >= 3 && inter >= minLen - 1) return true;    // 3+ kelimede 1 kelime tolerans
+      return false;
     };
     const allCari = accounts.filter((a) => isCari(a.type) && a.parentId);
     const findIn = (pool, it) =>
