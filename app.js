@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.86";
+} from "./local-backend.js?v=2026.87";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.86";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.87";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.86";
+const APP_VERSION = "2026.87";
 const CHANGELOG = [
+  { version: "2026.87", date: "2026-08-10", items: [
+    "Hesap planında alt hesaplar bakiyeye göre büyükten küçüğe sıralanıyor (en yüksek tutar üstte)",
+  ]},
   { version: "2026.86", date: "2026-08-10", items: [
     "Toplu Cari İçe Aktar (Hesaplar → 📥 Toplu Cari): Excel/CSV yükle → cariler + açılış bakiyeleriyle otomatik oluşur/güncellenir",
     "Sütunlar: Cari No · Cari Adı · Bakiye · Hesap Türü. 320/336 borçlusun (Alacak bakiye), 120 alacağın (Borç bakiye). 336 için 'Diğer Çeşitli Borçlar' grubu otomatik açılır",
@@ -2334,10 +2337,10 @@ async function viewHesaplar(c) {
   });
   const byCode = (x, y) =>
     String(x.code || "").localeCompare(String(y.code || ""), undefined, { numeric: true });
-  roots.sort(byCode);
-  kids.forEach((arr) => arr.sort(byCode));
-
   const cur = (a) => balances.get(a.id)?.current || 0;
+  roots.sort(byCode);
+  // Alt hesaplar: bakiyeye göre büyükten küçüğe (tutar), eşitse koda göre
+  kids.forEach((arr) => arr.sort((x, y) => Math.abs(cur(y)) - Math.abs(cur(x)) || byCode(x, y)));
   const rolled = (a) => (kids.get(a.id) || []).reduce((s, ch) => s + rolled(ch), cur(a));
   const grand = roots.reduce((s, a) => s + rolled(a), 0);
 
