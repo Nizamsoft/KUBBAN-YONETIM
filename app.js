@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.83";
+} from "./local-backend.js?v=2026.84";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.83";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.84";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.83";
+const APP_VERSION = "2026.84";
 const CHANGELOG = [
+  { version: "2026.84", date: "2026-08-10", items: [
+    "Cari (120/320) hareket kartı yeniden dizildi: üstte cari/mağaza adı, altında neyle ödendiği (ör. 'T. Finans ile ödendi'), en altta tarih",
+    "Banka ödemelerinin karşı kaydı artık cari adını üste, ödeme yöntemini açıklamaya yazıyor (Garanti + T.Finans)",
+  ]},
   { version: "2026.83", date: "2026-08-10", items: [
     "T. Finans kart harcamalarına 'Hesap' seçimi eklendi (fatura gibi): mağaza mevcut hesaplardan seçilir veya yeni eklenir; ödeme 102'den çıkıp seçilen cariyi kapatır (tedarikçiye ödeme → 320 borç)",
     "Mağaza→hesap+rapor hafızası tüm bankalarla ortaklaştı (banka-diger); daha önce eşlenen mağaza otomatik gelir",
@@ -2657,9 +2661,9 @@ async function viewAccountLedger(c) {
     <button class="tx-card" data-edit="${e.id}">
       <div class="tx-left">
         <div class="tx-title">${esc(e.sahis || e.aciklama || "Hareket")}</div>
-        <div class="tx-sub">${fmtDate(e.date)}</div>
         ${e.aciklama && e.sahis ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : ""}
         ${(e.faturaTuru || e.faturaNo) ? `<div class="tx-tag">🧾 ${esc(e.faturaTuru || "")}${e.faturaNo ? " · " + esc(e.faturaNo) : ""}</div>` : ""}
+        <div class="tx-sub">${fmtDate(e.date)}</div>
       </div>
       <div class="tx-right">
         ${e.borc ? `<div class="tx-amt out">Borç ${fmtTRY(parseNum(e.borc))}</div>` : ""}
@@ -3891,17 +3895,17 @@ async function viewBanka(c) {
       // Kart harcaması → 102'den çıkış + seçilen hesabı kapat (karşı kayıt)
       for (const r of rows) {
         const acc = r.acc, ok = `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`;
-        const common = { date: r.date, aciklama: r.merchant || "Kart Harcaması", rapor: r.rapor, source: "banka-diger",
+        const common = { date: r.date, rapor: r.rapor, source: "banka-diger",
           otherKey: ok, banka: bank.key, bankaAciklama: r.merchant || "", matchedCode: acc.code, matchedName: acc.name, ref: r.ref || "",
           createdAt: serverTimestamp(), createdBy: currentUser.email };
-        // 1) Banka çıkışı
+        // 1) Banka çıkışı (102): açıklama = mağaza
         docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
-          islemAdi: "KART HARCAMASI", sahis: acc.name, giren: 0, cikan: r.amt });
-        // 2) Seçilen hesap kapaması (tedarikçi/müşteri → borç/alacak; diğer → çıkan)
+          islemAdi: "KART HARCAMASI", sahis: acc.name, aciklama: r.merchant || acc.name, giren: 0, cikan: r.amt });
+        // 2) Seçilen hesap kapaması: üstte cari adı, açıklama = neyle ödendiği
         const cariStyle = isCari(acc.type) || String(acc.code || "").startsWith("108");
         const side = cariStyle ? { borc: r.amt, alacak: 0 } : { giren: 0, cikan: r.amt };
         docs.push({ ...common, accountId: acc.id, accountCode: acc.code, islemNo: ++gno,
-          ...(cariStyle ? { cariNo: nextCno(acc.id) } : {}), islemAdi: "KART HARCAMASI", sahis: bankAcc.name, ...side });
+          ...(cariStyle ? { cariNo: nextCno(acc.id) } : {}), islemAdi: "KART HARCAMASI", sahis: acc.name, aciklama: `${bank.label} ile ödendi`, ...side });
       }
       await batchAdd(C.accountEntries, docs);
       await logAction("İçe Aktarma", "Banka", `${bank.label} · ${almaRows.length} blokeye alma + ${rows.length} harcama · ${docs.length} kayıt`);
@@ -4031,17 +4035,18 @@ async function viewBanka(c) {
           bankaAciklama: o.desc, matchedCode: acc.code, matchedName: acc.name, dekont: o.dekont || "",
           createdAt: serverTimestamp(), createdBy: currentUser.email,
         };
-        // 1) Banka tarafı (giren/çıkan)
+        // 1) Banka tarafı (giren/çıkan) — açıklama = karşı taraf / özel not
         docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
           islemAdi: "Para Transferi", sahis: acc.name, giren: inn ? abs : 0, cikan: inn ? 0 : abs });
-        // 2) Eşleşen hesap tarafı (karşı kayıt — muhasebe mantığı)
+        // 2) Eşleşen hesap tarafı: üstte cari adı, açıklama = neyle ödendiği/alındığı
         const cariStyle = isCari(acc.type) || String(acc.code || "").startsWith("108");
         const side = cariStyle
           ? { borc: inn ? 0 : abs, alacak: inn ? abs : 0 }
           : { giren: inn ? 0 : abs, cikan: inn ? abs : 0 };
         docs.push({ ...common, accountId: acc.id, accountCode: acc.code, islemNo: ++gno,
           ...(cariStyle ? { cariNo: nextCno(acc.id) } : {}),
-          islemAdi: "Para Transferi", sahis: bankAcc.name, ...side });
+          islemAdi: "Para Transferi", sahis: acc.name,
+          aciklama: `${bank.label} ile ${inn ? "tahsil edildi" : "ödendi"}${a.acik ? " · " + a.acik : ""}`, ...side });
       }
       await batchAdd(C.accountEntries, docs);
       await logAction("İçe Aktarma", "Banka", `${bank.label} · ${groups.length} POS + ${assigns.length} transfer · ${docs.length} kayıt`);
