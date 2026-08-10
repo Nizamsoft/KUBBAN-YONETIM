@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.91";
+} from "./local-backend.js?v=2026.92";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.91";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.92";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -328,8 +328,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.91";
+const APP_VERSION = "2026.92";
 const CHANGELOG = [
+  { version: "2026.92", date: "2026-08-10", items: [
+    "Fatura cari eşleştirme düzeltildi: ı/i ve ş/s gibi harf farkları artık eşleşmeyi bozmuyor (ASCII katlamalı normTr). Coşkun, Atlas Ship Supply gibi mevcut cariler artık bulunuyor",
+  ]},
   { version: "2026.91", date: "2026-08-10", items: [
     "Fatura Aktarımı: önce Alış/Satış seçtiriyor, sonra dosya yükletiyor (tür seçimi başta)",
     "Fatura cari eşleştirme güçlendi: şirket eklerini (A.Ş./Ltd/Şti/San/Tic…) yok sayıp çekirdek isimle eşler, tüm cari hesaplarda arar — mevcut cariyi bulamayıp tekrar açma sorunu giderildi",
@@ -3167,9 +3170,9 @@ async function viewCariHareket(c) {
       // (Başlama/Bitiş/Süre/Belge Sayısı gibi özet satırları elenir)
       /\d/.test(it.faturaNo) && !it.faturaNo.includes(":") && (it.vkn || it.amount));
 
-    // Ad eşleştirme: şirket eklerini (A.Ş., Ltd, Şti, San, Tic…) atıp çekirdek isimle karşılaştır
-    const CH_STOP = new Set(["a", "s", "ş", "as", "anonim", "sirketi", "şirketi", "sti", "şti", "ltd", "limited", "san", "sanayi", "tic", "ticaret", "ve", "paz", "pazarlama", "ith", "ihracat", "ihr", "dis", "dış", "org", "org."]);
-    const chNorm = (s) => nrm(s).replace(/[^0-9a-zçğıöşü ]/gi, " ").replace(/\s+/g, " ").trim();
+    // Ad eşleştirme: normTr ile ASCII-katla (ı/i, ş/s, ğ/g… tek biçim), şirket eklerini at, çekirdek isimle karşılaştır
+    const CH_STOP = new Set(["a", "s", "as", "anonim", "sirketi", "sti", "ltd", "limited", "san", "sanayi", "tic", "ticaret", "ve", "paz", "pazarlama", "ith", "ihracat", "ihr", "dis", "org"]);
+    const chNorm = (s) => normTr(s).replace(/[^0-9a-z ]/g, " ").replace(/\s+/g, " ").trim();
     const chCore = (s) => chNorm(s).split(" ").filter((w) => w.length > 1 && !CH_STOP.has(w)).join(" ");
     const nameMatch = (aName, itAd) => {
       const A = chCore(aName), B = chCore(itAd);
