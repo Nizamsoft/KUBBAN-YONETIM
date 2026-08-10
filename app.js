@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.79";
+} from "./local-backend.js?v=2026.80";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.79";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.80";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -327,8 +327,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.79";
+const APP_VERSION = "2026.80";
 const CHANGELOG = [
+  { version: "2026.80", date: "2026-08-10", items: [
+    "Banka Aktarımı: T. Finans eklendi. Hesap (bloke) + kart dosyalarını yükleyip bloke çözümlerini kart harcamalarıyla otomatik eşleştirir (aynı gün + birebir tutar), ters kayıtları netler",
+    "Eşleşen harcamaya gider grubu (Rapor) — mağaza daha önce girildiyse otomatik, değilse elle. Eşleşmeyenler için elle kart seçimi/rapor",
+    "Blokeye Alma satırları, yatışın 1 gün öncesine 'Gün Sonu' bloke girişi olarak yazılır; çözümler blokeden düşüp Durum Raporu giderlerine gider",
+  ]},
   { version: "2026.79", date: "2026-08-09", items: [
     "Kâr / Zarar Durumu → 'Durum Raporu'na dönüştü: basit dille bilanço. Ay seçici (Tüm Zamanlar / aylık) eklendi",
     "Dönem başında elindeki para + alacak + BORÇ ve net varlık; dönem içi kazanç/harcama; sonunda 2 sütunlu Durum Tablosu (Neyin Var / Ne Borcun Var) ve net",
@@ -3315,6 +3320,85 @@ function bkGroupPos(pos) {
   return Object.values(g).sort((a, b) => a.dep.localeCompare(b.dep) || a.ord - b.ord);
 }
 
+// --- T. Finans yardımcıları -------------------------------------------------
+// "05.08.2026 14:39" → { date:"2026-08-05", time:"14:39" }
+function tfDateTime(s) {
+  if (s instanceof Date && !isNaN(s))
+    return { date: bkISO(new Date(s.getFullYear(), s.getMonth(), s.getDate())),
+             time: String(s.getHours()).padStart(2, "0") + ":" + String(s.getMinutes()).padStart(2, "0") };
+  const m = String(s).match(/(\d{2})\.(\d{2})\.(\d{4})(?:\s+(\d{2}):(\d{2}))?/);
+  return m ? { date: `${m[3]}-${m[2]}-${m[1]}`, time: m[4] ? `${m[4]}:${m[5]}` : "" } : null;
+}
+function tfCardDate(s) {
+  if (s instanceof Date && !isNaN(s)) return bkISO(new Date(s.getFullYear(), s.getMonth(), s.getDate()));
+  const m = String(s).match(/(\d{2})\.(\d{2})\.(\d{4})/);
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
+}
+// Kart tutarı ABD biçimi: "20,589.86 TL" → 20589.86
+function parseUSD(s) {
+  if (typeof s === "number") return s;
+  const v = parseFloat(String(s || "").replace(/tl/i, "").replace(/\s/g, "").replace(/,/g, ""));
+  return isNaN(v) ? 0 : v;
+}
+// Hesap dosyası: Blokeye Alma (satış→bloke) + Bloke Çözüm (bloke→kart harcaması)
+function tfParseHesap(aoa) {
+  const low = (x) => String(x).toLocaleLowerCase("tr");
+  const hi = aoa.findIndex((r) => { const j = r.map(low); return j.some((x) => x.includes("tarih")) && j.some((x) => x.includes("açıklama") || x.includes("aciklama")) && j.some((x) => x.includes("tutar")); });
+  if (hi < 0) throw new Error("Hesap başlığı (Tarih/Açıklama/Tutar) bulunamadı.");
+  const H = aoa[hi].map((x) => String(x).trim());
+  const idx = (ks) => { for (const k of ks) { const i = H.findIndex((h) => low(h).includes(k)); if (i >= 0) return i; } return -1; };
+  const ci = { tarih: idx(["işlem tarih", "tarih"]), ref: idx(["referans"]), acik: idx(["açıklama", "aciklama"]), tutar: idx(["tutar"]) };
+  const alma = [], cozum = [], other = [];
+  aoa.slice(hi + 1).forEach((r, seq) => {
+    const dt = tfDateTime(r[ci.tarih]); if (!dt) return;
+    const acik = String(r[ci.acik] || ""), amt = parseNum(r[ci.tutar]), ref = String(r[ci.ref] || "").trim();
+    const la = acik.toLocaleLowerCase("tr");
+    const rec = { seq, date: dt.date, time: dt.time, amt, ref, acik };
+    if (la.includes("blokeye alma")) alma.push(rec);
+    else if (la.includes("bloke çözüm") || la.includes("bloke cozum")) cozum.push(rec);
+    else other.push(rec);
+  });
+  return { alma, cozum, other };
+}
+// Kart dosyası satırları: { date, merchant, amt }
+function tfParseCard(aoa) {
+  const low = (x) => String(x).toLocaleLowerCase("tr");
+  const hi = aoa.findIndex((r) => { const j = r.map(low); return j.some((x) => x.includes("tarih")) && j.some((x) => x.includes("açıklama") || x.includes("aciklama")) && j.some((x) => x.includes("tutar")); });
+  if (hi < 0) return [];
+  const H = aoa[hi].map((x) => String(x).trim());
+  const idx = (ks) => { for (const k of ks) { const i = H.findIndex((h) => low(h).includes(k)); if (i >= 0) return i; } return -1; };
+  const ci = { tarih: idx(["işlem tarih", "tarih"]), acik: idx(["açıklama", "aciklama"]), tutar: idx(["işlem tutar", "tutar"]) };
+  const out = [];
+  aoa.slice(hi + 1).forEach((r) => {
+    const date = tfCardDate(r[ci.tarih]), amt = parseUSD(r[ci.tutar]), merchant = String(r[ci.acik] || "").trim();
+    if (!date || !amt || !merchant || /ek kart/i.test(merchant)) return;
+    out.push({ date, merchant, amt });
+  });
+  return out;
+}
+// Çözümleri kart harcamalarıyla eşleştir (ters kayıt netleme + aynı gün/tutar)
+function tfMatch(cozum, cards) {
+  const near = (a, b) => Math.abs(a - b) < 0.01;
+  const pos = cozum.filter((c) => c.amt > 0), neg = cozum.filter((c) => c.amt < 0);
+  const canceled = new Set();
+  pos.forEach((p) => {
+    const n = neg.find((x) => !canceled.has(x.seq) && x.date === p.date && near(Math.abs(x.amt), p.amt));
+    if (n) canceled.add(n.seq);
+  });
+  const expenses = neg.filter((n) => !canceled.has(n.seq));
+  const used = new Set();
+  const results = expenses.map((e) => {
+    const a = Math.abs(e.amt);
+    let ci = cards.findIndex((c, i) => !used.has(i) && c.date === e.date && near(c.amt, a));
+    let approx = false;
+    if (ci < 0) { ci = cards.findIndex((c, i) => !used.has(i) && near(c.amt, a)); if (ci >= 0) approx = true; }
+    if (ci >= 0) { used.add(ci); return { ...e, amt: a, card: cards[ci], approx }; }
+    return { ...e, amt: a, card: null, approx: false };
+  });
+  const cancelCount = canceled.size + pos.length;
+  return { results, cancelCount };
+}
+
 async function viewBanka(c) {
   const allAcc = await fetchAll(C.accounts).catch(() => []);
   c.innerHTML = `<div id="bk-body"></div>`;
@@ -3332,6 +3416,7 @@ async function viewBanka(c) {
     $$(".bk-c", body).forEach((btn) => btn.onclick = () => {
       const bank = BK_BANKS.find((x) => x.key === btn.dataset.bank);
       if (bank.key === "garanti") renderGaranti(bank);
+      else if (bank.key === "tfinans") renderTFinans(bank);
       else renderSoon(bank);
     });
   }
@@ -3533,6 +3618,204 @@ async function viewBanka(c) {
     editor.addEventListener("input", bkSync);
     bkSync();
     saveBtn.onclick = () => saveAll(saveBtn, bank, bankAcc, blokeAcc, groups, other, resolveAcc, accLabel);
+  }
+
+  // ---- T. FİNANS: hesap (bloke) + kart dosyaları eşleştirme ----
+  function renderTFinans(bank) {
+    const blokeAcc = allAcc.find((a) => String(a.code) === bank.blokeCode); // 108.02
+    const body = $("#bk-body");
+    body.innerHTML = `
+      <div class="card">
+        <div class="card-head"><h3>🔵 T. Finans · Dosya Yükle</h3><button class="btn btn-sm" id="bk-back">← Banka</button></div>
+        ${blokeAcc ? "" : `<div class="notice warn">⚠️ <b>108.02 T.Finans Bloke</b> hesabı yok. <a href="#/hesaplar">Hesaplar</a>'dan varsayılan planı oluşturun.</div>`}
+        <div class="tf-steps">
+          <div class="tf-step">
+            <div class="tf-step-h"><span class="n">1</span> Hesap hareketleri <small>(bloke alma / çözüm)</small> <span id="tf-h-ok" class="tf-ok"></span></div>
+            <div id="tf-drop-h"></div>
+          </div>
+          <div class="tf-step">
+            <div class="tf-step-h"><span class="n">2</span> Kart hareketleri <small>(1-2 dosya)</small> <span id="tf-c-ok" class="tf-ok"></span></div>
+            <div id="tf-drop-c"></div>
+            <div id="tf-card-list" class="tf-card-list"></div>
+          </div>
+        </div>
+      </div>
+      <div id="tf-editor"></div>`;
+    $("#bk-back", body).onclick = chooseBank;
+    const st = { hesap: null, cards: [], cardFiles: [] };
+
+    $("#tf-drop-h", body).appendChild(fileDrop(async (file) => {
+      try {
+        const aoa = await parseSheetAOA(file);
+        st.hesap = tfParseHesap(aoa);
+        $("#tf-h-ok").textContent = `✓ ${st.hesap.alma.length} alma · ${st.hesap.cozum.length} çözüm`;
+        toast("Hesap dosyası okundu.", "ok");
+        rebuild();
+      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+    }, ".xlsx,.xls,.csv", true));
+
+    $("#tf-drop-c", body).appendChild(fileDrop(async (file) => {
+      try {
+        const aoa = await parseSheetAOA(file);
+        const rows = tfParseCard(aoa);
+        if (!rows.length) return toast("Kart hareketi bulunamadı.", "err");
+        st.cards.push(...rows); st.cardFiles.push({ name: file.name, n: rows.length });
+        $("#tf-c-ok").textContent = `✓ ${st.cards.length} kart hareketi`;
+        $("#tf-card-list").innerHTML = st.cardFiles.map((f) => `<div class="tf-cf">📄 ${esc(f.name)} <b>${f.n}</b></div>`).join("");
+        toast(`${rows.length} kart hareketi eklendi.`, "ok");
+        rebuild();
+      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+    }, ".xlsx,.xls,.csv", true));
+
+    function rebuild() { if (st.hesap) buildTFinans(bank, blokeAcc, st); }
+  }
+
+  async function buildTFinans(bank, blokeAcc, st) {
+    const editor = $("#tf-editor");
+    const entries = await fetchAll(C.accountEntries).catch(() => []);
+    const settings = await fetchAll(C.settings).catch(() => []);
+    const eg = settings.find((s) => s.id === "expenseGroups");
+    const egGroups = (eg && Array.isArray(eg.groups)) ? eg.groups : DEFAULT_EXPENSE_GROUPS;
+    const raporItems = egGroups.flatMap((g) => (g.items || []).map((it) => ({ grup: g.name, ad: it })));
+
+    // Mağaza → rapor hafızası (önceki TF çözümlerinden)
+    const memo = {};
+    entries.filter((e) => e.source === "banka-tf-cozum" && e.kartAdi && e.rapor)
+      .forEach((e) => { memo[normTr(e.kartAdi)] = e.rapor; });
+
+    const { results, cancelCount } = tfMatch(st.hesap.cozum, st.cards);
+    const matched = results.filter((r) => r.card);
+    const unmatched = results.filter((r) => !r.card);
+
+    // Blokeye Alma → önceki günün gün sonu (yatış günü bazında topla)
+    const almaByDay = {};
+    st.hesap.alma.forEach((a) => { (almaByDay[a.date] = almaByDay[a.date] || { sum: 0, n: 0, refs: [] }); almaByDay[a.date].sum += a.amt; almaByDay[a.date].n++; almaByDay[a.date].refs.push(a.ref); });
+    const prevISO = (iso) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() - 1); return bkISO(dt); };
+    const almaRows = Object.keys(almaByDay).sort().map((d) => ({ almaDate: d, gunSonu: prevISO(d), ...almaByDay[d] }));
+
+    const cardOpts = st.cards.map((c, i) => ({ i, label: `${fmtDateShort(c.date)} · ${c.merchant} · ${fmtNum(c.amt)}` }));
+
+    const cozumRow = (r, i, kind) => {
+      const rapVal = r.card ? (memo[normTr(r.card.merchant)] || "") : "";
+      const merc = r.card ? r.card.merchant : "";
+      return `<div class="tf-cz ${kind}" data-i="${i}" data-kind="${kind}">
+        <div class="tf-cz-top">
+          <div class="ic">${kind === "match" ? (r.approx ? "🟡" : "🔓") : "❓"}</div>
+          <div class="mid">
+            <div class="nm">${merc ? esc(merc) : "Eşleşmedi — kart seç / rapor gir"}</div>
+            <div class="mt">${fmtDateShort(r.date)}${r.approx ? " · ~tarih farklı" : ""}${r.ref ? " · " + esc(r.ref) : ""}</div>
+          </div>
+          <div class="v neg">−${fmtNum(r.amt)}</div>
+        </div>
+        <div class="tf-cz-fields">
+          ${kind === "unmatch" ? `<select class="tf-card-pick f" data-i="${i}"><option value="">— kart harcaması seç (ops.) —</option>${cardOpts.map((o) => `<option value="${o.i}">${esc(o.label)}</option>`).join("")}</select>` : ""}
+          <input class="tf-rapor f" data-i="${i}" list="tf-rapor-list" placeholder="Rapor * (gider grubu)" value="${esc(rapVal)}" autocomplete="off" />
+        </div>
+      </div>`;
+    };
+
+    const almaHtml = almaRows.length ? `
+      <div class="card">
+        <div class="card-head"><h3>🏦 Blokeye Alma → Gün Sonu</h3><span class="hint">yatışın 1 gün öncesi</span></div>
+        ${almaRows.map((a) => `<div class="tf-alma"><div class="mid"><div class="nm">📅 ${fmtDate(a.gunSonu)} Gün Sonu</div><div class="mt">${a.n} satış · yatış ${fmtDateShort(a.almaDate)}</div></div><b class="pos">${fmtTRY(a.sum)}</b></div>`).join("")}
+        <div class="pv-fhint" style="margin-top:8px">Bu tutarlar <b>108.02 T.Finans Bloke</b>'ye gün sonu girişi olarak yazılır. ⚠️ Gün Sonu'nda T.Finans'ı ayrıca girmeyin.</div>
+      </div>` : "";
+
+    const totMatch = matched.reduce((s, r) => s + r.amt, 0);
+    const totUn = unmatched.reduce((s, r) => s + r.amt, 0);
+
+    editor.innerHTML = `
+      <div class="card">
+        <div class="pv-head"><div class="pv-title">Bloke Çözümleri → Kart Harcamaları</div>
+          <div class="pv-sub">${matched.length} eşleşti (${fmtTRY(totMatch)})${unmatched.length ? ` · ${unmatched.length} eşleşmedi (${fmtTRY(totUn)})` : ""}${cancelCount ? ` · ${cancelCount} ters kayıt netlendi` : ""}</div></div>
+        ${matched.length ? matched.map((r) => cozumRow(r, results.indexOf(r), "match")).join("") : ""}
+        ${unmatched.length ? `<div class="tf-sec-h">❓ Eşleşmeyenler — elle</div>${unmatched.map((r) => cozumRow(r, results.indexOf(r), "unmatch")).join("")}` : ""}
+        ${!results.length ? `<div class="empty" style="padding:16px">Bloke çözümü yok.</div>` : ""}
+        <div class="pv-fhint" style="margin-top:10px">Her çözüm için <b>Rapor</b> (gider grubu) zorunlu. Blokeden çıkıp bu harcamaya gitti; Durum Raporu'ndaki giderlere düşer.</div>
+      </div>
+      ${almaHtml}
+      ${st.hesap.other.length ? `<div class="card"><div class="notice warn">ℹ️ ${st.hesap.other.length} satır bloke alma/çözüm değil (EFT vb.) — bu ekranda işlenmiyor.</div></div>` : ""}
+      <datalist id="tf-rapor-list">${raporItems.map((r) => `<option value="${esc(r.ad)}">${esc(r.grup)}</option>`).join("")}</datalist>
+      <div class="pv-cta"><div class="grow"></div><button class="btn btn-primary" id="tf-save">✓ İşle</button></div>`;
+
+    // Eşleşmeyen kart seçimi → mağaza adını satıra yaz + rapor hafızadan
+    $$(".tf-card-pick", editor).forEach((sel) => sel.onchange = () => {
+      const row = sel.closest(".tf-cz"), nm = $(".nm", row), rap = $(".tf-rapor", row);
+      const ci = sel.value === "" ? -1 : +sel.value;
+      if (ci >= 0) { nm.textContent = st.cards[ci].merchant; if (!rap.value.trim()) rap.value = memo[normTr(st.cards[ci].merchant)] || ""; }
+      else nm.textContent = "Eşleşmedi — kart seç / rapor gir";
+    });
+
+    const saveBtn = $("#tf-save", editor);
+    function tfSync() {
+      let missing = 0;
+      $$(".tf-rapor", editor).forEach((rp) => { const e = !rp.value.trim(); rp.classList.toggle("bk-req", e); rp.classList.toggle("bk-ok", !e); if (e) missing++; });
+      const nothing = !results.length && !almaRows.length;
+      if (!blokeAcc || nothing) { saveBtn.disabled = true; saveBtn.textContent = "İşlenecek yok"; }
+      else if (missing > 0) { saveBtn.disabled = true; saveBtn.textContent = `${missing} rapor eksik`; }
+      else { saveBtn.disabled = false; saveBtn.textContent = `✓ İşle (${matched.length + unmatched.length} çözüm · ${almaRows.length} gün sonu)`; }
+    }
+    editor.addEventListener("input", tfSync);
+    tfSync();
+
+    saveBtn.onclick = () => tfDoSave(saveBtn, bank, blokeAcc, results, almaRows, st, editor);
+  }
+
+  async function tfDoSave(btn, bank, blokeAcc, results, almaRows, st, editor) {
+    btn.disabled = true;
+    try {
+      // Rapor + (eşleşmeyende) seçilen mağaza topla
+      const rows = results.map((r) => {
+        const i = results.indexOf(r);
+        const rapor = ($(`.tf-rapor[data-i="${i}"]`, editor)?.value || "").trim();
+        let merchant = r.card ? r.card.merchant : "";
+        const pick = $(`.tf-card-pick[data-i="${i}"]`, editor);
+        if (pick && pick.value !== "") merchant = st.cards[+pick.value].merchant;
+        return { ...r, rapor, merchant };
+      });
+      if (rows.some((r) => !r.rapor)) { btn.disabled = false; return toast("Tüm çözümlerde Rapor zorunlu.", "err"); }
+
+      const fresh = await fetchAll(C.accountEntries).catch(() => []);
+      const cozKeys = new Set(rows.map((r) => `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`));
+      const almaKeys = new Set(almaRows.map((a) => `${bank.key}|alma|${a.gunSonu}`));
+      const isStale = (e) =>
+        (e.source === "banka-tf-cozum" && cozKeys.has(e.cozumKey)) ||
+        (e.source === "gunsonu-bloke" && e.almaKey && almaKeys.has(e.almaKey));
+      for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
+      const remaining = fresh.filter((e) => !isStale(e));
+      let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+      const cnoMap = new Map();
+      const nextCno = (id) => {
+        if (!cnoMap.has(id)) cnoMap.set(id, remaining.filter((e) => e.accountId === id).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
+        const n = cnoMap.get(id) + 1; cnoMap.set(id, n); return n;
+      };
+      const docs = [];
+      // Blokeye Alma → gün sonu bloke girişi (bir gün öncesi)
+      for (const a of almaRows) {
+        docs.push({
+          accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
+          date: a.gunSonu, islemAdi: "GÜN SONU", sahis: "", aciklama: "Gün Sonu (T.Finans POS)", rapor: "",
+          borc: a.sum, alacak: 0, faturaTuru: "", faturaNo: "",
+          source: "gunsonu-bloke", almaKey: `${bank.key}|alma|${a.gunSonu}`, banka: bank.key, imported: true,
+          createdAt: serverTimestamp(), createdBy: currentUser.email,
+        });
+      }
+      // Bloke Çözüm → kart harcaması gideri (blokeden çıkar)
+      for (const r of rows) {
+        docs.push({
+          accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
+          date: r.date, islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: r.merchant || "Bloke Çözüm", rapor: r.rapor,
+          borc: 0, alacak: r.amt, faturaTuru: "", faturaNo: "",
+          source: "banka-tf-cozum", cozumKey: `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`, banka: bank.key,
+          kartAdi: r.merchant || "", ref: r.ref || "", createdAt: serverTimestamp(), createdBy: currentUser.email,
+        });
+      }
+      await batchAdd(C.accountEntries, docs);
+      await logAction("İçe Aktarma", "Banka", `${bank.label} · ${almaRows.length} gün sonu + ${rows.length} çözüm · ${docs.length} kayıt`);
+      toast(`${rows.length} çözüm + ${almaRows.length} gün sonu işlendi.`, "ok");
+      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${rows.length}</b> bloke çözümü (gider), <b>${almaRows.length}</b> gün sonu girişi.
+        <a href="#/hesap-detay?id=${blokeAcc.id}">108.02 T.Finans Bloke</a> defterinde görebilirsin.</div>`;
+    } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
 
   // Eşleşmeyen isim için yeni cari aç (120 müşteri / 320 tedarikçi)
@@ -3981,6 +4264,7 @@ async function viewKarZarar(c) {
       let amt = 0;
       if (e.source === "gunsonu-masraf") amt = parseNum(e.cikan);
       else if (e.source === "banka-diger" && String(e.accountCode || "").startsWith("102") && parseNum(e.cikan) > 0) amt = parseNum(e.cikan);
+      else if (e.source === "banka-tf-cozum") amt = parseNum(e.alacak);
       if (amt > 0) {
         const rapor = String(e.rapor || "").trim();
         const grp = itemToGroup[normTr(rapor)] || "Diğer Harcamalar";

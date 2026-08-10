@@ -1147,3 +1147,33 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 .kz-col .ci.tot span { font-weight: 800; color: var(--ink); }
 .kz-col .ci.tot b { font-size: 15.5px; }
 @media (max-width: 360px) { .kz-sheet { grid-template-columns: 1fr; } }
+
+/* ---- Banka: T. Finans (bloke ↔ kart eşleştirme) ---- */
+.tf-steps { display: flex; flex-direction: column; gap: 14px; margin-top: 6px; }
+.tf-step-h { display: flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 700; color: var(--ink); margin-bottom: 8px; }
+.tf-step-h small { font-weight: 500; color: var(--ink-faint); }
+.tf-step-h .n { flex: 0 0 auto; width: 22px; height: 22px; border-radius: 50%; background: var(--gold); color: #fff; font-size: 12.5px; font-weight: 800; display: flex; align-items: center; justify-content: center; }
+.tf-ok { margin-left: auto; font-size: 12px; font-weight: 700; color: var(--ok); }
+.tf-card-list { display: flex; flex-direction: column; gap: 5px; margin-top: 8px; }
+.tf-cf { font-size: 12.5px; color: var(--ink-soft); background: var(--surface-2); border: 1px solid var(--line); border-radius: 9px; padding: 6px 10px; }
+.tf-cf b { color: var(--ink); }
+.tf-sec-h { font-size: 12.5px; font-weight: 800; color: var(--danger); margin: 14px 2px 6px; }
+.tf-cz { border: 1px solid var(--line); border-radius: 13px; padding: 11px 12px; margin-bottom: 9px; background: var(--surface-2); }
+.tf-cz.unmatch { border-color: #e6c68a; background: #fdf6e7; }
+.tf-cz-top { display: flex; align-items: center; gap: 10px; }
+.tf-cz-top .ic { font-size: 20px; flex: 0 0 auto; }
+.tf-cz-top .mid { flex: 1; min-width: 0; }
+.tf-cz-top .nm { font-weight: 700; font-size: 14px; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tf-cz-top .mt { font-size: 11.5px; color: var(--ink-faint); margin-top: 1px; }
+.tf-cz-top .v { flex: 0 0 auto; font-weight: 800; font-size: 15px; }
+.tf-cz-top .v.neg { color: var(--danger); }
+.tf-cz-fields { display: flex; flex-direction: column; gap: 7px; margin-top: 9px; }
+.tf-card-pick, .tf-rapor { width: 100%; font: inherit; font-size: 13.5px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); }
+.tf-rapor.bk-req { border-color: var(--danger); background: var(--danger-bg); }
+.tf-rapor.bk-ok { border-color: var(--ok); }
+.tf-alma { display: flex; align-items: center; gap: 10px; padding: 9px 2px; border-bottom: 1px dashed var(--line); }
+.tf-alma:last-of-type { border-bottom: none; }
+.tf-alma .mid { flex: 1; min-width: 0; }
+.tf-alma .nm { font-weight: 700; font-size: 13.5px; color: var(--ink); }
+.tf-alma .mt { font-size: 11.5px; color: var(--ink-faint); margin-top: 1px; }
+.tf-alma b { flex: 0 0 auto; font-weight: 800; }
