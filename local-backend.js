@@ -213,6 +213,16 @@ export async function updateProfile(user, { displayName }) {
   if (_currentUser) _currentUser = { ..._currentUser, displayName };
 }
 
+// ---- Dosya yükleme (yerel: base64 data URL olarak döner) -----------------
+export function uploadAvatar(file, _uid) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(new Error("Görsel okunamadı"));
+    r.readAsDataURL(file);
+  });
+}
+
 // ===========================================================================
 //  YEDEK / GERİ YÜKLE  (yerel moda özel yardımcılar)
 // ===========================================================================

@@ -11,10 +11,10 @@ import {
   updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp, writeBatch,
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
-  exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./supabase-backend.js?v=2026.113";
+  exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar,
+} from "./supabase-backend.js?v=2026.114";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.113";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.114";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -401,8 +401,7 @@ function showApp() {
   $("#app-view").classList.remove("hidden");
   // Kullanıcı bilgisi
   $("#user-name").textContent = currentUser.displayName || currentUser.email;
-  $("#user-avatar").textContent = (currentUser.displayName || currentUser.email || "?")
-    .trim().charAt(0).toUpperCase();
+  renderAvatar();
   const roleEl = $("#user-role");
   roleEl.textContent = isAdmin() ? "Yönetici" : "Kullanıcı";
   roleEl.classList.toggle("user", !isAdmin());
@@ -412,9 +411,80 @@ function showApp() {
   if (!location.hash) location.hash = "#/dashboard";
   route();
 }
-$("#user-chip").addEventListener("click", () => {
-  confirmDialog("Oturumu kapatmak istiyor musunuz?", () => signOut(auth));
-});
+// ---- Profil fotoğrafı / kullanıcı menüsü ----
+function avatarInner(u = currentUser, cls = "") {
+  if (u?.photoURL) return `<img class="${cls}" src="${esc(u.photoURL)}" alt="" />`;
+  return esc((u?.displayName || u?.email || "?").trim().charAt(0).toUpperCase());
+}
+function renderAvatar() { const el = $("#user-avatar"); if (el) el.innerHTML = avatarInner(); }
+
+// Görseli tarayıcıda küçült (kare, ~256px, jpeg) → küçük dosya, hızlı yükleme
+function resizeImage(file, max = 256) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const side = Math.min(img.width, img.height);       // kare kırp (ortadan)
+      const sx = (img.width - side) / 2, sy = (img.height - side) / 2;
+      const canvas = document.createElement("canvas");
+      canvas.width = canvas.height = max;
+      canvas.getContext("2d").drawImage(img, sx, sy, side, side, 0, 0, max, max);
+      canvas.toBlob((b) => b ? resolve(b) : reject(new Error("Görsel işlenemedi")), "image/jpeg", 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Görsel okunamadı")); };
+    img.src = url;
+  });
+}
+async function changeAvatar(file) {
+  const blob = await resizeImage(file, 256);
+  const url = await uploadAvatar(blob, currentUser.uid);
+  await updateDoc(doc(db, "users", currentUser.uid), { photoURL: url });
+  currentUser.photoURL = url;
+  renderAvatar();
+}
+async function removeAvatar() {
+  await updateDoc(doc(db, "users", currentUser.uid), { photoURL: "" });
+  currentUser.photoURL = "";
+  renderAvatar();
+}
+function openProfileModal() {
+  const body = document.createElement("div");
+  body.className = "prof";
+  const draw = () => {
+    body.innerHTML = `
+      <div class="prof-head">
+        <div class="prof-av">${avatarInner()}</div>
+        <div class="prof-info">
+          <div class="prof-name">${esc(currentUser.displayName || "")}</div>
+          <div class="prof-mail">${esc(currentUser.email || "")}</div>
+          <span class="role-badge${isAdmin() ? "" : " user"}">${isAdmin() ? "Yönetici" : "Kullanıcı"}</span>
+        </div>
+      </div>
+      <div class="prof-actions">
+        <button class="btn btn-sm" id="prof-photo">📷 Fotoğraf ${currentUser.photoURL ? "Değiştir" : "Ekle"}</button>
+        ${currentUser.photoURL ? `<button class="btn btn-sm" id="prof-rm">Kaldır</button>` : ""}
+      </div>
+      <input type="file" id="prof-file" accept="image/*" style="display:none" />`;
+    $("#prof-photo", body).onclick = () => $("#prof-file", body).click();
+    $("#prof-file", body).onchange = async (e) => {
+      const f = e.target.files[0]; if (!f) return;
+      const lb = loadingBar("Fotoğraf yükleniyor…");
+      try { await changeAvatar(f); lb.finish(() => { draw(); toast("Profil fotoğrafı güncellendi.", "ok"); }); }
+      catch (err) { lb.finish(() => toast("Yüklenemedi: " + err.message, "err")); }
+    };
+    const rm = $("#prof-rm", body);
+    if (rm) rm.onclick = async () => {
+      try { await removeAvatar(); draw(); toast("Fotoğraf kaldırıldı.", "ok"); }
+      catch (err) { toast("Hata: " + err.message, "err"); }
+    };
+  };
+  draw();
+  const m = openModal({ title: "Profil", body, footer: [
+    mkBtn("Çıkış Yap", "btn-danger", () => { m.close(); confirmDialog("Oturumu kapatmak istiyor musunuz?", () => signOut(auth)); }),
+    mkBtn("Kapat", "", () => m.close()),
+  ]});
+}
+$("#user-chip").addEventListener("click", openProfileModal);
 
 // ---------------------------------------------------------------------------
 //  MOBİL MENÜ (kayan çekmece)
@@ -440,8 +510,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.113";
+const APP_VERSION = "2026.114";
 const CHANGELOG = [
+  { version: "2026.114", date: "2026-08-11", items: [
+    "Kullanıcı profil fotoğrafı: sağ üstteki isme tıkla → Profil → Fotoğraf Ekle (Supabase Storage)",
+  ]},
   { version: "2026.113", date: "2026-08-11", items: [
     "☁️ Bulut moda geçildi: veriler artık Supabase'te saklanıyor ve cihazlar arası paylaşılıyor",
     "Yedek Al / Yedek Yükle bulut (async) çalışacak şekilde güncellendi",

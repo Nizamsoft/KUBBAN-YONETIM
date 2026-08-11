@@ -9,7 +9,7 @@
 //  Kurulum SQL'i: supabase-setup.sql · Ayarlar: config.js (SUPABASE_URL / KEY)
 // ============================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.113";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.114";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
@@ -183,6 +183,16 @@ export async function signOut(_auth) { await sb.auth.signOut(); }
 export async function updateProfile(_user, { displayName }) {
   const { error } = await sb.auth.updateUser({ data: { displayName } });
   if (error) throw new Error(error.message);
+}
+
+// ---- Dosya yükleme (Storage: avatars) ------------------------------------
+// file: Blob/File → 'avatars' kovasına {uid}.jpg olarak yükler, herkese açık URL döner
+export async function uploadAvatar(file, uid) {
+  const path = `${uid}.jpg`;
+  const { error } = await sb.storage.from("avatars").upload(path, file, { upsert: true, contentType: "image/jpeg" });
+  if (error) throw new Error(error.message);
+  const { data } = sb.storage.from("avatars").getPublicUrl(path);
+  return `${data.publicUrl}?t=${Date.now()}`;   // önbelleği kır — yeni foto hemen görünsün
 }
 
 // ---- Yedek / bakım -------------------------------------------------------
