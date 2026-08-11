@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.128";
+} from "./supabase-backend.js?v=2026.129";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.128";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.129";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.128";
+const APP_VERSION = "2026.129";
 const CHANGELOG = [
+  { version: "2026.129", date: "2026-08-11", items: [
+    "🧾 Cari Geçmişi İçe Aktar: cari (120/320) borç/alacak hareketleri Excel'den yüklenir — satırlar ŞAHIS adına göre mevcut carilere eşleşir (açılış 0)",
+    "Eşleşmeyen şahıslar uyarıyla listelenir; tekrar yüklemede öncekiler silinir",
+  ]},
   { version: "2026.128", date: "2026-08-11", items: [
     "Banka Geçmişi: her banka için Açılış Bakiyesi elle girilir; Son Bakiye anında hesaplanır (dosyadaki bakiye sütunu net tutar olduğundan güvenilir değildi)",
   ]},
@@ -1130,6 +1134,7 @@ const ROUTES = {
   "cari-import":      { title: "Toplu Cari İçe Aktar", crumb: "Hesaplar", render: viewCariImport },
   "kasa-import":      { title: "Kasa Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewKasaImport, admin: true, back: "#/hesaplar" },
   "banka-import":     { title: "Banka Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewBankaImport, admin: true, back: "#/hesaplar" },
+  "cari-gecmis-import": { title: "Cari Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewCariGecmisImport, admin: true, back: "#/hesaplar" },
   "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger, back: "#/hesaplar" },
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
@@ -2815,6 +2820,7 @@ async function viewHesaplar(c) {
       <button class="btn btn-sm" id="acc-import">📥 Toplu Cari</button>
       <button class="btn btn-sm" id="acc-kasa" style="display:none">📒 Kasa Geçmişi</button>
       <button class="btn btn-sm" id="acc-banka" style="display:none">🏦 Banka Geçmişi</button>
+      <button class="btn btn-sm" id="acc-carigec" style="display:none">🧾 Cari Geçmişi</button>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
     </div>
@@ -2938,6 +2944,8 @@ async function viewHesaplar(c) {
   if (kasaBtn) { if (isAdmin()) kasaBtn.style.display = ""; kasaBtn.onclick = () => { location.hash = "#/kasa-import"; }; }
   const bankaBtn = $("#acc-banka", c);
   if (bankaBtn) { if (isAdmin()) bankaBtn.style.display = ""; bankaBtn.onclick = () => { location.hash = "#/banka-import"; }; }
+  const cariGecBtn = $("#acc-carigec", c);
+  if (cariGecBtn) { if (isAdmin()) cariGecBtn.style.display = ""; cariGecBtn.onclick = () => { location.hash = "#/cari-gecmis-import"; }; }
   // "Hesapları Düzenle" modu: düzenle/alt ekle ikonları görünür olur
   $("#edit-toggle").onclick = () => {
     const list = $(".acc-list", c);
@@ -3635,6 +3643,197 @@ async function viewBankaImport(c) {
       await logAction("İçe Aktarma", "Banka Geçmişi", `${total} hareket (Garanti + T.Finans)`);
       pb.done(() => {
         successAnim(`${total.toLocaleString("tr-TR")} banka hareketi aktarıldı`, () => {
+          location.hash = "#/hesaplar";
+        });
+      });
+    } catch (e) {
+      pb.done(() => toast("Hata: " + e.message, "err"));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  CARİ GEÇMİŞİ İÇE AKTAR — cari (120/320) hesaplarının borç/alacak hareketleri
+//  Eşleme: ŞAHIS adı → mevcut cari hesap (Toplu Cari ile eklenenler).
+//  Sütunlar: CARİ NO(bilgi) · NO(atlanır) · Tarih · Şahıs · Açıklama · Rapor ·
+//            Borç · Alacak · Bakiye(net, kullanılmaz) · Fatura · Fatura No
+//  Açılış 0 (sadece hareketler). İşlem No uygulama tarafından (hesap başına 1…N).
+// ---------------------------------------------------------------------------
+const CARI_SRC = "cari-gecmis";
+async function viewCariGecmisImport(c) {
+  if (!isAdmin()) {
+    c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`;
+    return;
+  }
+  const accounts = await fetchAll(C.accounts).catch(() => []);
+  const cariAccounts = accounts.filter((a) => isCari(a.type));
+  const nameMap = new Map();          // normTr(ad) → hesap (ilk eşleşen)
+  cariAccounts.forEach((a) => { const k = normTr(a.name); if (k && !nameMap.has(k)) nameMap.set(k, a); });
+  const priorEntries = await fetchAll(C.accountEntries).catch(() => []);
+  const priorCount = priorEntries.filter((e) => e.source === CARI_SRC).length;
+
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head"><h3>🧾 Cari Geçmişi İçe Aktar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
+      ${!cariAccounts.length ? `<div class="notice warn">⚠️ Kayıtlı cari (120/320) hesap yok. Önce <b>Toplu Cari İçe Aktar</b> ile carileri oluşturun.</div>` : `
+      <div class="pv-fhint">Excel (.xlsx) yükleyin — "Cari Verileri" sayfası. Satırlar <b>ŞAHIS adına göre</b> mevcut cari hesaplara eşleştirilir.
+        İşlem numaraları uygulama tarafından verilir; <b>açılış 0</b> (yalnız hareketler eklenir).<br>
+        Mevcut <b>${cariAccounts.length.toLocaleString("tr-TR")}</b> cari hesap var.
+        ${priorCount ? `<br>⚠️ Daha önce içe aktarılmış <b>${priorCount.toLocaleString("tr-TR")}</b> cari geçmişi hareketi var — yeni yükleme <b>bunların yerini alır</b>.` : ""}</div>
+      <div id="cg-drop" style="margin-top:12px"></div>`}
+    </div>
+    <div id="cg-editor"></div>`;
+  if (!cariAccounts.length) return;
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const cdate = (v) => {
+    if (v instanceof Date) return `${v.getUTCFullYear()}-${pad2(v.getUTCMonth() + 1)}-${pad2(v.getUTCDate())}`;
+    const m = String(v || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+    if (!m) return "";
+    let y = m[3]; if (y.length === 2) y = "20" + y;
+    return `${y}-${pad2(+m[2])}-${pad2(+m[1])}`;
+  };
+
+  $("#cg-drop").appendChild(fileDrop(async (file) => {
+    const lb = loadingBar("Dosya okunuyor…");
+    try {
+      const aoa = await parseSheetAOA(file);
+      lb.finish(() => build(aoa));
+    } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
+  }, ".xlsx,.xls", true));
+
+  function build(aoa) {
+    let hi = aoa.findIndex((r) => {
+      const j = (r || []).map(normTr).join("|");
+      return j.includes("sahis") && j.includes("borc") && j.includes("alacak");
+    });
+    if (hi < 0) hi = aoa.findIndex((r) => (r || []).some((x) => String(x).trim() !== ""));
+    if (hi < 0) return toast("Veri bulunamadı.", "err");
+    const header = (aoa[hi] || []).map((h) => normTr(h));
+    const idxIncl = (kw) => header.findIndex((h) => h.includes(kw));
+    const idxExact = (kw) => header.findIndex((h) => h === kw);
+    const col = {
+      cariNo: idxIncl("cari no"), date: idxIncl("tarih"), sahis: idxIncl("sahis"),
+      aciklama: idxIncl("aciklama"), rapor: idxIncl("rapor"),
+      borc: idxIncl("borc"), alacak: idxIncl("alacak"),
+      fatura: idxExact("fatura"), faturaNo: idxIncl("fatura no"),
+    };
+    if (col.sahis < 0 || (col.borc < 0 && col.alacak < 0))
+      return toast("'Şahıs' ve 'Borç/Alacak' sütunları bulunamadı.", "err");
+
+    const get = (r, i) => (i >= 0 ? String(r[i] ?? "").trim() : "");
+    const byAcc = new Map();       // accountId → { acc, rows:[] }
+    const unmatched = new Map();   // normTr(ad) → { name, count }
+    let total = 0;
+    aoa.slice(hi + 1).forEach((r) => {
+      if (!r || !r.some((x) => String(x).trim() !== "")) return;
+      const sahis = get(r, col.sahis);
+      if (!sahis) return;
+      const borc = col.borc >= 0 ? parseNum(r[col.borc]) : 0;
+      const alacak = col.alacak >= 0 ? parseNum(r[col.alacak]) : 0;
+      const date = cdate(r[col.date]);
+      if (!date && !borc && !alacak) return;
+      total++;
+      const acc = nameMap.get(normTr(sahis));
+      const row = {
+        cariNo: get(r, col.cariNo), date, sahis, aciklama: get(r, col.aciklama), rapor: get(r, col.rapor),
+        borc, alacak, faturaTuru: get(r, col.fatura), faturaNo: get(r, col.faturaNo),
+      };
+      if (!acc) {
+        const k = normTr(sahis);
+        const u = unmatched.get(k) || { name: sahis, count: 0 };
+        u.count++; unmatched.set(k, u);
+        return;
+      }
+      if (!byAcc.has(acc.id)) byAcc.set(acc.id, { acc, rows: [] });
+      byAcc.get(acc.id).rows.push(row);
+    });
+
+    const matchedRows = [...byAcc.values()].reduce((s, x) => s + x.rows.length, 0);
+    const unmatchedRows = [...unmatched.values()].reduce((s, x) => s + x.count, 0);
+    if (!matchedRows) return toast("Hiçbir satır mevcut cari hesaplarla eşleşmedi (Şahıs adları tutmuyor).", "err");
+
+    // Önizleme için ilk 60 eşleşen satır (dosya sırasında)
+    const preview = [];
+    for (const { acc, rows } of byAcc.values()) for (const r of rows) { preview.push({ acc, r }); if (preview.length >= 60) break; }
+
+    const editor = $("#cg-editor");
+    const unmatchedList = [...unmatched.values()].sort((a, b) => b.count - a.count);
+    editor.innerHTML = `
+      <div class="card">
+        <div class="pv-head"><div class="pv-title">${total.toLocaleString("tr-TR")} hareket okundu</div>
+          <div class="pv-sub">${byAcc.size.toLocaleString("tr-TR")} cari hesaba eşleşti · ${matchedRows.toLocaleString("tr-TR")} hareket aktarılacak</div></div>
+        ${unmatchedRows ? `<div class="notice warn" style="margin-bottom:10px">⚠️ <b>${unmatchedList.length}</b> şahıs eşleşmedi (${unmatchedRows.toLocaleString("tr-TR")} satır atlanacak): ${esc(unmatchedList.slice(0, 8).map((u) => u.name + " (" + u.count + ")").join(", "))}${unmatchedList.length > 8 ? "…" : ""}</div>` : `<div class="notice info" style="margin-bottom:10px">✅ Tüm şahıslar mevcut cari hesaplarla eşleşti.</div>`}
+        <div class="table-wrap"><table class="data">
+          <thead><tr>
+            <th>Cari Hesap</th><th>Cari No</th><th>Tarih</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
+            <th class="num">Borç</th><th class="num">Alacak</th><th>Fatura</th><th>Fatura No</th>
+          </tr></thead>
+          <tbody>${preview.map(({ acc, r }) => `<tr>
+            <td>${esc(acc.code || "")} ${esc(acc.name || "")}</td>
+            <td>${esc(r.cariNo)}</td>
+            <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--danger)">—</span>'}</td>
+            <td>${esc(r.sahis)}</td><td>${esc(r.aciklama)}</td><td>${esc(r.rapor)}</td>
+            <td class="num">${r.borc ? fmtTRY(r.borc) : "—"}</td>
+            <td class="num">${r.alacak ? fmtTRY(r.alacak) : "—"}</td>
+            <td>${esc(r.faturaTuru)}</td><td>${esc(r.faturaNo)}</td>
+          </tr>`).join("")}</tbody>
+        </table></div>
+        ${matchedRows > 60 ? `<div class="pv-fhint">İlk 60 satır gösteriliyor; eşleşen ${matchedRows.toLocaleString("tr-TR")} satır aktarılacak.</div>` : ""}
+      </div>
+      <div class="pv-cta"><div class="grow"></div>
+        <button class="btn btn-primary" id="cg-save">✓ ${matchedRows.toLocaleString("tr-TR")} Hareketi İçe Aktar</button></div>`;
+
+    $("#cg-save", editor).onclick = () => {
+      confirmDialog(
+        `${matchedRows.toLocaleString("tr-TR")} hareket, ${byAcc.size.toLocaleString("tr-TR")} cari hesaba aktarılacak (açılış 0).` +
+        (unmatchedRows ? ` ${unmatchedRows.toLocaleString("tr-TR")} eşleşmeyen satır atlanacak.` : "") +
+        (priorCount ? ` Önceki ${priorCount.toLocaleString("tr-TR")} cari geçmişi silinecek.` : "") +
+        ` Devam edilsin mi?`,
+        () => doImport(byAcc));
+    };
+  }
+
+  async function doImport(byAcc) {
+    const pb = progressBar("Cari geçmişi aktarılıyor…");
+    try {
+      // 1) Önceki cari-gecmis kayıtlarını sil (hepsi — tam yenileme)
+      const stale = priorEntries.filter((e) => e.source === CARI_SRC);
+      if (stale.length) {
+        pb.set(3, `${stale.length.toLocaleString("tr-TR")} eski kayıt siliniyor…`);
+        for (let i = 0; i < stale.length; i += 400) {
+          const bt = writeBatch(db);
+          stale.slice(i, i + 400).forEach((e) => bt.delete(doc(db, "accountEntries", e.id)));
+          await bt.commit();
+        }
+      }
+
+      // 2) Her cari: açılış 0 + hareketler (İşlem No hesap başına 1…N)
+      const now = new Date().toISOString();
+      const docs = [];
+      for (const { acc, rows } of byAcc.values()) {
+        await updateDoc(doc(db, "accounts", acc.id), { openingBalance: 0 });
+        rows.forEach((r, i) => docs.push({
+          accountId: acc.id, accountCode: String(acc.code || ""),
+          islemNo: i + 1, cariNo: r.cariNo, date: r.date, sahis: r.sahis,
+          aciklama: r.aciklama, rapor: r.rapor, borc: r.borc || 0, alacak: r.alacak || 0,
+          faturaTuru: r.faturaTuru, faturaNo: r.faturaNo,
+          source: CARI_SRC, createdAt: now,
+        }));
+      }
+
+      const total = docs.length;
+      for (let i = 0; i < total; i += 400) {
+        const bt = writeBatch(db);
+        docs.slice(i, i + 400).forEach((d) => bt.set(doc(C.accountEntries()), d));
+        await bt.commit();
+        const done = Math.min(i + 400, total);
+        pb.set(8 + Math.round((done / total) * 90), `${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")}`);
+      }
+
+      await logAction("İçe Aktarma", "Cari Geçmişi", `${total} hareket · ${byAcc.size} cari`);
+      pb.done(() => {
+        successAnim(`${total.toLocaleString("tr-TR")} cari hareketi aktarıldı`, () => {
           location.hash = "#/hesaplar";
         });
       });
