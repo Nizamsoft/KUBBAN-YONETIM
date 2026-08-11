@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.127";
+} from "./supabase-backend.js?v=2026.128";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.127";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.128";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.127";
+const APP_VERSION = "2026.128";
 const CHANGELOG = [
+  { version: "2026.128", date: "2026-08-11", items: [
+    "Banka Geçmişi: her banka için Açılış Bakiyesi elle girilir; Son Bakiye anında hesaplanır (dosyadaki bakiye sütunu net tutar olduğundan güvenilir değildi)",
+  ]},
   { version: "2026.127", date: "2026-08-11", items: [
     "🏦 Banka Geçmişi İçe Aktar: tek Excel'den Garanti (102.01) ve Türkiye Finans (102.02) birlikte yüklenir",
     "BANKA sütununa göre ayrılır; her banka kendi açılış/yürüyen bakiyesiyle, dosyadaki Banka Bakiyesi ile doğrulanır",
@@ -3519,35 +3522,28 @@ async function viewBankaImport(c) {
     });
     if (!rows.length) return toast("İşlenecek satır bulunamadı.", "err");
 
-    // Her banka için açılış + yürüyen bakiye doğrulaması (dosya sırası = kronolojik)
+    // Her banka için toplamlar. Açılış bakiyesi KULLANICI tarafından girilir —
+    // dosyadaki "Banka Bakiyesi" bu üründe net tutar (giren−çıkan), güvenilir değil.
     const stats = {};
     BANKS.forEach((b) => {
       const list = byBank[b.key];
       if (!list.length) { stats[b.key] = null; return; }
-      const first = list[0];
-      const opening = first.bakiye != null ? (first.bakiye - (first.giren - first.cikan)) : 0;
-      let run = opening, mismatch = 0, firstBad = null;
-      list.forEach((r, i) => {
-        run += r.giren - r.cikan; r.run = run;
-        if (r.bakiye != null && Math.abs(run - r.bakiye) > 0.5) { mismatch++; if (firstBad == null) firstBad = i; }
-      });
-      stats[b.key] = {
-        count: list.length, opening, finalBal: run, lastGuncel: list[list.length - 1].bakiye,
-        mismatch, firstBad,
-        totGiren: list.reduce((s, r) => s + r.giren, 0),
-        totCikan: list.reduce((s, r) => s + r.cikan, 0),
-      };
+      const totGiren = list.reduce((s, r) => s + r.giren, 0);
+      const totCikan = list.reduce((s, r) => s + r.cikan, 0);
+      stats[b.key] = { count: list.length, totGiren, totCikan, net: totGiren - totCikan };
     });
 
     const card = (b) => {
       const s = stats[b.key];
       if (!s) return `<div class="ka-cell"><div class="k">${b.label}</div><div class="v" style="font-size:13px;color:var(--ink-soft)">dosyada yok</div></div>`;
-      const ok = s.mismatch === 0;
       return `<div class="ka-cell" style="text-align:left">
-        <div class="k">${b.label} · ${s.count.toLocaleString("tr-TR")} hareket ${ok ? "✅" : "⚠️"}</div>
-        <div class="v" style="font-size:15px">Son: ${fmtTRY(s.finalBal)}</div>
-        <div style="font-size:12px;color:var(--ink-soft);margin-top:4px">Açılış ${fmtTRY(s.opening)} · Giren ${fmtTRY(s.totGiren)} · Çıkan ${fmtTRY(s.totCikan)}</div>
-        ${ok ? "" : `<div style="font-size:12px;color:var(--danger);margin-top:3px">${s.mismatch} satırda bakiye uyuşmuyor (ilki ${s.firstBad + 1}.)</div>`}
+        <div class="k">${b.label} · ${s.count.toLocaleString("tr-TR")} hareket</div>
+        <div class="field" style="margin:8px 0 6px">
+          <label style="font-size:11px;color:var(--ink-soft)">Açılış Bakiyesi</label>
+          <div class="money-wrap"><input class="num money bi-open" data-bank="${b.key}" inputmode="decimal" value="0,00" /><span class="cur">₺</span></div>
+        </div>
+        <div style="font-size:12px;color:var(--ink-soft)">Giren ${fmtTRY(s.totGiren)} · Çıkan ${fmtTRY(s.totCikan)}</div>
+        <div style="font-size:14px;font-weight:800;margin-top:5px">Son Bakiye: <span class="bi-final" data-bank="${b.key}">${fmtTRY(s.net)}</span></div>
       </div>`;
     };
 
@@ -3556,42 +3552,49 @@ async function viewBankaImport(c) {
       <div class="card">
         <div class="pv-head"><div class="pv-title">${rows.length.toLocaleString("tr-TR")} hareket okundu</div>
           <div class="pv-sub">${unknown ? unknown + " satır bilinmeyen banka (atlandı) · " : ""}Garanti + T. Finans</div></div>
+        <div class="notice info" style="margin-bottom:10px">Her bankanın <b>Açılış Bakiyesi</b>'ni girin — <b>Son Bakiye</b> anında hesaplanır. (T. Finans genelde 0.) Bilinen güncel bakiyeyi tutturmak için açılışı ayarlayın.</div>
         <div class="ka-grid">${BANKS.map(card).join("")}</div>
         <div class="table-wrap" style="margin-top:12px"><table class="data">
           <thead><tr>
             <th>Banka</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
-            <th class="num">Giren</th><th class="num">Çıkan</th><th class="num">Bakiye</th><th class="num">Dosya Bakiye</th>
+            <th class="num">Giren</th><th class="num">Çıkan</th>
           </tr></thead>
-          <tbody>${rows.slice(0, 60).map((r) => {
-            const bad = r.bakiye != null && Math.abs(r.run - r.bakiye) > 0.5;
-            return `<tr class="${bad ? "hl-row" : ""}">
+          <tbody>${rows.slice(0, 60).map((r) => `<tr>
               <td>${r.bankKey === "garanti" ? "Garanti" : "T. Finans"}</td>
               <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--danger)">—</span>'}</td>
               <td>${esc(r.islemAdi)}</td><td>${esc(r.sahis)}</td><td>${esc(r.aciklama)}</td><td>${esc(r.rapor)}</td>
               <td class="num" style="color:var(--ok)">${r.giren ? fmtTRY(r.giren) : "—"}</td>
               <td class="num" style="color:var(--danger)">${r.cikan ? fmtTRY(r.cikan) : "—"}</td>
-              <td class="num" style="font-weight:700">${fmtTRY(r.run)}</td>
-              <td class="num" style="color:${bad ? "var(--danger)" : "var(--ink-faint)"}">${r.bakiye != null ? fmtTRY(r.bakiye) : "—"}</td>
-            </tr>`;
-          }).join("")}</tbody>
+            </tr>`).join("")}</tbody>
         </table></div>
         ${rows.length > 60 ? `<div class="pv-fhint">İlk 60 satır gösteriliyor; hepsi (${rows.length.toLocaleString("tr-TR")}) aktarılacak.</div>` : ""}
       </div>
       <div class="pv-cta"><div class="grow"></div>
         <button class="btn btn-primary" id="bi-save">✓ ${rows.length.toLocaleString("tr-TR")} Hareketi İçe Aktar</button></div>`;
 
+    // Açılış girişi → Son Bakiye canlı güncellenir
+    const openOf = (key) => parseNum($(`.bi-open[data-bank="${key}"]`, editor)?.value || 0);
+    const refreshFinals = () => BANKS.forEach((b) => {
+      const s = stats[b.key]; if (!s) return;
+      const el = $(`.bi-final[data-bank="${b.key}"]`, editor);
+      if (el) el.textContent = fmtTRY(openOf(b.key) + s.net);
+    });
+    wireMoney(editor);
+    $$(".bi-open", editor).forEach((inp) => inp.addEventListener("input", refreshFinals));
+
     $("#bi-save", editor).onclick = () => {
+      const openings = {}; BANKS.forEach((b) => { if (stats[b.key]) openings[b.key] = openOf(b.key); });
       const parts = BANKS.filter((b) => stats[b.key]).map((b) =>
-        `${b.label}: ${stats[b.key].count.toLocaleString("tr-TR")} hareket, son ${fmtTRY(stats[b.key].finalBal)}`);
+        `${b.label}: ${stats[b.key].count.toLocaleString("tr-TR")} hareket, açılış ${fmtTRY(openings[b.key])} → son ${fmtTRY(openings[b.key] + stats[b.key].net)}`);
       confirmDialog(
-        `${rows.length.toLocaleString("tr-TR")} hareket aktarılacak.\n${parts.join(" · ")}.` +
+        `${rows.length.toLocaleString("tr-TR")} hareket aktarılacak. ${parts.join(" · ")}.` +
         (priorCount ? ` Önceki ${priorCount.toLocaleString("tr-TR")} banka geçmişi silinecek.` : "") +
         ` Devam edilsin mi?`,
-        () => doImport(byBank, stats));
+        () => doImport(byBank, stats, openings));
     };
   }
 
-  async function doImport(byBank, stats) {
+  async function doImport(byBank, stats, openings) {
     const pb = progressBar("Banka geçmişi aktarılıyor…");
     try {
       // 1) Önceki banka-gecmis kayıtlarını sil (iki hesap için)
@@ -3611,7 +3614,7 @@ async function viewBankaImport(c) {
       const docs = [];
       for (const b of BANKS) {
         const s = stats[b.key]; if (!s) continue;
-        await updateDoc(doc(db, "accounts", b.acc.id), { openingBalance: s.opening });
+        await updateDoc(doc(db, "accounts", b.acc.id), { openingBalance: openings[b.key] || 0 });
         byBank[b.key].forEach((r, i) => docs.push({
           accountId: b.acc.id, accountCode: String(b.acc.code),
           islemNo: i + 1, date: r.date, islemAdi: r.islemAdi, sahis: r.sahis,
