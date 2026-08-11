@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.117";
+} from "./supabase-backend.js?v=2026.118";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.117";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.118";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -535,8 +535,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.117";
+const APP_VERSION = "2026.118";
 const CHANGELOG = [
+  { version: "2026.118", date: "2026-08-11", items: [
+    "Kullanıcı yönetimi 'Yetkisiz (giriş yok)' hatası giderildi (oturum token'ı Edge Function'a açıkça gönderiliyor)",
+  ]},
   { version: "2026.117", date: "2026-08-11", items: [
     "📒 Kasa Geçmişi İçe Aktar: 100 Kasa hesabının eski hareketleri Excel'den yüklenebiliyor (yönetici)",
     "Açılış bakiyesi otomatik hesaplanıyor; yürüyen bakiye dosyadaki 'Güncel Tutar' ile doğrulanıyor",
