@@ -990,15 +990,21 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 /* ===== Banka önizleme: hesap defteriyle aynı tablo (table.data), mobilde kart ===== */
 .pv-tbl-wrap { margin-top: 6px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .pv-tbl td { vertical-align: middle; }
-/* Açıklama sütunu sarabilsin (uzun metin taşmasın) */
-.pv-tbl td[data-label="Açıklama"] { white-space: normal; min-width: 170px; }
+/* Açıklama + Banka Açıklaması sütunları sarabilsin */
+.pv-tbl td[data-label="Açıklama"] { white-space: normal; min-width: 150px; }
+.pv-tbl td[data-label="Banka Açıklaması"] { white-space: normal; min-width: 170px; }
 .pv-tbl td small { color: var(--ink-faint); font-weight: 600; }
 .pv-tbl .pv-ic { margin-right: 4px; }
 .pv-tbl .pv-muted { color: var(--ink-faint); }
-/* Giren/Çıkan renkleri — defterdeki gibi */
-.pv-tbl td.pv-in { color: var(--ok); font-variant-numeric: tabular-nums; }
-.pv-tbl td.pv-out { color: var(--danger); font-variant-numeric: tabular-nums; }
+.pv-tbl td.pv-bank { color: var(--ink-soft); font-size: 12px; }
+.pv-tbl .pv-note { display: flex; align-items: center; gap: 6px; }
+.pv-tbl .pv-acik-inline { display: block; width: 100%; margin-top: 6px; font: inherit; font-size: 12px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-2); color: var(--ink); }
+.pv-tbl .pv-acik-inline[hidden] { display: none; }
+/* Giren/Çıkan/Bakiye renkleri — defterdeki gibi */
+.pv-tbl td.pv-in { color: var(--ok); font-variant-numeric: tabular-nums; font-weight: 700; }
+.pv-tbl td.pv-out { color: var(--danger); font-variant-numeric: tabular-nums; font-weight: 700; }
 .pv-tbl td.pv-dash { color: var(--ink-faint); }
+.pv-tbl td.pv-bal { font-weight: 700; font-variant-numeric: tabular-nums; }
 .pv-tbl tr.pv-day td { background: var(--surface-2); font-weight: 800; font-size: 12px; color: var(--ink); padding: 7px 10px; }
 .pv-tbl tr.pv-day b { float: right; color: var(--gold-dark); font-variant-numeric: tabular-nums; }
 .pv-tbl tr.pv-day small { text-transform: uppercase; letter-spacing: .3px; }
@@ -1012,8 +1018,7 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 .pv-tbl input.f[readonly] { cursor: pointer; }
 .pv-tbl input.f:focus, .pv-tbl select.f:focus { outline: none; border-color: var(--gold); background: var(--surface); box-shadow: 0 0 0 3px rgba(166,123,46,.12); }
 .pv-tbl input.f::placeholder { color: var(--ink-faint); }
-.pv-tbl input.f.bk-req { background: #fdf3f1; border-color: #e6b3ad; }
-.pv-tbl input.f.bk-ok { background: var(--ok-bg); border-color: #bfe0cd; }
+.pv-tbl input.f.bk-req { background: #fdf3f1; border-color: #e6b3ad; }   /* boş-zorunlu: hafif kırmızı. Dolu = normal (yeşil yok) */
 .pv-tbl .bk-acc, .pv-tbl .tf-acc { font-weight: 700; }
 .pv-tbl tr.tf-cz.unmatch td { background: #fdf6e7; }
 .pv-tbl tr.tf-cardpick-row td { border-bottom: 1px solid var(--line); padding-top: 0; }
@@ -1031,10 +1036,9 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
   .pv-tbl tr.tf-cz.unmatch { background: #fdf6e7; border-color: #e6c68a; }
   .pv-tbl td { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: none; padding: 4px 0; }
   .pv-tbl td::before { content: attr(data-label); font-size: 11px; font-weight: 700; color: var(--ink-faint); text-transform: uppercase; letter-spacing: .2px; flex: 0 0 auto; }
-  .pv-tbl td[data-label="Açıklama"] { flex-direction: column; align-items: stretch; }
-  .pv-tbl td[data-label="Açıklama"]::before { margin-bottom: 2px; }
-  .pv-tbl td.pv-dash { display: none; }   /* mobilde boş (—) tutar satırını gizle */
-  .pv-tbl td[data-label="İşlem No"] { display: none; }   /* mobilde hep — olur */
+  .pv-tbl td[data-label="Açıklama"], .pv-tbl td[data-label="Banka Açıklaması"] { flex-direction: column; align-items: stretch; }
+  .pv-tbl td[data-label="Açıklama"]::before, .pv-tbl td[data-label="Banka Açıklaması"]::before { margin-bottom: 2px; }
+  .pv-tbl td.pv-dash { display: none; }   /* mobilde boş (—) hücreleri gizle */
   .pv-tbl input.f, .pv-tbl select.f { flex: 1 1 auto; }
   .pv-tbl td.num b { font-size: 15px; }
   .pv-tbl tr.pv-day { background: none; padding: 0; margin: 10px 2px 4px; border: none; }
