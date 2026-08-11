@@ -27,10 +27,16 @@ Deno.serve(async (req) => {
     const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     // 1) Çağıranı doğrula (JWT sahte olamaz)
+    //    Token'ı Authorization başlığından ayıklayıp getUser'a AÇIKÇA veriyoruz;
+    //    argümansız getUser() istemcinin oturumunu arar (fonksiyonda yok) ve
+    //    "giriş yok" döndürür. Token'ı elle geçirmek güvenilir yoldur.
+    const authHeader = req.headers.get("Authorization") || "";
+    const token = authHeader.replace(/^Bearer\s+/i, "").trim();
+    if (!token) return json({ error: "Yetkisiz (token yok)." });
     const caller = createClient(url, anon, {
-      global: { headers: { Authorization: req.headers.get("Authorization") || "" } },
+      global: { headers: { Authorization: authHeader } },
     });
-    const { data: { user }, error: uerr } = await caller.auth.getUser();
+    const { data: { user }, error: uerr } = await caller.auth.getUser(token);
     if (uerr || !user) return json({ error: "Yetkisiz (giriş yok)." });
     const email = (user.email || "").toLowerCase();
     if (!ADMIN_EMAILS.map((e) => e.toLowerCase()).includes(email))
