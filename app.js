@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.111";
+} from "./local-backend.js?v=2026.112";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.111";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.112";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -440,8 +440,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.111";
+const APP_VERSION = "2026.112";
 const CHANGELOG = [
+  { version: "2026.112", date: "2026-08-11", items: [
+    "Garanti POS satırları da T.Finans gibi 'Bloke Çözüm' / '… Çözüldü' olarak adlandırılıyor (defterde de)",
+  ]},
   { version: "2026.111", date: "2026-08-11", items: [
     "T.Finans önizlemesi tek düz liste oldu (blokeye alma / çözümler ayrı bölüm değil)",
     "T.Finans satır sırası dosyadaki sıranın tersi (son işlem üstte değil, ilk üstte)",
@@ -4090,9 +4093,9 @@ async function viewBanka(c) {
 
     const posRowHtml = (g, bal) => `<tr class="pv-r pv-pos">
         <td data-label="Tarih">${fmtDateShort(g.dep)}</td>
-        <td data-label="İşlem Adı">${tipIco(g.tip)} POS</td>
+        <td data-label="İşlem Adı">${tipIco(g.tip)} Bloke Çözüm</td>
         <td data-label="İlgili Hesap" class="pv-muted">${esc(blokeLabel)}</td>
-        <td data-label="Açıklama">${fmtDateShort(g.cek)} ${esc(g.tip)} Çekimi <small>${g.n} hareket</small></td>
+        <td data-label="Açıklama">${fmtDateShort(g.cek)} ${esc(g.tip)} Çözüldü <small>${g.n} hareket</small></td>
         <td data-label="Banka Açıklaması" class="pv-dash">—</td>
         <td data-label="Rapor" class="pv-dash">—</td>
         <td class="num pv-in" data-label="Giren Tutar">${fmtTRY(g.net + g.kom)}</td>
@@ -4669,16 +4672,16 @@ async function viewBanka(c) {
       for (const g of groups) {
         const brut = g.net + g.kom;
         const posKey = `${bank.key}|${g.dep}|${g.cek}|${g.tip}`;
-        const acik = `${fmtDateShort(g.cek)} ${g.tip} Çekimi`;
+        const acik = `${fmtDateShort(g.cek)} ${g.tip} Çözüldü`;
         docs.push({
           accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
-          date: g.dep, islemAdi: "POS ÇÖZÜLME", sahis: "", aciklama: acik, rapor: "",
+          date: g.dep, islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: acik, rapor: "",
           borc: 0, alacak: brut, faturaTuru: "", faturaNo: "",
           source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
         docs.push({
           accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
-          date: g.dep, islemAdi: "POS", sahis: "", aciklama: acik, rapor: "",
+          date: g.dep, islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: acik, rapor: "",
           giren: brut, cikan: 0,
           source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
