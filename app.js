@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.104";
+} from "./local-backend.js?v=2026.105";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.104";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.105";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -440,8 +440,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.104";
+const APP_VERSION = "2026.105";
 const CHANGELOG = [
+  { version: "2026.105", date: "2026-08-11", items: [
+    "Banka önizleme tablosu, hesap defteriyle birebir aynı başlık/stil (table.data) kullanıyor",
+  ]},
   { version: "2026.104", date: "2026-08-11", items: [
     "Banka önizlemesi gerçek tabloya çevrildi (hesap defteri gibi) — PC'de tablo, mobilde kart",
     "Rapor Kodu seçimi de hesap seçici gibi aranabilir pencerede açılıyor",
@@ -4083,7 +4086,7 @@ async function viewBanka(c) {
         + items.map((it) => it.kind === "pos" ? posRowTbl(it.g) : otherRowTbl(it.o)).join("");
     }).join("");
 
-    const tableHtml = bodyRows ? `<div class="pv-tbl-wrap"><table class="pv-tbl">
+    const tableHtml = bodyRows ? `<div class="pv-tbl-wrap"><table class="data pv-tbl">
       <thead><tr><th>Tarih</th><th>Açıklama</th><th>Hesap</th><th>Rapor</th><th class="num">Tutar</th></tr></thead>
       <tbody>${bodyRows}</tbody>
     </table></div>` : `<div class="empty" style="padding:16px">Hareket yok.</div>`;
@@ -4325,7 +4328,7 @@ async function viewBanka(c) {
     const totMatch = matched.reduce((s, r) => s + r.amt, 0);
     const totUn = unmatched.reduce((s, r) => s + r.amt, 0);
 
-    const rowsHtml = results.length ? `<div class="pv-tbl-wrap"><table class="pv-tbl">
+    const rowsHtml = results.length ? `<div class="pv-tbl-wrap"><table class="data pv-tbl">
       <thead><tr><th>Tarih</th><th>Mağaza / Açıklama</th><th>Hesap</th><th>Rapor</th><th class="num">Tutar</th></tr></thead>
       <tbody>
         ${matched.map((r) => cozumRowTbl(r, results.indexOf(r), "match")).join("")}
