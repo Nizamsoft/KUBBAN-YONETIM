@@ -1177,3 +1177,35 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 .tf-alma .nm { font-weight: 700; font-size: 13.5px; color: var(--ink); }
 .tf-alma .mt { font-size: 11.5px; color: var(--ink-faint); margin-top: 1px; }
 .tf-alma b { flex: 0 0 auto; font-weight: 800; }
+
+/* ---- Aranabilir hesap seçici (fatura + banka ortak) ---- */
+.ap { display: flex; flex-direction: column; gap: 10px; min-width: min(88vw, 460px); }
+.ap-search { width: 100%; font: inherit; font-size: 15px; padding: 11px 13px; border: 1px solid var(--line-strong); border-radius: 12px; background: var(--surface-2); color: var(--ink); }
+.ap-list { display: flex; flex-direction: column; gap: 5px; max-height: 52vh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+.ap-item { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; background: var(--surface-2); border: 1px solid var(--line); border-radius: 11px; padding: 10px 12px; cursor: pointer; font: inherit; }
+.ap-item:hover, .ap-item:focus { border-color: var(--gold); background: #fbf6ea; }
+.ap-item .ap-code { flex: 0 0 auto; font-size: 12px; font-weight: 700; color: var(--gold-dark); background: var(--surface); border: 1px solid var(--line); border-radius: 7px; padding: 2px 7px; min-width: 54px; text-align: center; }
+.ap-item .ap-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ap-item.ap-new { border-style: dashed; border-color: var(--gold-light); color: var(--ink-soft); justify-content: center; font-size: 13.5px; }
+.ap-item.ap-new b { color: var(--gold-dark); }
+.ap-empty { color: var(--ink-faint); font-size: 13px; font-style: italic; text-align: center; padding: 18px; }
+
+/* Banka aktarımı: tıkla-seç hesap alanı */
+.bk-pick, .tf-pick { cursor: pointer; }
+.bk-pick:read-only, .tf-pick:read-only { background: var(--surface); }
+
+/* Fatura önizleme: Eşleştir + Yeni ikili buton */
+.pv-acts { display: flex; gap: 6px; margin-top: 5px; }
+.pv-acts .pv-add { white-space: nowrap; }
+.pv-acts .pv-add.match { background: var(--gold); color: #fff; border-color: var(--gold); }
+
+/* Kontrol edilen fatura satırı vurgusu */
+.pv-row.active { background: #fbf1d8; box-shadow: inset 0 0 0 2px var(--gold); border-radius: 12px; }
+
+/* İşlem özeti bildirimi */
+.inv-sum { display: flex; flex-direction: column; gap: 10px; }
+.inv-line { display: flex; align-items: center; gap: 10px; font-size: 15px; color: var(--ink); }
+.inv-line .e { font-size: 22px; }
+.inv-line b.pos { color: var(--ok); }
+.inv-line b.neg { color: var(--danger); }
+.inv-note { font-size: 12.5px; color: var(--ink-faint); border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 2px; }

@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.95";
+} from "./local-backend.js?v=2026.96";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.95";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.96";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -120,6 +120,36 @@ function confirmDialog(message, onYes) {
       mkBtn("Evet, devam et", "btn-danger", () => { m.close(); onYes(); }),
     ],
   });
+}
+
+// Aranabilir hesap seçici (fatura + banka aktarımında ortak, uygulama tasarımlı)
+// opts: { accounts:[leaf], title, allowNew, query, onPick({acc}|{newName}) }
+function openAccountPicker({ accounts = [], title = "Hesap Seç", allowNew = true, query = "", onPick }) {
+  const body = document.createElement("div");
+  body.className = "ap";
+  body.innerHTML = `
+    <input class="ap-search" type="search" placeholder="🔍 Ara — ad ya da kod" value="${esc(query)}" autocomplete="off" />
+    <div class="ap-list"></div>`;
+  const m = openModal({ title, body, footer: [mkBtn("Vazgeç", "", () => m.close())] });
+  const search = $(".ap-search", body), list = $(".ap-list", body);
+  const pick = (res) => { m.close(); onPick && onPick(res); };
+  function render() {
+    const raw = search.value.trim(), q = normTr(raw);
+    const hits = (!q ? accounts.slice(0, 40)
+      : accounts.filter((a) => normTr((a.code || "") + " " + (a.name || "")).includes(q)).slice(0, 60));
+    list.innerHTML =
+      hits.map((a) => `<button class="ap-item" data-id="${a.id}">
+          <span class="ap-code">${esc(a.code || "")}</span>
+          <span class="ap-name">${esc(a.name || "")}</span>
+        </button>`).join("")
+      + (allowNew && raw ? `<button class="ap-item ap-new" data-new="1">➕ "<b>${esc(titleCase(raw))}</b>" adıyla <b>yeni hesap</b> aç</button>` : "")
+      + (!hits.length && !raw ? `<div class="ap-empty">Yazarak ara…</div>` : (!hits.length && raw && !allowNew ? `<div class="ap-empty">Eşleşen hesap yok.</div>` : ""));
+    $$(".ap-item", list).forEach((b) => b.onclick = () =>
+      b.dataset.new ? pick({ newName: raw }) : pick({ acc: accounts.find((a) => a.id === b.dataset.id) }));
+  }
+  search.addEventListener("input", render);
+  render();
+  setTimeout(() => search.focus(), 60);
 }
 
 // ---------------------------------------------------------------------------
@@ -328,8 +358,15 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.95";
+const APP_VERSION = "2026.96";
 const CHANGELOG = [
+  { version: "2026.96", date: "2026-08-11", items: [
+    "Alış faturasında açık/kapalı sorulmuyor; doğrudan önizleme (hepsi açık/borç). Satışta sihirbaz kalıyor",
+    "Cari eşleşmeyince iki seçenek: 🔗 Eşleştir (mevcut hesabı aranabilir listeden seç) + ➕ Yeni. Eşleştirilen ad hesaba hatırlatma olarak eklenir",
+    "İşlem sonrası özet bildirim: alış → 'bugün X borçlandın', satış → 'X veresiye · Y tahsil'. Kontrol sırasında sıradaki fatura satırı renkle vurgulanır",
+    "Tanımlamalar (Gider Grupları, Nakit Akış Verileri) Sistem menüsüne taşındı",
+    "Banka aktarımında hesap seçimi: tarayıcı datalist'i yerine uygulama-içi aranabilir seçici (Garanti + T.Finans)",
+  ]},
   { version: "2026.95", date: "2026-08-10", items: [
     "Supabase altyapısı hazırlandı: supabase-backend.js (local-backend ile birebir API), supabase-setup.sql (tablolar + RLS), SUPABASE.md rehberi. Geçince veri buluta taşınır — app.js tek satır import değişir (henüz aktif değil)",
   ]},
@@ -767,11 +804,9 @@ const NAV = [
     { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
     { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
   ]},
-  { label: "Tanımlamalar", icon: "🗂️", children: [
+  { label: "Sistem", icon: "⚙️", children: [
     { label: "Gider Grupları",      icon: "🧾", path: "gider-gruplari" },
     { label: "Nakit Akış Verileri", icon: "🔄", path: "nakit-akis-veri" },
-  ]},
-  { label: "Sistem", icon: "⚙️", children: [
     { label: "Değişiklik Kaydı", icon: "📋", path: "audit" },
     { label: "Yedek / Veri", icon: "💾", path: "yedek" },
     { label: "Güncelleme",   icon: "🆕", path: "guncelleme" },
@@ -790,8 +825,8 @@ const ROUTES = {
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
   "kar-zarar":        { title: "Kâr / Zarar Durumu", crumb: "Raporlar", render: viewKarZarar },
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
-  "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Tanımlamalar", render: viewNakitAkisVeri },
-  "gider-gruplari":   { title: "Gider Grupları", crumb: "Tanımlamalar", render: viewGiderGruplari },
+  "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Sistem", render: viewNakitAkisVeri },
+  "gider-gruplari":   { title: "Gider Grupları", crumb: "Sistem", render: viewGiderGruplari },
   "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
   "guncelleme":       { title: "Güncelleme", crumb: "Sistem", render: viewGuncelleme },
   "audit":            { title: "Değişiklik Kaydı", crumb: "Sistem", render: viewAuditLog },
@@ -3199,9 +3234,26 @@ async function viewCariHareket(c) {
     const allCari = accounts.filter((a) => isCari(a.type) && a.parentId);
     const findIn = (pool, it) =>
       (it.vkn && pool.find((a) => a.vkn && String(a.vkn) === it.vkn)) ||
-      pool.find((a) => nameMatch(a.name, it.ad)) || null;
-    // Önce doğru tür (320/120), bulamazsa tüm cari hesaplar
-    const findAcc = (it) => findIn(cariAccounts, it) || findIn(allCari, it);
+      pool.find((a) => nameMatch(a.name, it.ad) || (a.nameAliases || []).some((al) => nameMatch(al, it.ad))) || null;
+    // Elle eşleştirilen (forced) öncelikli; sonra doğru tür (320/120); bulamazsa tüm cari hesaplar
+    const findAcc = (it) => it.forced || findIn(cariAccounts, it) || findIn(allCari, it);
+    // Elle eşleştir: seçilen hesabı sabitle + fatura adını hesabın alias'ına ekle (kalıcı hafıza)
+    async function matchCari(it) {
+      openAccountPicker({
+        accounts: allCari, title: "Cari Eşleştir", query: it.ad || "",
+        onPick: async (res) => {
+          if (res.newName) { const acc = await createCari({ ...it, ad: res.newName }, true); it.forced = acc; toast(`Cari eklendi: ${acc.name}`, "ok"); draw(); return; }
+          const acc = res.acc; if (!acc) return;
+          it.forced = acc;
+          const aliases = acc.nameAliases || [];
+          if (it.ad && !aliases.some((al) => normTr(al) === normTr(it.ad))) {
+            aliases.push(it.ad);
+            try { await updateDoc(doc(db, "accounts", acc.id), { nameAliases: aliases }); acc.nameAliases = aliases; } catch (_) {}
+          }
+          toast(`Eşleştirildi: ${acc.name}`, "ok"); draw();
+        },
+      });
+    }
     const statusOf = (it) => {
       const acc = findAcc(it);
       if (!acc) return { code: "nocari" };
@@ -3222,6 +3274,7 @@ async function viewCariHareket(c) {
       accounts.push(newAcc); cariAccounts.push(newAcc);
       await logAction("Ekleme", "Cari Hesap", `${code} ${payload.name}`);
       if (!silent) { toast("Cari eklendi: " + payload.name, "ok"); draw(); }
+      return newAcc;
     }
 
     // ---- Olası tekrar cari tespiti (aynı VKN ya da biri diğerinin adının başında) ----
@@ -3312,24 +3365,25 @@ async function viewCariHareket(c) {
       if (!indices.length) { draw(); return; }
       let k = 0, keyH = null;
       const body = document.createElement("div");
-      const finish = () => { if (keyH) document.removeEventListener("keydown", keyH); m.close(); draw(); };
+      const clearHl = () => $$(".pv-row.active", editor).forEach((r) => r.classList.remove("active"));
+      const finish = () => { if (keyH) document.removeEventListener("keydown", keyH); clearHl(); m.close(); draw(); };
       const m = openModal({ title: "Fatura Durumu", body, footer: [mkBtn("Bitir", "", finish)] });
-      // İşlenen faturanın listedeki satırını kısa süre sarıya boyar
-      const flashRow = (idx) => {
+      // Sıradaki faturayı listede renkle vurgula (kontrol edilen kayıt belli olsun)
+      const hl = (idx) => {
+        clearHl();
         const el = $(`.pv-row[data-row="${idx}"]`, editor);
-        if (!el) return;
-        el.classList.remove("flash-y"); void el.offsetWidth; el.classList.add("flash-y");
+        if (el) { el.classList.add("active"); el.scrollIntoView({ block: "center", behavior: "smooth" }); }
       };
       const choose = (w, amt) => {
         const it = items[indices[k]];
         it.durum = w;
         it.kismiTutar = w === "kismi" ? Math.min(amt || 0, it.amount) : 0;
-        flashRow(indices[k]);
         k++; step();
       };
       function step() {
         if (k >= indices.length) { finish(); return; }
         const it = items[indices[k]];
+        hl(indices[k]);
         const pct = Math.round((k / indices.length) * 100);
         body.innerHTML = `
           <div style="font-size:12px;color:var(--ink-faint)">${k + 1}/${indices.length}</div>
@@ -3393,7 +3447,10 @@ async function viewCariHareket(c) {
         const it = items[i], s = st[i], d = durumInfo(it), sw = stWord(s.code);
         const durumTxt = it.durum === "acik" ? "" : ` · ${d.label}`;
         const right = s.code === "nocari"
-          ? `<div class="v">${fmtTRY(it.amount)}</div><button class="pv-add" data-addcari="${i}">Cari aç +</button>`
+          ? `<div class="v">${fmtTRY(it.amount)}</div><div class="pv-acts">
+               <button class="pv-add match" data-matchcari="${i}">🔗 Eşleştir</button>
+               <button class="pv-add" data-addcari="${i}">➕ Yeni</button>
+             </div>`
           : `<div class="v">${fmtTRY(it.amount)}</div><div class="st ${sw.c}">${sw.w}</div>`;
         return `<div class="pv-row" data-row="${i}" data-ask="${i}">
           <span class="dot ${sw.c}"></span>
@@ -3419,7 +3476,7 @@ async function viewCariHareket(c) {
           ${dupCaris.length ? `<div class="notice warn" style="margin:0 0 10px" id="merge-note">🔗 <b>${dupCaris.length}</b> olası tekrar cari bulundu (aynı cari iki kez açılmış olabilir). <a href="#" id="merge-cari">Birleştir</a></div>` : ""}
           <div class="pv-rows">${rowsHtml || `<div class="empty" style="padding:20px">Bu süzgeçte fatura yok.</div>`}</div>
           <div class="pv-cta">
-            <button class="btn btn-sm" id="reask">Durumları Sor</button>
+            ${kind === "satis" ? `<button class="btn btn-sm" id="reask">Durumları Sor</button>` : ""}
             <div class="grow"></div>
             <button class="btn btn-primary" id="send-inv" ${processable ? "" : "disabled"}>📤 ${processable} Faturayı İşle${noc ? ` <small style="opacity:.85">(${noc} cari açılacak)</small>` : ""}</button>
           </div>
@@ -3431,10 +3488,12 @@ async function viewCariHareket(c) {
       });
       $$("[data-ask]", editor).forEach((el) => el.addEventListener("click", (e) => {
         if (e.target.closest("button")) return;
-        askOne(+el.dataset.ask);
+        if (kind === "satis") askOne(+el.dataset.ask);   // alışta durum sorulmaz
       }));
-      $("#reask", editor).onclick = () => runWizard(nonDupIdx());
+      const reask = $("#reask", editor);
+      if (reask) reask.onclick = () => runWizard(nonDupIdx());
       $$("[data-addcari]", editor).forEach((b) => b.onclick = () => createCari(items[+b.dataset.addcari]));
+      $$("[data-matchcari]", editor).forEach((b) => b.onclick = () => matchCari(items[+b.dataset.matchcari]));
       const mc = $("#merge-cari", editor);
       if (mc) mc.onclick = (e) => { e.preventDefault(); openMergeModal(dupCaris); };
       const send = $("#send-inv", editor);
@@ -3487,17 +3546,31 @@ async function viewCariHareket(c) {
       try {
         await batchAdd(C.accountEntries, docs);
         await logAction("İçe Aktarma", "Cari Fatura", `${main.code} ${main.name} · ${docs.length} ${faturaTuru}`);
-        toast(`${docs.length} fatura işlendi. İnceleme turu başlıyor…`, "ok");
-        // İşlenen carilere tek tek gidilecek inceleme turu
         const affected = [...new Set(docs.map((d) => d.accountId))];
-        reviewQueue = { ids: affected, index: 0 };
-        location.hash = "#/hesap-detay?id=" + affected[0];
+        // ---- İşlem özeti bildirimi ----
+        let sumHtml;
+        if (kind === "satis") {
+          const veresiye = docs.reduce((s, d) => s + Math.max(0, parseNum(d.borc) - parseNum(d.alacak)), 0);
+          const tahsil = docs.reduce((s, d) => s + parseNum(d.alacak), 0);
+          sumHtml = `<div class="inv-line"><span class="e">🧾</span> <b class="neg">${fmtTRY(veresiye)}</b> veresiye (açık — tahsil edilecek)</div>
+            ${tahsil > 0.005 ? `<div class="inv-line"><span class="e">💵</span> <b class="pos">${fmtTRY(tahsil)}</b> tahsil edildi (kapalı)</div>` : ""}`;
+        } else {
+          const borclandin = docs.reduce((s, d) => s + Math.max(0, parseNum(d.alacak) - parseNum(d.borc)), 0);
+          sumHtml = `<div class="inv-line"><span class="e">🧾</span> Bugün <b class="neg">${fmtTRY(borclandin)}</b> borçlandın</div>`;
+        }
+        const body = document.createElement("div");
+        body.innerHTML = `<div class="inv-sum">${sumHtml}<div class="inv-note">${docs.length} ${faturaTuru} işlendi · ${affected.length} cari${sDup ? ` · ${sDup} zaten vardı` : ""}</div></div>`;
+        const m = openModal({ title: "✅ İşlem Özeti", body, footer: [
+          mkBtn("Kapat", "", () => m.close()),
+          mkBtn("Carileri İncele →", "btn-primary", () => { m.close(); reviewQueue = { ids: affected, index: 0 }; location.hash = "#/hesap-detay?id=" + affected[0]; }),
+        ]});
       } catch (e) { toast("Hata: " + e.message, "err"); sendBtn.disabled = false; }
     }
 
-    // Otomatik: önce sıra sıra durum sor (mükerrer olmayanlar), sonra önizleme
+    // Önce önizlemeyi çiz (satışta sihirbaz önizlemenin üstünde açılır, sıradaki kayıt renkle vurgulanır)
+    draw();
     const startIdx = nonDupIdx();
-    if (startIdx.length) runWizard(startIdx); else draw();
+    if (kind === "satis" && startIdx.length) runWizard(startIdx);
   }
 }
 
@@ -3770,7 +3843,7 @@ async function viewBanka(c) {
           </div>
         </div>
         <div class="bk-fields">
-          <input class="bk-acc f" data-seq="${o.seq}" list="bk-acc-list" placeholder="Şahıs / Hesap — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
+          <input class="bk-acc f bk-pick" data-seq="${o.seq}" placeholder="🔎 Hesap seç / ekle" value="${esc(accVal)}" readonly />
           ${rapInp}
         </div>
         <div class="bk-arow" data-seq="${o.seq}" ${acikVal ? "" : `style="display:none"`}>
@@ -3829,6 +3902,11 @@ async function viewBanka(c) {
       </div>`;
 
     const saveBtn = $("#bk-save", editor);
+    // Hesap alanı → uygulama-içi aranabilir seçici (datalist yerine)
+    $$(".bk-acc", editor).forEach((inp) => inp.onclick = () => openAccountPicker({
+      accounts: leafAccs, title: "Hesap Seç", query: /·/.test(inp.value) ? "" : inp.value,
+      onPick: (res) => { inp.value = res.acc ? accLabel(res.acc) : res.newName; inp.dispatchEvent(new Event("input", { bubbles: true })); },
+    }));
     // Not simgesi → özel açıklama aç/kapat
     $$(".bk-note", editor).forEach((b) => b.onclick = () => {
       const row = b.closest(".bk-other"), arow = $(".bk-arow", row);
@@ -3979,7 +4057,7 @@ async function viewBanka(c) {
         </div>
         <div class="tf-cz-fields">
           ${kind === "unmatch" ? `<select class="tf-card-pick f" data-i="${i}"><option value="">— kart harcaması seç (ops.) —</option>${cardOpts.map((o) => `<option value="${o.i}">${esc(o.label)}</option>`).join("")}</select>` : ""}
-          <input class="tf-acc f" data-i="${i}" list="tf-acc-list" placeholder="Hesap * — yoksa yaz, eklenir" value="${esc(accVal)}" autocomplete="off" />
+          <input class="tf-acc f tf-pick" data-i="${i}" placeholder="🔎 Hesap * seç / ekle" value="${esc(accVal)}" readonly />
           <input class="tf-rapor f" data-i="${i}" list="tf-rapor-list" placeholder="Rapor * (gider grubu)" value="${esc(rapVal)}" autocomplete="off" />
         </div>
       </div>`;
@@ -4017,6 +4095,11 @@ async function viewBanka(c) {
       <datalist id="tf-rapor-list">${raporItems.map((r) => `<option value="${esc(r.ad)}">${esc(r.grup)}</option>`).join("")}</datalist>
       <div class="pv-cta"><div class="grow"></div><button class="btn btn-primary" id="tf-save">✓ İşle</button></div>`;
 
+    // Hesap alanı → uygulama-içi aranabilir seçici
+    $$(".tf-acc", editor).forEach((inp) => inp.onclick = () => openAccountPicker({
+      accounts: leafAccs, title: "Hesap Seç", query: /·/.test(inp.value) ? "" : inp.value,
+      onPick: (res) => { inp.value = res.acc ? `${res.acc.code} · ${res.acc.name}` : res.newName; inp.dispatchEvent(new Event("input", { bubbles: true })); },
+    }));
     // Eşleşmeyen kart seçimi → mağaza adını + hesap/rapor önerisini satıra yaz
     $$(".tf-card-pick", editor).forEach((sel) => sel.onchange = () => {
       const row = sel.closest(".tf-cz"), nm = $(".nm", row), acc = $(".tf-acc", row), rap = $(".tf-rapor", row);
