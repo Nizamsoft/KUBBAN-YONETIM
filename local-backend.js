@@ -213,6 +213,11 @@ export async function updateProfile(user, { displayName }) {
   if (_currentUser) _currentUser = { ..._currentUser, displayName };
 }
 
+// ---- Yönetici kullanıcı yönetimi (yerelde desteklenmez) ------------------
+export async function adminUsers() {
+  throw new Error("Kullanıcı yönetimi yalnızca bulut (Supabase) modunda kullanılır.");
+}
+
 // ---- Dosya yükleme (yerel: base64 data URL olarak döner) -----------------
 export function uploadAvatar(file, _uid) {
   return new Promise((resolve, reject) => {

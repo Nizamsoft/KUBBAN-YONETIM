@@ -11,10 +11,10 @@ import {
   updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp, writeBatch,
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
-  exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar,
-} from "./supabase-backend.js?v=2026.114";
+  exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
+} from "./supabase-backend.js?v=2026.115";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.114";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.115";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -510,8 +510,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.114";
+const APP_VERSION = "2026.115";
 const CHANGELOG = [
+  { version: "2026.115", date: "2026-08-11", items: [
+    "Yönetici 'Kullanıcılar' sayfası (Sistem): uygulama içinden kullanıcı oluştur/sil, rol ve şifre değiştir",
+    "Kullanıcı işlemleri güvenli Supabase Edge Function ile yapılıyor (gizli anahtar tarayıcıya sızmaz)",
+  ]},
   { version: "2026.114", date: "2026-08-11", items: [
     "Kullanıcı profil fotoğrafı: sağ üstteki isme tıkla → Profil → Fotoğraf Ekle (Supabase Storage)",
   ]},
@@ -1030,6 +1034,7 @@ const NAV = [
     { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
   ]},
   { label: "Sistem", icon: "⚙️", children: [
+    { label: "Kullanıcılar",        icon: "👥", path: "kullanicilar", admin: true },
     { label: "Gider Grupları",      icon: "🧾", path: "gider-gruplari" },
     { label: "Nakit Akış Verileri", icon: "🔄", path: "nakit-akis-veri" },
     { label: "Değişiklik Kaydı", icon: "📋", path: "audit" },
@@ -1055,6 +1060,7 @@ const ROUTES = {
   "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
   "guncelleme":       { title: "Güncelleme", crumb: "Sistem", render: viewGuncelleme },
   "audit":            { title: "Değişiklik Kaydı", crumb: "Sistem", render: viewAuditLog },
+  "kullanicilar":     { title: "Kullanıcılar", crumb: "Sistem", render: viewUsers, admin: true },
 };
 
 function buildNav() {
@@ -1079,6 +1085,7 @@ function buildNav() {
       const inner = document.createElement("div");
       inner.className = "nav-group-inner";
       n.children.forEach((ch) => {
+        if (ch.admin && !isAdmin()) return;   // yönetici sayfaları sadece yöneticide
         const a = document.createElement("a");
         a.className = "nav-item nav-sub";
         a.href = "#/" + ch.path;
@@ -5438,6 +5445,102 @@ async function viewYedek(c) {
       try { await clearAllData(); toast("Tüm veri temizlendi.", "ok"); route(); }
       catch (e) { toast("Hata: " + e.message, "err"); }
     });
+}
+
+// ===========================================================================
+//  MODÜL: KULLANICILAR (yönetici — Supabase Edge Function ile)
+// ===========================================================================
+async function viewUsers(c) {
+  if (!isAdmin()) {
+    c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`;
+    return;
+  }
+  c.innerHTML = `<div class="empty"><div class="spinner" style="margin:0 auto"></div><p>Kullanıcılar yükleniyor…</p></div>`;
+  let users = [];
+  try {
+    const res = await adminUsers("list");
+    users = res.users || [];
+  } catch (e) {
+    c.innerHTML = `<div class="notice warn">Kullanıcılar alınamadı: ${esc(e.message)}<br>
+      <small>Supabase'de <code>admin-users</code> fonksiyonu deploy edildi mi?</small></div>`;
+    return;
+  }
+  users.sort((a, b) => (a.email || "").localeCompare(b.email || ""));
+
+  const rows = users.map((u) => `<tr>
+    <td>${esc(u.email || "")}${u.id === currentUser.uid ? ` <span class="role-badge">sen</span>` : ""}</td>
+    <td>${esc(u.displayName || "—")}</td>
+    <td><span class="role-badge${u.role === "admin" ? "" : " user"}">${u.role === "admin" ? "Yönetici" : "Kullanıcı"}</span></td>
+    <td style="text-align:right;white-space:nowrap">
+      <button class="btn btn-sm" data-role="${u.id}" data-cur="${u.role}">${u.role === "admin" ? "Kullanıcı yap" : "Yönetici yap"}</button>
+      <button class="btn btn-sm" data-pw="${u.id}">Şifre</button>
+      ${u.id === currentUser.uid ? "" : `<button class="btn btn-sm btn-danger" data-del="${u.id}" data-mail="${esc(u.email || "")}">Sil</button>`}
+    </td>
+  </tr>`).join("");
+
+  c.innerHTML = `
+    <div class="toolbar"><div class="grow"></div>
+      <button class="btn btn-primary btn-sm" id="us-new">+ Yeni Kullanıcı</button></div>
+    <div class="card">
+      <div class="card-head"><h3>Kullanıcılar</h3><span class="hint">${users.length} kişi</span></div>
+      <div class="table-wrap"><table class="data">
+        <thead><tr><th>E-posta</th><th>Ad</th><th>Rol</th><th></th></tr></thead>
+        <tbody>${rows || `<tr><td colspan="4"><div class="empty">Kayıt yok.</div></td></tr>`}</tbody>
+      </table></div>
+      <div class="pv-fhint" style="margin-top:10px">Kayıt olma kapalı; yeni kişileri buradan eklersin. Şifreyi sen belirlersin, kullanıcıya iletirsin.</div>
+    </div>`;
+
+  $("#us-new", c).onclick = () => {
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <div class="field"><label>E-posta</label><input id="nu-mail" type="email" placeholder="ad@ornek.com" /></div>
+      <div class="field"><label>Ad (görünecek isim)</label><input id="nu-name" type="text" placeholder="Ad Soyad" /></div>
+      <div class="field"><label>Şifre (en az 6 karakter)</label><input id="nu-pass" type="text" placeholder="şifre" /></div>
+      <div class="field"><label>Rol</label>
+        <select id="nu-role"><option value="user">Kullanıcı</option><option value="admin">Yönetici</option></select></div>`;
+    const m = openModal({ title: "Yeni Kullanıcı", body, footer: [
+      mkBtn("Vazgeç", "", () => m.close()),
+      mkBtn("Oluştur", "btn-primary", async () => {
+        const email = $("#nu-mail", body).value.trim();
+        const displayName = $("#nu-name", body).value.trim();
+        const password = $("#nu-pass", body).value;
+        const role = $("#nu-role", body).value;
+        if (!email || password.length < 6) return toast("E-posta ve en az 6 karakterli şifre gerekli.", "err");
+        m.close();
+        const lb = loadingBar("Kullanıcı oluşturuluyor…");
+        try { await adminUsers("create", { email, password, displayName, role }); lb.finish(() => { toast("Kullanıcı oluşturuldu.", "ok"); route(); }); }
+        catch (e) { lb.finish(() => toast("Hata: " + e.message, "err")); }
+      }),
+    ]});
+  };
+
+  $$("[data-role]", c).forEach((b) => b.onclick = () => {
+    const id = b.dataset.role, next = b.dataset.cur === "admin" ? "user" : "admin";
+    confirmDialog(`Rol '${next === "admin" ? "Yönetici" : "Kullanıcı"}' yapılsın mı?`, async () => {
+      try { await adminUsers("setRole", { id, role: next }); toast("Rol güncellendi.", "ok"); route(); }
+      catch (e) { toast("Hata: " + e.message, "err"); }
+    });
+  });
+  $$("[data-pw]", c).forEach((b) => b.onclick = () => {
+    const id = b.dataset.pw;
+    const body = document.createElement("div");
+    body.innerHTML = `<div class="field"><label>Yeni şifre (en az 6 karakter)</label><input id="pw-new" type="text" placeholder="yeni şifre" /></div>`;
+    const m = openModal({ title: "Şifre Değiştir", body, footer: [
+      mkBtn("Vazgeç", "", () => m.close()),
+      mkBtn("Kaydet", "btn-primary", async () => {
+        const password = $("#pw-new", body).value;
+        if (password.length < 6) return toast("En az 6 karakter.", "err");
+        m.close();
+        try { await adminUsers("setPassword", { id, password }); toast("Şifre güncellendi.", "ok"); }
+        catch (e) { toast("Hata: " + e.message, "err"); }
+      }),
+    ]});
+  });
+  $$("[data-del]", c).forEach((b) => b.onclick = () =>
+    confirmDialog(`'${b.dataset.mail}' kullanıcısı silinsin mi? Geri alınamaz.`, async () => {
+      try { await adminUsers("delete", { id: b.dataset.del }); toast("Kullanıcı silindi.", "ok"); route(); }
+      catch (e) { toast("Hata: " + e.message, "err"); }
+    }));
 }
 
 // ===========================================================================

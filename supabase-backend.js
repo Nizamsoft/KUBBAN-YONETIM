@@ -9,7 +9,7 @@
 //  Kurulum SQL'i: supabase-setup.sql · Ayarlar: config.js (SUPABASE_URL / KEY)
 // ============================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.114";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.115";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
@@ -193,6 +193,19 @@ export async function uploadAvatar(file, uid) {
   if (error) throw new Error(error.message);
   const { data } = sb.storage.from("avatars").getPublicUrl(path);
   return `${data.publicUrl}?t=${Date.now()}`;   // önbelleği kır — yeni foto hemen görünsün
+}
+
+// ---- Yönetici kullanıcı yönetimi (Edge Function: admin-users) ------------
+// action: "list" | "create" | "delete" | "setRole" | "setPassword"
+export async function adminUsers(action, payload = {}) {
+  const { data, error } = await sb.functions.invoke("admin-users", { body: { action, ...payload } });
+  if (error) {
+    let msg = error.message || "Sunucu hatası";
+    try { const c = await error.context?.json?.(); if (c?.error) msg = c.error; } catch (_) {}
+    throw new Error(msg);
+  }
+  if (data && data.error) throw new Error(data.error);
+  return data;
 }
 
 // ---- Yedek / bakım -------------------------------------------------------
