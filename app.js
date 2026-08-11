@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.105";
+} from "./local-backend.js?v=2026.106";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.105";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.106";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -440,8 +440,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.105";
+const APP_VERSION = "2026.106";
 const CHANGELOG = [
+  { version: "2026.106", date: "2026-08-11", items: [
+    "Banka önizleme tablosu defterle birebir kolonlar: İşlem No · Tarih · İşlem Adı · Şahıs · Açıklama · Rapor · Giren Tutar · Çıkan Tutar (yeşil/kırmızı)",
+    "Hesap seçici 'Şahıs' kolonunda; tutar tek kolon yerine Giren/Çıkan olarak ikiye ayrıldı",
+  ]},
   { version: "2026.105", date: "2026-08-11", items: [
     "Banka önizleme tablosu, hesap defteriyle birebir aynı başlık/stil (table.data) kullanıyor",
   ]},
@@ -4041,18 +4045,21 @@ async function viewBanka(c) {
     other.forEach((o) => day(o.dep).items.push({ kind: "other", ord: o.seq, o }));
     const days = Object.keys(byDay).sort();
 
-    // POS grubu satırı (otomatik — girdi yok)
+    // POS grubu satırı (otomatik — girdi yok). Defter kolonları: İşlem No·Tarih·İşlem Adı·Şahıs·Açıklama·Rapor·Giren·Çıkan
     const posRowTbl = (g) => {
       const brut = g.net + g.kom;
       return `<tr class="pv-r pv-pos">
+        <td data-label="İşlem No" class="pv-muted">—</td>
         <td data-label="Tarih">${fmtDateShort(g.cek)}</td>
-        <td data-label="Açıklama"><span class="pv-ic">${tipIco(g.tip)}</span> ${esc(g.tip)} Çekimi <small>${g.n} hareket${g.kom ? ` · kom. ${fmtTRY(g.kom)}` : ""}</small></td>
-        <td data-label="Hesap" class="pv-muted">108 → 102 (otomatik)</td>
+        <td data-label="İşlem Adı">${tipIco(g.tip)} POS</td>
+        <td data-label="Şahıs" class="pv-muted">—</td>
+        <td data-label="Açıklama">${esc(g.tip)} Çekimi <small>${g.n} hareket${g.kom ? ` · kom. ${fmtTRY(g.kom)}` : ""}</small></td>
         <td data-label="Rapor" class="pv-muted">—</td>
-        <td class="num" data-label="Tutar"><b>${fmtTRY(brut)}</b></td>
+        <td class="num pv-in" data-label="Giren Tutar"><b>${fmtTRY(brut)}</b></td>
+        <td class="num pv-dash" data-label="Çıkan Tutar">—</td>
       </tr>`;
     };
-    // POS dışı satır (hesap + rapor seçici)
+    // POS dışı satır (Şahıs = hesap seçici, Rapor = rapor seçici)
     const otherRowTbl = (o) => {
       let sug = aliasMap[bkSig(o.desc)];
       if (!sug) {
@@ -4063,31 +4070,35 @@ async function viewBanka(c) {
       const accVal = sug ? `${sug.code} · ${sug.name}` : "";
       const rapVal = sug ? sug.rapor : "";
       const acikVal = sug ? sug.acik : "";
-      const rapCell = o.amt < 0
+      const inc = o.amt >= 0;
+      const rapCell = !inc
         ? `<input class="bk-rapor f bk-pick" data-seq="${o.seq}" placeholder="🔎 Rapor seç" value="${esc(rapVal)}" readonly />`
         : `<span class="pv-muted">—</span>`;
       return `<tr class="pv-r pv-oth" data-seq="${o.seq}">
+          <td data-label="İşlem No" class="pv-muted">—</td>
           <td data-label="Tarih">${fmtDateShort(o.dep)}</td>
-          <td data-label="Açıklama"><span class="pv-ic">${o.amt < 0 ? "↗️" : "↘️"}</span> ${esc(o.desc)}
+          <td data-label="İşlem Adı">${inc ? "↘️" : "↗️"} Para Transferi</td>
+          <td data-label="Şahıs"><input class="bk-acc f bk-pick" data-seq="${o.seq}" placeholder="🔎 Hesap seç / ekle" value="${esc(accVal)}" readonly /></td>
+          <td data-label="Açıklama">${esc(o.desc)}
             <button class="bk-note ${acikVal ? "on" : ""}" type="button" data-seq="${o.seq}" title="Özel açıklama">📝</button></td>
-          <td data-label="Hesap"><input class="bk-acc f bk-pick" data-seq="${o.seq}" placeholder="🔎 Hesap seç / ekle" value="${esc(accVal)}" readonly /></td>
           <td data-label="Rapor">${rapCell}</td>
-          <td class="num" data-label="Tutar" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</td>
+          <td class="num ${inc ? "pv-in" : "pv-dash"}" data-label="Giren Tutar">${inc ? fmtTRY(o.amt) : "—"}</td>
+          <td class="num ${!inc ? "pv-out" : "pv-dash"}" data-label="Çıkan Tutar">${!inc ? fmtTRY(Math.abs(o.amt)) : "—"}</td>
         </tr>
         <tr class="pv-acik-row" data-seq="${o.seq}" ${acikVal ? "" : "hidden"}>
-          <td colspan="5"><input class="bk-acik f" data-seq="${o.seq}" placeholder="Özel açıklama (boşsa 'Gelen/Giden Eft')" value="${esc(acikVal)}" /></td>
+          <td colspan="8"><input class="bk-acik f" data-seq="${o.seq}" placeholder="Özel açıklama (boşsa 'Gelen/Giden Eft')" value="${esc(acikVal)}" /></td>
         </tr>`;
     };
 
     const bodyRows = days.map((d) => {
       const items = byDay[d].items.slice().sort((a, b) => a.ord - b.ord);
       const dayTot = items.reduce((s, it) => s + (it.kind === "pos" ? it.g.net + it.g.kom : it.o.amt), 0);
-      return `<tr class="pv-day"><td colspan="5">📅 ${fmtDate(d)} <small>yatış günü</small> <b>${fmtTRY(dayTot)}</b></td></tr>`
+      return `<tr class="pv-day"><td colspan="8">📅 ${fmtDate(d)} <small>yatış günü</small> <b>${fmtTRY(dayTot)}</b></td></tr>`
         + items.map((it) => it.kind === "pos" ? posRowTbl(it.g) : otherRowTbl(it.o)).join("");
     }).join("");
 
     const tableHtml = bodyRows ? `<div class="pv-tbl-wrap"><table class="data pv-tbl">
-      <thead><tr><th>Tarih</th><th>Açıklama</th><th>Hesap</th><th>Rapor</th><th class="num">Tutar</th></tr></thead>
+      <thead><tr><th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th></tr></thead>
       <tbody>${bodyRows}</tbody>
     </table></div>` : `<div class="empty" style="padding:16px">Hareket yok.</div>`;
 
@@ -4301,16 +4312,19 @@ async function viewBanka(c) {
       const accVal = sug ? `${sug.code} · ${sug.name}` : (merc ? titleCase(merc) : "");
       const rapVal = sug ? sug.rapor : "";
       const pickRow = kind === "unmatch"
-        ? `<tr class="tf-cardpick-row" data-i="${i}"><td colspan="5">
+        ? `<tr class="tf-cardpick-row" data-i="${i}"><td colspan="8">
              <select class="tf-card-pick f" data-i="${i}"><option value="">— kart harcaması seç (ops.) —</option>${cardOpts.map((o) => `<option value="${o.i}">${esc(o.label)}</option>`).join("")}</select>
            </td></tr>`
         : "";
       return `<tr class="pv-r tf-cz ${kind}" data-i="${i}" data-kind="${kind}">
+          <td data-label="İşlem No" class="pv-muted">—</td>
           <td data-label="Tarih">${fmtDateShort(r.date)}${r.approx ? " <small>~</small>" : ""}</td>
-          <td data-label="Mağaza"><span class="pv-ic">${kind === "match" ? (r.approx ? "🟡" : "🔓") : "❓"}</span> <span class="nm">${merc ? esc(merc) : "Eşleşmedi — kart seç"}</span>${r.ref ? ` <small>${esc(r.ref)}</small>` : ""}</td>
-          <td data-label="Hesap"><input class="tf-acc f tf-pick" data-i="${i}" placeholder="🔎 Hesap * seç / ekle" value="${esc(accVal)}" readonly /></td>
+          <td data-label="İşlem Adı">${kind === "match" ? (r.approx ? "🟡" : "🔓") : "❓"} Kart Harcaması</td>
+          <td data-label="Şahıs"><input class="tf-acc f tf-pick" data-i="${i}" placeholder="🔎 Hesap * seç / ekle" value="${esc(accVal)}" readonly /></td>
+          <td data-label="Açıklama"><span class="nm">${merc ? esc(merc) : "Eşleşmedi — kart seç"}</span>${r.ref ? ` <small>${esc(r.ref)}</small>` : ""}</td>
           <td data-label="Rapor"><input class="tf-rapor f tf-pick" data-i="${i}" placeholder="🔎 Rapor *" value="${esc(rapVal)}" readonly /></td>
-          <td class="num" data-label="Tutar"><b class="neg">−${fmtNum(r.amt)}</b></td>
+          <td class="num pv-dash" data-label="Giren Tutar">—</td>
+          <td class="num pv-out" data-label="Çıkan Tutar"><b>${fmtNum(r.amt)}</b></td>
         </tr>${pickRow}`;
     };
 
@@ -4329,10 +4343,10 @@ async function viewBanka(c) {
     const totUn = unmatched.reduce((s, r) => s + r.amt, 0);
 
     const rowsHtml = results.length ? `<div class="pv-tbl-wrap"><table class="data pv-tbl">
-      <thead><tr><th>Tarih</th><th>Mağaza / Açıklama</th><th>Hesap</th><th>Rapor</th><th class="num">Tutar</th></tr></thead>
+      <thead><tr><th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th></tr></thead>
       <tbody>
         ${matched.map((r) => cozumRowTbl(r, results.indexOf(r), "match")).join("")}
-        ${unmatched.length ? `<tr class="pv-day"><td colspan="5">❓ Eşleşmeyenler — elle kart seç</td></tr>${unmatched.map((r) => cozumRowTbl(r, results.indexOf(r), "unmatch")).join("")}` : ""}
+        ${unmatched.length ? `<tr class="pv-day"><td colspan="8">❓ Eşleşmeyenler — elle kart seç</td></tr>${unmatched.map((r) => cozumRowTbl(r, results.indexOf(r), "unmatch")).join("")}` : ""}
       </tbody>
     </table></div>` : `<div class="empty" style="padding:16px">Bloke çözümü yok.</div>`;
 
