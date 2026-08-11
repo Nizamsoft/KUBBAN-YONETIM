@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.96";
+} from "./local-backend.js?v=2026.97";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.96";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.97";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -358,8 +358,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.96";
+const APP_VERSION = "2026.97";
 const CHANGELOG = [
+  { version: "2026.97", date: "2026-08-11", items: [
+    "Fatura önizlemesi hesap defteri gibi: PC'de satırlı tablo (Cari · Fatura No · Tarih · Durum · Borç · Alacak), mobilde kart. Kontrol vurgusu iki görünümde de çalışır",
+  ]},
   { version: "2026.96", date: "2026-08-11", items: [
     "Alış faturasında açık/kapalı sorulmuyor; doğrudan önizleme (hepsi açık/borç). Satışta sihirbaz kalıyor",
     "Cari eşleşmeyince iki seçenek: 🔗 Eşleştir (mevcut hesabı aranabilir listeden seç) + ➕ Yeni. Eşleştirilen ad hesaba hatırlatma olarak eklenir",
@@ -3365,14 +3368,16 @@ async function viewCariHareket(c) {
       if (!indices.length) { draw(); return; }
       let k = 0, keyH = null;
       const body = document.createElement("div");
-      const clearHl = () => $$(".pv-row.active", editor).forEach((r) => r.classList.remove("active"));
+      const clearHl = () => $$("[data-row].active", editor).forEach((r) => r.classList.remove("active"));
       const finish = () => { if (keyH) document.removeEventListener("keydown", keyH); clearHl(); m.close(); draw(); };
       const m = openModal({ title: "Fatura Durumu", body, footer: [mkBtn("Bitir", "", finish)] });
-      // Sıradaki faturayı listede renkle vurgula (kontrol edilen kayıt belli olsun)
+      // Sıradaki faturayı listede renkle vurgula (kart + tablo, görünen olana kaydır)
       const hl = (idx) => {
         clearHl();
-        const el = $(`.pv-row[data-row="${idx}"]`, editor);
-        if (el) { el.classList.add("active"); el.scrollIntoView({ block: "center", behavior: "smooth" }); }
+        const els = $$(`[data-row="${idx}"]`, editor);
+        els.forEach((el) => el.classList.add("active"));
+        const vis = els.find((el) => el.offsetParent !== null);
+        if (vis) vis.scrollIntoView({ block: "center", behavior: "smooth" });
       };
       const choose = (w, amt) => {
         const it = items[indices[k]];
@@ -3465,6 +3470,30 @@ async function viewCariHareket(c) {
           <div class="n">${g.n}</div><div class="l">${g.w}</div>
         </div>`).join("");
 
+      // PC: defter tablosu görünümü (mobilde kartlar gizlenir)
+      const tableHtml = `<div class="pv-table"><table class="data">
+        <thead><tr>
+          <th></th><th>Cari Adı</th><th>Fatura No</th><th>Tarih</th><th>Durum</th>
+          <th class="num">Borç</th><th class="num">Alacak</th><th></th>
+        </tr></thead>
+        <tbody>${visIdx.map((i) => {
+          const it = items[i], s = st[i], sw = stWord(s.code), a = amountsOf(it);
+          const durumTxt = it.durum === "acik" ? "" : ` · ${durumInfo(it).label}`;
+          const act = s.code === "nocari"
+            ? `<button class="pv-add match" data-matchcari="${i}">🔗 Eşleştir</button> <button class="pv-add" data-addcari="${i}">➕ Yeni</button>` : "";
+          return `<tr data-row="${i}" data-ask="${i}">
+            <td><span class="dot ${sw.c}"></span></td>
+            <td class="pv-tnm">${esc(titleCase(it.ad || "-"))}</td>
+            <td>${esc(shortNo(it.faturaNo))}</td>
+            <td>${fmtDate(it.date)}</td>
+            <td><span class="st ${sw.c}">${sw.w}</span>${durumTxt}</td>
+            <td class="num">${a.borc ? fmtTRY(a.borc) : "—"}</td>
+            <td class="num">${a.alacak ? fmtTRY(a.alacak) : "—"}</td>
+            <td class="pv-tact">${act}</td>
+          </tr>`;
+        }).join("") || `<tr><td colspan="8"><div class="empty" style="padding:16px">Bu süzgeçte fatura yok.</div></td></tr>`}</tbody>
+      </table></div>`;
+
       editor.innerHTML = `
         <div class="card">
           <div class="pv-head">
@@ -3475,6 +3504,7 @@ async function viewCariHareket(c) {
           <div class="pv-fhint">${statusFilter ? `Filtre: <b>${esc(stWord(statusFilter).w)}</b> · dokun kaldır` : "Bir başlığa dokunarak süzebilirsin"}</div>
           ${dupCaris.length ? `<div class="notice warn" style="margin:0 0 10px" id="merge-note">🔗 <b>${dupCaris.length}</b> olası tekrar cari bulundu (aynı cari iki kez açılmış olabilir). <a href="#" id="merge-cari">Birleştir</a></div>` : ""}
           <div class="pv-rows">${rowsHtml || `<div class="empty" style="padding:20px">Bu süzgeçte fatura yok.</div>`}</div>
+          ${tableHtml}
           <div class="pv-cta">
             ${kind === "satis" ? `<button class="btn btn-sm" id="reask">Durumları Sor</button>` : ""}
             <div class="grow"></div>

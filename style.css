@@ -1209,3 +1209,19 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 .inv-line b.pos { color: var(--ok); }
 .inv-line b.neg { color: var(--danger); }
 .inv-note { font-size: 12.5px; color: var(--ink-faint); border-top: 1px dashed var(--line); padding-top: 8px; margin-top: 2px; }
+
+/* ---- Fatura önizleme: PC defter tablosu / mobil kart ---- */
+.pv-table { display: block; overflow-x: auto; margin-top: 4px; }
+.pv-rows { display: none; }
+.pv-table table.data { width: 100%; }
+.pv-table td.pv-tnm { font-weight: 600; color: var(--ink); max-width: 320px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-table td .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; }
+.pv-table tbody tr { cursor: pointer; }
+.pv-table tbody tr:hover { background: var(--surface-2); }
+.pv-table tr.active > td { background: #fbf1d8; }
+.pv-table td.pv-tact { white-space: nowrap; text-align: right; }
+.pv-table td.pv-tact .pv-add { padding: 4px 9px; font-size: 12px; }
+@media (max-width: 820px) {
+  .pv-table { display: none; }
+  .pv-rows { display: block; }
+}
