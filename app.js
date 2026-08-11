@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.120";
+} from "./supabase-backend.js?v=2026.121";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.120";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.121";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -296,6 +296,7 @@ const isAdmin = () => currentUser && currentUser.role === "admin";
 // Aktarım sonrası cari inceleme turu
 let reviewQueue = null;       // { ids: [...], index: 0 }
 let reviewKeyHandler = null;  // Enter dinleyicisi
+let ledgerFitHandler = null;  // defter yükseklik kilidi (resize dinleyicisi)
 function advanceReview() {
   if (!reviewQueue) return;
   reviewQueue.index++;
@@ -535,8 +536,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.120";
+const APP_VERSION = "2026.121";
 const CHANGELOG = [
+  { version: "2026.121", date: "2026-08-11", items: [
+    "Hesap Defteri: '← Hesaplar' ve '+ Yeni Hareket' düğmeleri hesap kartının içine alındı",
+    "Defter ekran yüksekliğine kilitlendi: üst kısım sabit, yalnız tablo içi kayar (sayfa kaymaz)",
+  ]},
   { version: "2026.120", date: "2026-08-11", items: [
     "Tablolar: fare tekerleği artık tablo üzerindeyken de kaydırıyor",
     "Tablo başlıkları (ve 'Toplam' satırı) kaydırınca üstte/altta yapışık kalıyor",
@@ -1168,6 +1173,7 @@ async function route() {
   const r = ROUTES[path] || ROUTES["dashboard"];
   closeDrawer(); // mobilde gezinince menüyü kapat
   if (reviewKeyHandler) { document.removeEventListener("keydown", reviewKeyHandler); reviewKeyHandler = null; }
+  if (ledgerFitHandler) { window.removeEventListener("resize", ledgerFitHandler); ledgerFitHandler = null; }
   const navPath = path === "hesap-detay" ? "hesaplar"
     : path === "gunsonu-kayitlar" ? "gunsonu-aktarim" : path;
   $$("#nav .nav-item").forEach((a) =>
@@ -3412,11 +3418,10 @@ async function viewAccountLedger(c) {
       <button class="btn btn-primary btn-sm" id="rev-next">Sonraki ↵</button>
     </div>` : "";
 
-  const backBar = reviewBar + `
-    <div class="toolbar">
+  // Butonlar artık hesap kartının (hero) içinde
+  const heroActions = `<div class="lh-actions">
       <a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a>
-      <div class="grow"></div>
-      <button class="btn btn-primary btn-sm" id="add-entry">+ Yeni Hareket</button>
+      <button class="btn btn-sm btn-primary" id="add-entry">+ Yeni Hareket</button>
     </div>`;
 
   // Tablo satırı üreticileri (sayfalama için ayrı)
@@ -3456,12 +3461,12 @@ async function viewAccountLedger(c) {
   const hero = cari
     ? `<div class="ledger-hero">
         <div class="lh-ico">${accEmoji(acc)}</div>
-        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
+        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div>${heroActions}</div>
         <div class="lh-bal"><div class="lbl">${run >= 0 ? "Borç" : "Alacak"} Bakiye</div><div class="val">${fmtTRY(Math.abs(run))}</div></div>
       </div>`
     : `<div class="ledger-hero">
         <div class="lh-ico">${accEmoji(acc)}</div>
-        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
+        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div>${heroActions}</div>
         <div class="lh-bal"><div class="lbl">Güncel Bakiye</div><div class="val" ${run < 0 ? 'style="color:#ffd9d0"' : ""}>${fmtTRY(run)}</div></div>
       </div>`;
   const thead = cari
@@ -3509,8 +3514,8 @@ async function viewAccountLedger(c) {
       <span class="tbl-count"></span>
     </div>`;
 
-  c.innerHTML = backBar + hero + `
-    <div class="card">
+  c.innerHTML = `<div class="ledger-view">` + reviewBar + hero + `
+    <div class="card ledger-card">
       <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span></div>
       ${rows.length ? toolsHtml : ""}
       ${pagerHtml}
@@ -3520,8 +3525,7 @@ async function viewAccountLedger(c) {
         <tbody></tbody>
         ${tfoot}
       </table></div>
-      ${pagerHtml}
-    </div>`;
+    </div></div>`;
 
   const cardsEl = $(".ledger-cards", c);
   const tbodyEl = $(".ledger-table tbody", c);
@@ -3596,6 +3600,23 @@ async function viewAccountLedger(c) {
   renderPage();
 
   $("#add-entry").onclick = () => entryModal(acc, null, { nextNo, nextCariNo });
+
+  // Defteri ekrana kilitle: yalnız tablo içi kayar, sayfa kaymaz (masaüstü).
+  // Mobilde tablo gizli (kartlar akar) → kilit uygulanmaz.
+  const ledgerRoot = $(".ledger-view", c), twFit = $(".ledger-table", c);
+  function fitLedger() {
+    if (!ledgerRoot) return;
+    ledgerRoot.style.height = ""; ledgerRoot.style.overflow = "";
+    if (!twFit || getComputedStyle(twFit).display === "none") return;
+    const content = c.closest(".content");
+    const padB = content ? (parseFloat(getComputedStyle(content).paddingBottom) || 0) : 0;
+    const h = window.innerHeight - ledgerRoot.getBoundingClientRect().top - padB - 4;
+    if (h > 240) { ledgerRoot.style.height = h + "px"; ledgerRoot.style.overflow = "hidden"; }
+  }
+  requestAnimationFrame(fitLedger);
+  setTimeout(fitLedger, 300);   // geçiş animasyonu bitince kesin ölçü
+  ledgerFitHandler = fitLedger;
+  window.addEventListener("resize", fitLedger);
 
   // Sarı vurgulanan (bu turda eklenen) ilk kayda kaydır
   if (hlTok) requestAnimationFrame(() => {

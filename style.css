@@ -862,6 +862,19 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 }
 
 /* Hesap defteri üst kartı — Altın Banner (tek kart) */
+/* Defter ekrana kilitli: üst kısım sabit, yalnız tablo içi kayar */
+.ledger-view { display: flex; flex-direction: column; }
+.ledger-view .ledger-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin: 0; }
+.ledger-view .ledger-card > .table-wrap.ledger-table { flex: 1 1 auto; min-height: 0; max-height: none; }
+.ledger-view .ledger-hero { margin-bottom: 14px; }
+
+/* Hesap kartı içindeki eylem düğmeleri */
+.ledger-hero .lh-actions { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
+.ledger-hero .lh-actions .btn { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.4); color: #fff; }
+.ledger-hero .lh-actions .btn:hover { background: rgba(255,255,255,.28); }
+.ledger-hero .lh-actions .btn-primary { background: #fff; border-color: #fff; color: var(--gold-dark); font-weight: 700; }
+.ledger-hero .lh-actions .btn-primary:hover { background: rgba(255,255,255,.9); }
+
 .ledger-hero {
   display: flex; align-items: center; gap: 14px; margin-bottom: 18px;
   padding: 18px 20px; border-radius: 16px; color: #fff; position: relative; overflow: hidden;
