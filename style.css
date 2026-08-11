@@ -875,7 +875,9 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 .ledger-view { display: flex; flex-direction: column; }
 .ledger-view .ledger-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin: 0; }
 .ledger-view .ledger-card > .table-wrap.ledger-table { flex: 1 1 auto; min-height: 0; max-height: none; }
-.ledger-view .ledger-hero { margin-bottom: 14px; }
+.ledger-view .ledger-hero { flex: 0 0 auto; margin-bottom: 14px; }
+.ledger-view .ledger-card > .card-head,
+.ledger-view .ledger-card > .tbl-tools { flex: 0 0 auto; }
 
 /* Hesap kartı içindeki eylem düğmeleri */
 .ledger-hero .lh-actions { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; }

@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.124";
+} from "./supabase-backend.js?v=2026.125";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.124";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.125";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -536,8 +536,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.124";
+const APP_VERSION = "2026.125";
 const CHANGELOG = [
+  { version: "2026.125", date: "2026-08-11", items: [
+    "Hesap Defteri: dip toplamda yalnız Güncel Bakiye gösteriliyor (Giren/Çıkan toplamları kaldırıldı)",
+    "Üstteki hesap kartı sabitlendi — sayfa değiştirince artık küçülmüyor",
+  ]},
   { version: "2026.124", date: "2026-08-11", items: [
     "Hesap Defteri: sütun genişlikleri sabitlendi — sayfalar arası geçişte başlık artık daralmıyor (Açıklama gerekince alta sarar)",
   ]},
@@ -3488,8 +3492,8 @@ async function viewAccountLedger(c) {
     ? `<colgroup><col style="width:66px"><col style="width:70px"><col style="width:92px"><col style="width:150px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:120px"><col style="width:110px"><col style="width:96px"></colgroup>`
     : `<colgroup><col style="width:66px"><col style="width:92px"><col style="width:120px"><col style="width:150px"><col><col style="width:130px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:96px"></colgroup>`;
   const tfoot = !rows.length ? "" : (cari
-    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="5">Toplam</td><td class="num">${fmtTRY(totBorc)}</td><td class="num">${fmtTRY(totAlacak)}</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
-    : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num" style="color:var(--ok)">${fmtTRY(totGiren)}</td><td class="num" style="color:var(--danger)">${fmtTRY(totCikan)}</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
+    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="7">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
+    : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="8">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
 
   // Arama için her satıra metin torbası (bir kez hesaplanır — 27.000'de bile hızlı)
   rows.forEach((r) => {
@@ -3592,7 +3596,7 @@ async function viewAccountLedger(c) {
     const k = b.dataset.pg;
     page = k === "first" ? 0 : k === "last" ? tp() - 1 : k === "prev" ? page - 1 : page + 1;
     renderPage();
-    const tw = $(".ledger-table", c); if (tw) { tw.scrollTop = 0; tw.scrollIntoView({ block: "nearest" }); }
+    const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0;
   });
   renderPage();
 
