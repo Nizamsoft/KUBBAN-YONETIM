@@ -18,6 +18,14 @@ export const firebaseConfig = {
   appId: "APP_ID",
 };
 
+// -------- SUPABASE --------
+// Supabase panel → Settings → API'den:
+//   Project URL  → SUPABASE_URL
+//   anon public  → SUPABASE_ANON_KEY   (public'tir, tarayıcıda görünür; güvenlik RLS ile sağlanır)
+// Sadece app.js "supabase-backend.js"e geçirildiğinde kullanılır.
+export const SUPABASE_URL = "https://PROJE-REF.supabase.co";
+export const SUPABASE_ANON_KEY = "BURAYA_ANON_KEY_GIRIN";
+
 // Firmaya ait sabitler (arayüzde kullanılır)
 export const COMPANY = {
   name: "Güllüoğlu Kübban",

@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.94";
+} from "./local-backend.js?v=2026.95";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.94";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.95";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -328,8 +328,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.94";
+const APP_VERSION = "2026.95";
 const CHANGELOG = [
+  { version: "2026.95", date: "2026-08-10", items: [
+    "Supabase altyapısı hazırlandı: supabase-backend.js (local-backend ile birebir API), supabase-setup.sql (tablolar + RLS), SUPABASE.md rehberi. Geçince veri buluta taşınır — app.js tek satır import değişir (henüz aktif değil)",
+  ]},
   { version: "2026.94", date: "2026-08-10", items: [
     "Fatura sihirbazı: Satış faturasında Enter/varsayılan artık 'Kapalı' (tahsil edildi); Alış faturasında 'Açık' kalır",
   ]},
