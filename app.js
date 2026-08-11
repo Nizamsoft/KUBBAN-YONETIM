@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.119";
+} from "./supabase-backend.js?v=2026.120";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.119";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.120";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -535,8 +535,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.119";
+const APP_VERSION = "2026.120";
 const CHANGELOG = [
+  { version: "2026.120", date: "2026-08-11", items: [
+    "Tablolar: fare tekerleği artık tablo üzerindeyken de kaydırıyor",
+    "Tablo başlıkları (ve 'Toplam' satırı) kaydırınca üstte/altta yapışık kalıyor",
+    "Hesap Defteri'ne arama + tarih aralığı filtresi (tüm kayıtlarda arar, süzüp sayfalar)",
+  ]},
   { version: "2026.119", date: "2026-08-11", items: [
     "⚡ Performans: hesap defteri artık sayfalı (100'erlik) — 27.000 satırda bile akıcı kayar",
     "⚡ Veri çekişi paralelleştirildi: büyük tablolar (binlerce kayıt) çok daha hızlı yükleniyor",
@@ -3467,24 +3472,47 @@ async function viewAccountLedger(c) {
     ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="5">Toplam</td><td class="num">${fmtTRY(totBorc)}</td><td class="num">${fmtTRY(totAlacak)}</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
     : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num" style="color:var(--ok)">${fmtTRY(totGiren)}</td><td class="num" style="color:var(--danger)">${fmtTRY(totCikan)}</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
 
-  // Sayfalama: çok satırlı defterlerde (ör. 27.000) yalnız bir dilim çizilir
-  const PAGE_SIZE = 100;
-  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
-  const hlIdx = hlTok ? rows.findIndex(({ e }) => isHl(e)) : -1;
-  let page = hlIdx >= 0 ? Math.floor(hlIdx / PAGE_SIZE) : totalPages - 1;  // vurgu varsa o sayfa, yoksa en yeni
+  // Arama için her satıra metin torbası (bir kez hesaplanır — 27.000'de bile hızlı)
+  rows.forEach((r) => {
+    const e = r.e;
+    r._hay = normTr([
+      e.islemNo, e.cariNo, e.islemAdi, e.sahis, e.aciklama, e.rapor, e.faturaTuru, e.faturaNo,
+      fmtDate(e.date),
+      e.giren ? fmtNum(parseNum(e.giren)) : "", e.cikan ? fmtNum(parseNum(e.cikan)) : "",
+      e.borc ? fmtNum(parseNum(e.borc)) : "", e.alacak ? fmtNum(parseNum(e.alacak)) : "",
+    ].filter((x) => x !== "" && x != null).join(" "));
+  });
 
-  const pagerHtml = totalPages > 1 ? `
+  // Sayfalama + filtre: çok satırlı defterlerde (ör. 27.000) yalnız bir dilim çizilir
+  const PAGE_SIZE = 100;
+  const tp = () => Math.max(1, Math.ceil(view.length / PAGE_SIZE));  // toplam sayfa (görünen kümeye göre)
+  let view = rows;                                                   // filtreli küme (başta hepsi)
+  const hlIdx = hlTok ? rows.findIndex(({ e }) => isHl(e)) : -1;
+  let page = hlIdx >= 0 ? Math.floor(hlIdx / PAGE_SIZE) : tp() - 1;  // vurgu varsa o sayfa, yoksa en yeni
+
+  const pagerHtml = `
     <div class="pager">
       <button class="btn btn-sm" data-pg="first">« İlk</button>
       <button class="btn btn-sm" data-pg="prev">‹ Önceki</button>
       <span class="pg-info"></span>
       <button class="btn btn-sm" data-pg="next">Sonraki ›</button>
       <button class="btn btn-sm" data-pg="last">Son »</button>
-    </div>` : "";
+    </div>`;
+  const toolsHtml = `
+    <div class="tbl-tools">
+      <input class="tbl-search" type="search" placeholder="🔍 Ara — açıklama, şahıs, rapor, tutar…" autocomplete="off" />
+      <span class="tbl-lbl">Tarih</span>
+      <input class="tbl-date tbl-from" type="date" aria-label="Başlangıç tarihi" />
+      <span class="tbl-dsep">—</span>
+      <input class="tbl-date tbl-to" type="date" aria-label="Bitiş tarihi" />
+      <button class="btn btn-sm tbl-clear">Temizle</button>
+      <span class="tbl-count"></span>
+    </div>`;
 
   c.innerHTML = backBar + hero + `
     <div class="card">
       <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span></div>
+      ${rows.length ? toolsHtml : ""}
       ${pagerHtml}
       <div class="ledger-cards"></div>
       <div class="table-wrap ledger-table"><table class="data">
@@ -3497,33 +3525,73 @@ async function viewAccountLedger(c) {
 
   const cardsEl = $(".ledger-cards", c);
   const tbodyEl = $(".ledger-table tbody", c);
+  const searchEl = $(".tbl-search", c), fromEl = $(".tbl-from", c), toEl = $(".tbl-to", c);
+  const clearEl = $(".tbl-clear", c), countEl = $(".tbl-count", c);
   const wireEdits = () => $$("[data-edit]", c).forEach((b) => b.onclick = () =>
     entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo }));
 
   function renderPage() {
+    const totalPages = tp();
     page = Math.max(0, Math.min(totalPages - 1, page));
-    if (!rows.length) {
-      cardsEl.innerHTML = ledgerEmpty;
-      tbodyEl.innerHTML = `<tr><td colspan="${colCount}"><div class="empty"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div></td></tr>`;
+    if (!view.length) {
+      const msg = rows.length ? "Eşleşen hareket yok." : "Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.";
+      cardsEl.innerHTML = `<div class="empty" style="padding:28px"><div class="ico">🔍</div><p>${msg}</p></div>`;
+      tbodyEl.innerHTML = `<tr><td colspan="${colCount}"><div class="empty"><div class="ico">🔍</div><p>${msg}</p></div></td></tr>`;
     } else {
       const start = page * PAGE_SIZE;
-      const slice = rows.slice(start, start + PAGE_SIZE);
+      const slice = view.slice(start, start + PAGE_SIZE);
       cardsEl.innerHTML = slice.map(cardHtml).join("");
       tbodyEl.innerHTML = slice.map(rowHtml).join("");
     }
-    const from = rows.length ? (page * PAGE_SIZE + 1) : 0, to = Math.min((page + 1) * PAGE_SIZE, rows.length);
+    const from = view.length ? (page * PAGE_SIZE + 1) : 0, to = Math.min((page + 1) * PAGE_SIZE, view.length);
     $$(".pg-info", c).forEach((el) => el.textContent =
-      `Sayfa ${page + 1}/${totalPages} · ${from.toLocaleString("tr-TR")}–${to.toLocaleString("tr-TR")} / ${rows.length.toLocaleString("tr-TR")}`);
+      `Sayfa ${page + 1}/${totalPages} · ${from.toLocaleString("tr-TR")}–${to.toLocaleString("tr-TR")} / ${view.length.toLocaleString("tr-TR")}`);
+    $$(".pager", c).forEach((p) => p.style.display = totalPages > 1 ? "" : "none");
     $$("[data-pg]", c).forEach((b) => {
       b.disabled = (b.dataset.pg === "first" || b.dataset.pg === "prev") ? page === 0 : page === totalPages - 1;
     });
+    // Filtre etkinse: eşleşen kayıt sayısı + süzülmüş toplam
+    if (countEl) {
+      const active = !!(searchEl.value.trim() || fromEl.value || toEl.value);
+      if (!active) countEl.textContent = "";
+      else if (cari) {
+        const b = view.reduce((s, { e }) => s + parseNum(e.borc), 0), a = view.reduce((s, { e }) => s + parseNum(e.alacak), 0);
+        countEl.textContent = `${view.length.toLocaleString("tr-TR")} kayıt · Borç ${fmtTRY(b)} · Alacak ${fmtTRY(a)}`;
+      } else {
+        const g = view.reduce((s, { e }) => s + parseNum(e.giren), 0), ck = view.reduce((s, { e }) => s + parseNum(e.cikan), 0);
+        countEl.textContent = `${view.length.toLocaleString("tr-TR")} kayıt · Giren ${fmtTRY(g)} · Çıkan ${fmtTRY(ck)}`;
+      }
+    }
     wireEdits();
   }
+
+  function applyFilter() {
+    const q = normTr(searchEl.value.trim());
+    const f = fromEl.value, t = toEl.value;   // "" ya da YYYY-MM-DD
+    view = rows.filter((r) => {
+      if (q && !r._hay.includes(q)) return false;
+      if (f && (!r.e.date || r.e.date < f)) return false;
+      if (t && (!r.e.date || r.e.date > t)) return false;
+      return true;
+    });
+    page = 0;                                 // filtre değişince başa dön
+    renderPage();
+    const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0;
+  }
+
+  let deb;
+  if (searchEl) searchEl.addEventListener("input", () => { clearTimeout(deb); deb = setTimeout(applyFilter, 140); });
+  if (fromEl) fromEl.addEventListener("change", applyFilter);
+  if (toEl) toEl.addEventListener("change", applyFilter);
+  if (clearEl) clearEl.addEventListener("click", () => {
+    searchEl.value = ""; fromEl.value = ""; toEl.value = ""; applyFilter(); searchEl.focus();
+  });
+
   $$("[data-pg]", c).forEach((b) => b.onclick = () => {
     const k = b.dataset.pg;
-    page = k === "first" ? 0 : k === "last" ? totalPages - 1 : k === "prev" ? page - 1 : page + 1;
+    page = k === "first" ? 0 : k === "last" ? tp() - 1 : k === "prev" ? page - 1 : page + 1;
     renderPage();
-    const tw = $(".ledger-table", c); if (tw) tw.scrollIntoView({ block: "nearest" });
+    const tw = $(".ledger-table", c); if (tw) { tw.scrollTop = 0; tw.scrollIntoView({ block: "nearest" }); }
   });
   renderPage();
 
