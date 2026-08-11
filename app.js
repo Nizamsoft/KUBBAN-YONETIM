@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.126";
+} from "./supabase-backend.js?v=2026.127";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.126";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.127";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.126";
+const APP_VERSION = "2026.127";
 const CHANGELOG = [
+  { version: "2026.127", date: "2026-08-11", items: [
+    "🏦 Banka Geçmişi İçe Aktar: tek Excel'den Garanti (102.01) ve Türkiye Finans (102.02) birlikte yüklenir",
+    "BANKA sütununa göre ayrılır; her banka kendi açılış/yürüyen bakiyesiyle, dosyadaki Banka Bakiyesi ile doğrulanır",
+  ]},
   { version: "2026.126", date: "2026-08-11", items: [
     "⚡ Bellek önbelleği: veriler bir kez yüklenir, sonraki sayfa geçişleri anında olur",
     "Veriler arka planda sessizce tazelenir; ekleme/düzenleme sonrası otomatik güncellenir",
@@ -1121,7 +1125,8 @@ const ROUTES = {
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
   "hesaplar":         { title: "Hesaplar", crumb: "Hesaplar", render: viewHesaplar },
   "cari-import":      { title: "Toplu Cari İçe Aktar", crumb: "Hesaplar", render: viewCariImport },
-  "kasa-import":      { title: "Kasa Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewKasaImport, admin: true },
+  "kasa-import":      { title: "Kasa Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewKasaImport, admin: true, back: "#/hesaplar" },
+  "banka-import":     { title: "Banka Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewBankaImport, admin: true, back: "#/hesaplar" },
   "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger, back: "#/hesaplar" },
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
@@ -2806,6 +2811,7 @@ async function viewHesaplar(c) {
       </div>
       <button class="btn btn-sm" id="acc-import">📥 Toplu Cari</button>
       <button class="btn btn-sm" id="acc-kasa" style="display:none">📒 Kasa Geçmişi</button>
+      <button class="btn btn-sm" id="acc-banka" style="display:none">🏦 Banka Geçmişi</button>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
     </div>
@@ -2927,6 +2933,8 @@ async function viewHesaplar(c) {
   $("#acc-import").onclick = () => { location.hash = "#/cari-import"; };
   const kasaBtn = $("#acc-kasa", c);
   if (kasaBtn) { if (isAdmin()) kasaBtn.style.display = ""; kasaBtn.onclick = () => { location.hash = "#/kasa-import"; }; }
+  const bankaBtn = $("#acc-banka", c);
+  if (bankaBtn) { if (isAdmin()) bankaBtn.style.display = ""; bankaBtn.onclick = () => { location.hash = "#/banka-import"; }; }
   // "Hesapları Düzenle" modu: düzenle/alt ekle ikonları görünür olur
   $("#edit-toggle").onclick = () => {
     const list = $(".acc-list", c);
@@ -3407,6 +3415,224 @@ async function viewKasaImport(c) {
       pb.done(() => {
         successAnim(`${total.toLocaleString("tr-TR")} kasa hareketi aktarıldı`, () => {
           location.hash = "#/hesap-detay?id=" + kasa.id;
+        });
+      });
+    } catch (e) {
+      pb.done(() => toast("Hata: " + e.message, "err"));
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  BANKA GEÇMİŞİ İÇE AKTAR — tek dosyada iki banka (Garanti + T.Finans)
+//  Sütunlar: BANKA KG(atlanır) · NO(atlanır) · Tarih · BANKA(hesabı belirler) ·
+//            İşlem Adı · Şahıs · Açıklama · Rapor · Giren · Çıkan · Banka Bakiyesi(doğrulama)
+//  GARANTİ → 102.01 · T.FINANS → 102.02. Her banka kendi yürüyen bakiyesiyle.
+//  İşlem No uygulama tarafından (her banka 1…N). source:"banka-gecmis".
+// ---------------------------------------------------------------------------
+const BANKA_SRC = "banka-gecmis";
+async function viewBankaImport(c) {
+  if (!isAdmin()) {
+    c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`;
+    return;
+  }
+  const accounts = await fetchAll(C.accounts).catch(() => []);
+  const findByCode = (code) => accounts.find((a) => String(a.code) === code);
+  const BANKS = [
+    { key: "garanti", label: "Garanti", match: (n) => n.includes("garanti"), acc: findByCode("102.01") },
+    { key: "tfinans", label: "T. Finans", match: (n) => n.includes("finans"), acc: findByCode("102.02") },
+  ];
+  const priorEntries = await fetchAll(C.accountEntries).catch(() => []);
+  const priorCount = priorEntries.filter((e) => e.source === BANKA_SRC
+    && BANKS.some((b) => b.acc && e.accountId === b.acc.id)).length;
+  const missing = BANKS.filter((b) => !b.acc);
+
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head"><h3>🏦 Banka Geçmişi İçe Aktar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
+      ${missing.length ? `<div class="notice warn">⚠️ Şu hesap(lar) bulunamadı: <b>${missing.map((b) => b.key === "garanti" ? "102.01 Garanti" : "102.02 Türkiye Finans").join(", ")}</b>. Önce Hesaplar'dan varsayılan planı oluşturun.</div>` : `
+      <div class="pv-fhint">Excel (.xlsx) yükleyin. <b>BANKA</b> sütununa göre satırlar ayrılır:
+        <b>GARANTİ → 102.01</b>, <b>T.FINANS → 102.02</b>. Her banka kendi yürüyen bakiyesiyle işlenir.<br>
+        İşlem numaraları uygulama tarafından verilir. <b>Banka Bakiyesi</b> yalnız doğrulama için kullanılır.
+        ${priorCount ? `<br>⚠️ Daha önce içe aktarılmış <b>${priorCount.toLocaleString("tr-TR")}</b> banka geçmişi hareketi var — yeni yükleme <b>bunların yerini alır</b>.` : ""}</div>
+      <div id="bi-drop" style="margin-top:12px"></div>`}
+    </div>
+    <div id="bi-editor"></div>`;
+  if (missing.length) return;
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const bdate = (v) => {
+    if (v instanceof Date) return `${v.getUTCFullYear()}-${pad2(v.getUTCMonth() + 1)}-${pad2(v.getUTCDate())}`;
+    const m = String(v || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+    if (!m) return "";
+    let y = m[3]; if (y.length === 2) y = "20" + y;
+    return `${y}-${pad2(+m[2])}-${pad2(+m[1])}`;
+  };
+
+  $("#bi-drop").appendChild(fileDrop(async (file) => {
+    const lb = loadingBar("Dosya okunuyor…");
+    try {
+      const aoa = await parseSheetAOA(file);
+      lb.finish(() => build(aoa));
+    } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
+  }, ".xlsx,.xls", true));
+
+  function build(aoa) {
+    // Başlık satırı: tarih + banka + bakiye içeren satır
+    let hi = aoa.findIndex((r) => {
+      const j = (r || []).map(normTr).join("|");
+      return j.includes("tarih") && j.includes("banka") && j.includes("bakiye");
+    });
+    if (hi < 0) hi = aoa.findIndex((r) => (r || []).some((x) => String(x).trim() !== ""));
+    if (hi < 0) return toast("Veri bulunamadı.", "err");
+    const header = (aoa[hi] || []).map((h) => normTr(h));
+    const idxIncl = (kw) => header.findIndex((h) => h.includes(kw));
+    const idxExact = (kw) => header.findIndex((h) => h === kw);
+    const col = {
+      date: idxIncl("tarih"), banka: idxExact("banka"), islemAdi: idxIncl("islem ad"),
+      sahis: idxIncl("sahis"), aciklama: idxIncl("aciklama"), rapor: idxIncl("rapor"),
+      giren: idxIncl("giren"), cikan: idxIncl("cikan"), bakiye: idxIncl("bakiye"),
+    };
+    if (col.banka < 0 || col.date < 0 || (col.giren < 0 && col.cikan < 0))
+      return toast("'Banka', 'Tarih' ve 'Giren/Çıkan' sütunları bulunamadı.", "err");
+
+    const get = (r, i) => (i >= 0 ? String(r[i] ?? "").trim() : "");
+    const rows = [];
+    const byBank = { garanti: [], tfinans: [] };
+    let unknown = 0;
+    aoa.slice(hi + 1).forEach((r) => {
+      if (!r || !r.some((x) => String(x).trim() !== "")) return;
+      const bn = normTr(r[col.banka]);
+      const bank = BANKS.find((b) => b.match(bn));
+      const date = bdate(r[col.date]);
+      const giren = col.giren >= 0 ? parseNum(r[col.giren]) : 0;
+      const cikan = col.cikan >= 0 ? parseNum(r[col.cikan]) : 0;
+      const islemAdi = get(r, col.islemAdi), sahis = get(r, col.sahis);
+      const aciklama = get(r, col.aciklama), rapor = get(r, col.rapor);
+      if (!date && !giren && !cikan && !islemAdi && !aciklama) return;
+      if (!bank) { if (bn) unknown++; return; }
+      const gRaw = col.bakiye >= 0 ? String(r[col.bakiye] ?? "").trim() : "";
+      const bakiye = gRaw !== "" ? parseNum(r[col.bakiye]) : null;
+      const row = { bankKey: bank.key, date, islemAdi, sahis, aciklama, rapor, giren, cikan, bakiye };
+      rows.push(row);
+      byBank[bank.key].push(row);
+    });
+    if (!rows.length) return toast("İşlenecek satır bulunamadı.", "err");
+
+    // Her banka için açılış + yürüyen bakiye doğrulaması (dosya sırası = kronolojik)
+    const stats = {};
+    BANKS.forEach((b) => {
+      const list = byBank[b.key];
+      if (!list.length) { stats[b.key] = null; return; }
+      const first = list[0];
+      const opening = first.bakiye != null ? (first.bakiye - (first.giren - first.cikan)) : 0;
+      let run = opening, mismatch = 0, firstBad = null;
+      list.forEach((r, i) => {
+        run += r.giren - r.cikan; r.run = run;
+        if (r.bakiye != null && Math.abs(run - r.bakiye) > 0.5) { mismatch++; if (firstBad == null) firstBad = i; }
+      });
+      stats[b.key] = {
+        count: list.length, opening, finalBal: run, lastGuncel: list[list.length - 1].bakiye,
+        mismatch, firstBad,
+        totGiren: list.reduce((s, r) => s + r.giren, 0),
+        totCikan: list.reduce((s, r) => s + r.cikan, 0),
+      };
+    });
+
+    const card = (b) => {
+      const s = stats[b.key];
+      if (!s) return `<div class="ka-cell"><div class="k">${b.label}</div><div class="v" style="font-size:13px;color:var(--ink-soft)">dosyada yok</div></div>`;
+      const ok = s.mismatch === 0;
+      return `<div class="ka-cell" style="text-align:left">
+        <div class="k">${b.label} · ${s.count.toLocaleString("tr-TR")} hareket ${ok ? "✅" : "⚠️"}</div>
+        <div class="v" style="font-size:15px">Son: ${fmtTRY(s.finalBal)}</div>
+        <div style="font-size:12px;color:var(--ink-soft);margin-top:4px">Açılış ${fmtTRY(s.opening)} · Giren ${fmtTRY(s.totGiren)} · Çıkan ${fmtTRY(s.totCikan)}</div>
+        ${ok ? "" : `<div style="font-size:12px;color:var(--danger);margin-top:3px">${s.mismatch} satırda bakiye uyuşmuyor (ilki ${s.firstBad + 1}.)</div>`}
+      </div>`;
+    };
+
+    const editor = $("#bi-editor");
+    editor.innerHTML = `
+      <div class="card">
+        <div class="pv-head"><div class="pv-title">${rows.length.toLocaleString("tr-TR")} hareket okundu</div>
+          <div class="pv-sub">${unknown ? unknown + " satır bilinmeyen banka (atlandı) · " : ""}Garanti + T. Finans</div></div>
+        <div class="ka-grid">${BANKS.map(card).join("")}</div>
+        <div class="table-wrap" style="margin-top:12px"><table class="data">
+          <thead><tr>
+            <th>Banka</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
+            <th class="num">Giren</th><th class="num">Çıkan</th><th class="num">Bakiye</th><th class="num">Dosya Bakiye</th>
+          </tr></thead>
+          <tbody>${rows.slice(0, 60).map((r) => {
+            const bad = r.bakiye != null && Math.abs(r.run - r.bakiye) > 0.5;
+            return `<tr class="${bad ? "hl-row" : ""}">
+              <td>${r.bankKey === "garanti" ? "Garanti" : "T. Finans"}</td>
+              <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--danger)">—</span>'}</td>
+              <td>${esc(r.islemAdi)}</td><td>${esc(r.sahis)}</td><td>${esc(r.aciklama)}</td><td>${esc(r.rapor)}</td>
+              <td class="num" style="color:var(--ok)">${r.giren ? fmtTRY(r.giren) : "—"}</td>
+              <td class="num" style="color:var(--danger)">${r.cikan ? fmtTRY(r.cikan) : "—"}</td>
+              <td class="num" style="font-weight:700">${fmtTRY(r.run)}</td>
+              <td class="num" style="color:${bad ? "var(--danger)" : "var(--ink-faint)"}">${r.bakiye != null ? fmtTRY(r.bakiye) : "—"}</td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table></div>
+        ${rows.length > 60 ? `<div class="pv-fhint">İlk 60 satır gösteriliyor; hepsi (${rows.length.toLocaleString("tr-TR")}) aktarılacak.</div>` : ""}
+      </div>
+      <div class="pv-cta"><div class="grow"></div>
+        <button class="btn btn-primary" id="bi-save">✓ ${rows.length.toLocaleString("tr-TR")} Hareketi İçe Aktar</button></div>`;
+
+    $("#bi-save", editor).onclick = () => {
+      const parts = BANKS.filter((b) => stats[b.key]).map((b) =>
+        `${b.label}: ${stats[b.key].count.toLocaleString("tr-TR")} hareket, son ${fmtTRY(stats[b.key].finalBal)}`);
+      confirmDialog(
+        `${rows.length.toLocaleString("tr-TR")} hareket aktarılacak.\n${parts.join(" · ")}.` +
+        (priorCount ? ` Önceki ${priorCount.toLocaleString("tr-TR")} banka geçmişi silinecek.` : "") +
+        ` Devam edilsin mi?`,
+        () => doImport(byBank, stats));
+    };
+  }
+
+  async function doImport(byBank, stats) {
+    const pb = progressBar("Banka geçmişi aktarılıyor…");
+    try {
+      // 1) Önceki banka-gecmis kayıtlarını sil (iki hesap için)
+      const stale = priorEntries.filter((e) => e.source === BANKA_SRC
+        && BANKS.some((b) => b.acc && e.accountId === b.acc.id));
+      if (stale.length) {
+        pb.set(4, `${stale.length.toLocaleString("tr-TR")} eski kayıt siliniyor…`);
+        for (let i = 0; i < stale.length; i += 400) {
+          const bt = writeBatch(db);
+          stale.slice(i, i + 400).forEach((e) => bt.delete(doc(db, "accountEntries", e.id)));
+          await bt.commit();
+        }
+      }
+
+      // 2) Her banka: açılış bakiyesi + hareketler (İşlem No 1…N)
+      const now = new Date().toISOString();
+      const docs = [];
+      for (const b of BANKS) {
+        const s = stats[b.key]; if (!s) continue;
+        await updateDoc(doc(db, "accounts", b.acc.id), { openingBalance: s.opening });
+        byBank[b.key].forEach((r, i) => docs.push({
+          accountId: b.acc.id, accountCode: String(b.acc.code),
+          islemNo: i + 1, date: r.date, islemAdi: r.islemAdi, sahis: r.sahis,
+          aciklama: r.aciklama, rapor: r.rapor, giren: r.giren || 0, cikan: r.cikan || 0,
+          source: BANKA_SRC, createdAt: now,
+        }));
+      }
+
+      const total = docs.length;
+      for (let i = 0; i < total; i += 400) {
+        const bt = writeBatch(db);
+        docs.slice(i, i + 400).forEach((d) => bt.set(doc(C.accountEntries()), d));
+        await bt.commit();
+        const done = Math.min(i + 400, total);
+        pb.set(10 + Math.round((done / total) * 88), `${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")}`);
+      }
+
+      await logAction("İçe Aktarma", "Banka Geçmişi", `${total} hareket (Garanti + T.Finans)`);
+      pb.done(() => {
+        successAnim(`${total.toLocaleString("tr-TR")} banka hareketi aktarıldı`, () => {
+          location.hash = "#/hesaplar";
         });
       });
     } catch (e) {

@@ -9,7 +9,7 @@
 //  Kurulum SQL'i: supabase-setup.sql · Ayarlar: config.js (SUPABASE_URL / KEY)
 // ============================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.126";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.127";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
