@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.109";
+} from "./local-backend.js?v=2026.110";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.109";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.110";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -440,8 +440,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.109";
+const APP_VERSION = "2026.110";
 const CHANGELOG = [
+  { version: "2026.110", date: "2026-08-11", items: [
+    "Açıklama artık kırpılmadan tam görünüyor (kalem simgesi kalktı, metne tıkla → düzenle)",
+    "Banka Açıklaması tek satır (kırpılı); üstüne tıklayınca genişleyip tamamını gösteriyor",
+  ]},
   { version: "2026.109", date: "2026-08-11", items: [
     "Açıklama kolonu tek satır (kelime kelime kaymıyor); Banka Açıklaması sarmalı",
     "POS komisyonları Rapor'da otomatik 'POS Komisyonu' olarak görünüyor ve öyle kaydediliyor",
@@ -4122,9 +4126,9 @@ async function viewBanka(c) {
           <td data-label="Tarih">${fmtDateShort(o.dep)}</td>
           <td data-label="İşlem Adı">${inc ? "↘️" : "↗️"} Para Transferi</td>
           <td data-label="İlgili Hesap"><input class="bk-acc pv-pick bk-pick" data-seq="${o.seq}" placeholder="🔎 Hesap seç / ekle" value="${esc(accVal)}" readonly /></td>
-          <td data-label="Açıklama"><button class="bk-note" type="button" data-seq="${o.seq}" data-def="${esc(note)}" title="Düzenlemek için tıkla"><span class="bk-note-txt">${esc(acikVal || note)}</span> <span class="pv-edit">✏️</span></button>
+          <td data-label="Açıklama"><button class="bk-note" type="button" data-seq="${o.seq}" data-def="${esc(note)}" title="Düzenlemek için tıkla"><span class="bk-note-txt">${esc(acikVal || note)}</span></button>
             <input class="bk-acik pv-acik-inline" data-seq="${o.seq}" placeholder="Özel açıklama…" value="${esc(acikVal)}" hidden /></td>
-          <td data-label="Banka Açıklaması" class="pv-bank">${esc(o.desc)}</td>
+          <td data-label="Banka Açıklaması" class="pv-bank"><span class="pv-bank-txt">${esc(o.desc)}</span></td>
           ${rapCell}
           <td class="num ${inc ? "pv-in" : "pv-dash"}" data-label="Giren Tutar">${inc ? fmtTRY(o.amt) : "—"}</td>
           <td class="num ${!inc ? "pv-out" : "pv-dash"}" data-label="Çıkan Tutar">${!inc ? fmtTRY(Math.abs(o.amt)) : "—"}</td>
@@ -4197,6 +4201,8 @@ async function viewBanka(c) {
       b.onclick = () => { const show = inp.hidden; inp.hidden = !show; if (show) inp.focus(); };
       inp.addEventListener("input", () => { txt.textContent = inp.value.trim() || b.dataset.def || ""; });
     });
+    // Banka Açıklaması → tek satır; tıklayınca genişler
+    $$(".pv-bank", editor).forEach((td) => td.onclick = () => td.classList.toggle("expanded"));
     // Canlı doğrulama: hesap (+ çıkanlarda rapor) dolmadan İşle pasif (dolanlar normal görünür)
     function bkSync() {
       let missing = 0;
@@ -4380,7 +4386,7 @@ async function viewBanka(c) {
           <td data-label="İşlem Adı">${kind === "match" ? (r.approx ? "🟡" : "🔓") : "❓"} Kart Harcaması</td>
           <td data-label="İlgili Hesap"><input class="tf-acc pv-pick tf-pick" data-i="${i}" placeholder="🔎 Hesap * seç / ekle" value="${esc(accVal)}" readonly /></td>
           <td data-label="Açıklama">T. Finans ile ödendi</td>
-          <td data-label="Banka Açıklaması" class="pv-bank"><span class="nm">${merc ? esc(merc) : "Eşleşmedi — kart seç"}</span>${r.ref ? ` <small>${esc(r.ref)}</small>` : ""}</td>
+          <td data-label="Banka Açıklaması" class="pv-bank"><span class="nm pv-bank-txt">${merc ? esc(merc) : "Eşleşmedi — kart seç"}</span>${r.ref ? ` <small>${esc(r.ref)}</small>` : ""}</td>
           <td data-label="Rapor"><input class="tf-rapor pv-pick tf-pick" data-i="${i}" placeholder="🔎 Rapor *" value="${esc(rapVal)}" readonly /></td>
           <td class="num pv-dash" data-label="Giren Tutar">—</td>
           <td class="num pv-out" data-label="Çıkan Tutar">${fmtTRY(r.amt)}</td>
@@ -4441,6 +4447,8 @@ async function viewBanka(c) {
       raporItems, query: inp.value,
       onPick: (val) => { inp.value = val; inp.dispatchEvent(new Event("input", { bubbles: true })); },
     }));
+    // Banka Açıklaması → tek satır; tıklayınca genişler
+    $$(".pv-bank", editor).forEach((td) => td.onclick = () => td.classList.toggle("expanded"));
     // Eşleşmeyen kart seçimi → mağaza adını + hesap/rapor önerisini satıra yaz
     $$(".tf-card-pick", editor).forEach((sel) => sel.onchange = () => {
       const row = $(`.tf-cz[data-i="${sel.dataset.i}"]`, editor), nm = $(".nm", row), acc = $(".tf-acc", row), rap = $(".tf-rapor", row);
