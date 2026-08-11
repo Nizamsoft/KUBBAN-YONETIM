@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.130";
+} from "./supabase-backend.js?v=2026.131";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.130";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.131";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.130";
+const APP_VERSION = "2026.131";
 const CHANGELOG = [
+  { version: "2026.131", date: "2026-08-11", items: [
+    "İçe aktarımda başlık satırı akıllıca bulunuyor — dosya tepesinde başlık bandı / yanda menü metni olsa da sütunlar tanınıyor (Toplu Cari, Fatura)",
+  ]},
   { version: "2026.130", date: "2026-08-11", items: [
     "Toplu Cari: daha çok hesap türü destekleniyor (128, 335 ve genel 1xx→müşteri / 3xx→tedarikçi; 108 hariç) — daha az satır atlanıyor",
   ]},
@@ -1315,8 +1318,16 @@ async function parseSpreadsheet(file) {
   // raw:true → sayılar gerçek sayı olarak gelir (yerel format karışıklığı olmaz),
   // metin hücreleri (ör. VKN baştaki sıfırlarıyla) string kalır.
   const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
-  // İlk boş olmayan satırı başlık kabul et
-  let headerIdx = aoa.findIndex((r) => r.some((c) => String(c).trim() !== ""));
+  // Başlık satırını AKILLICA bul: en çok "başlık kelimesi" içeren satır.
+  // (Dosyanın tepesinde başlık bandı / yanda menü metni olsa bile şaşmaz.)
+  const HK = ["cari", "unvan", "bakiye", "tur", "tarih", "borc", "alacak", "tutar",
+    "hesap", "sahis", "aciklama", "fatura", "rapor", "kod", "giren", "cikan", "banka", "adi"];
+  const hscore = (r) => (r || []).map((c) => normTr(c)).filter(Boolean)
+    .reduce((s, c) => s + (HK.some((k) => c.includes(k)) ? 1 : 0), 0);
+  let headerIdx = -1, best = 1;
+  aoa.slice(0, 25).forEach((r, i) => { const sc = hscore(r); if (sc > best) { best = sc; headerIdx = i; } });
+  if (headerIdx < 0) headerIdx = aoa.findIndex((r) => r.filter((c) => String(c).trim() !== "").length >= 2);
+  if (headerIdx < 0) headerIdx = aoa.findIndex((r) => r.some((c) => String(c).trim() !== ""));
   if (headerIdx < 0) return { headers: [], rows: [] };
   const pad = (n) => String(n).padStart(2, "0");
   const clean = (v) => (v instanceof Date)
