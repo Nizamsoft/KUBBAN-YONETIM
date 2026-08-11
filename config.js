@@ -23,8 +23,8 @@ export const firebaseConfig = {
 //   Project URL  → SUPABASE_URL
 //   anon public  → SUPABASE_ANON_KEY   (public'tir, tarayıcıda görünür; güvenlik RLS ile sağlanır)
 // Sadece app.js "supabase-backend.js"e geçirildiğinde kullanılır.
-export const SUPABASE_URL = "https://PROJE-REF.supabase.co";
-export const SUPABASE_ANON_KEY = "BURAYA_ANON_KEY_GIRIN";
+export const SUPABASE_URL = "https://yyznpveudtqqklzpucay.supabase.co";
+export const SUPABASE_ANON_KEY = "sb_publishable_w5e64_NcGifq-qWlakAdkQ__B39piwH";
 
 // Firmaya ait sabitler (arayüzde kullanılır)
 export const COMPANY = {

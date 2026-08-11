@@ -3,18 +3,18 @@
 //  Saf vanilla JS (framework yok) · Firebase Auth + Firestore
 // ============================================================================
 
-// ⚙️ YEREL MOD: Şimdilik tüm veri tarayıcıda (localStorage) saklanır.
-// Firebase'e geçmek için aşağıdaki import'u tekrar gstatic Firebase SDK'sına
-// çevirmek yeterli (fonksiyon imzaları birebir aynıdır). Bkz. local-backend.js
+// ⚙️ BULUT MOD (Supabase): Veri Supabase (Postgres) üzerinde. Yerele dönmek
+// için aşağıdaki import'u "./local-backend.js" ile değiştirmek yeterli
+// (fonksiyon imzaları birebir aynıdır). Ayarlar: config.js · Bkz. supabase-backend.js
 import {
   initializeApp, getFirestore, collection, doc, getDoc, getDocs, addDoc, setDoc,
   updateDoc, deleteDoc, query, where, orderBy, limit, serverTimestamp, writeBatch,
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.112";
+} from "./supabase-backend.js?v=2026.113";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.112";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.113";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -407,7 +407,7 @@ function showApp() {
   roleEl.textContent = isAdmin() ? "Yönetici" : "Kullanıcı";
   roleEl.classList.toggle("user", !isAdmin());
   const foot = $(".sidebar-foot");
-  if (foot) foot.textContent = `Sürüm ${APP_VERSION} · Yerel Mod`;
+  if (foot) foot.textContent = `Sürüm ${APP_VERSION} · Bulut (Supabase)`;
   buildNav();
   if (!location.hash) location.hash = "#/dashboard";
   route();
@@ -440,8 +440,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.112";
+const APP_VERSION = "2026.113";
 const CHANGELOG = [
+  { version: "2026.113", date: "2026-08-11", items: [
+    "☁️ Bulut moda geçildi: veriler artık Supabase'te saklanıyor ve cihazlar arası paylaşılıyor",
+    "Yedek Al / Yedek Yükle bulut (async) çalışacak şekilde güncellendi",
+  ]},
   { version: "2026.112", date: "2026-08-11", items: [
     "Garanti POS satırları da T.Finans gibi 'Bloke Çözüm' / '… Çözüldü' olarak adlandırılıyor (defterde de)",
   ]},
@@ -5301,11 +5305,11 @@ const COL_LABELS = {
   cashflowItems: "Nakit Akış Verileri",
 };
 async function viewYedek(c) {
-  const stats = storageStats();
+  const stats = await storageStats();
   const kb = (stats.bytes / 1024).toFixed(1);
   c.innerHTML = `
-    <div class="notice info">💾 <b>Yerel mod aktif.</b> Tüm veriler yalnızca <b>bu tarayıcıda</b> saklanıyor.
-      Veri kaybını önlemek için düzenli olarak <b>yedek indirin</b>. Firebase bağlandığında bu yedeği içe aktarabilirsiniz.</div>
+    <div class="notice info">☁️ <b>Bulut mod (Supabase) aktif.</b> Veriler Supabase veritabanında saklanıyor ve cihazlar arasında paylaşılıyor.
+      Yine de arada bir <b>yedek indirmek</b> iyidir. Yerel bir yedeği buradan geri yükleyebilirsiniz.</div>
     <div class="grid cols-2">
       <div class="card">
         <div class="card-head"><h3>Depolama Durumu</h3><span class="hint">${kb} KB</span></div>
@@ -5328,16 +5332,20 @@ async function viewYedek(c) {
       </div>
     </div>`;
 
-  $("#yd-export").onclick = () => {
-    const data = exportAll();
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `kubban-yedek-${todayISO()}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast("Yedek indirildi.", "ok");
+  $("#yd-export").onclick = async () => {
+    const btn = $("#yd-export"); btn.disabled = true; const old = btn.textContent; btn.textContent = "Hazırlanıyor…";
+    try {
+      const data = await exportAll();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `kubban-yedek-${todayISO()}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast("Yedek indirildi.", "ok");
+    } catch (e) { toast("Yedek alınamadı: " + e.message, "err"); }
+    finally { btn.disabled = false; btn.textContent = old; }
   };
   $("#yd-import-btn").onclick = () => $("#yd-import").click();
   $("#yd-import").onchange = async (e) => {
@@ -5345,18 +5353,17 @@ async function viewYedek(c) {
     if (!file) return;
     try {
       const payload = JSON.parse(await file.text());
-      confirmDialog("Bu yedek mevcut yerel verinin ÜZERİNE yazılacak. Devam edilsin mi?", () => {
-        importAll(payload, { replace: true });
-        toast("Yedek geri yüklendi.", "ok");
-        route();
+      confirmDialog("Bu yedek mevcut verinin ÜZERİNE yazılacak. Devam edilsin mi?", async () => {
+        const lb = loadingBar("Yedek yükleniyor…");
+        try { await importAll(payload, { replace: true }); lb.finish(() => { toast("Yedek geri yüklendi.", "ok"); route(); }); }
+        catch (err) { lb.finish(() => toast("Yükleme hatası: " + err.message, "err")); }
       });
     } catch (err) { toast("Geçersiz yedek dosyası.", "err"); }
   };
   $("#yd-clear").onclick = () =>
-    confirmDialog("TÜM veriler silinsin mi? Bu işlem geri alınamaz.", () => {
-      clearAllData();
-      toast("Tüm veri temizlendi.", "ok");
-      route();
+    confirmDialog("TÜM veriler silinsin mi? Bu işlem geri alınamaz.", async () => {
+      try { await clearAllData(); toast("Tüm veri temizlendi.", "ok"); route(); }
+      catch (e) { toast("Hata: " + e.message, "err"); }
     });
 }
 
@@ -5440,7 +5447,7 @@ async function viewGuncelleme(c) {
     </div>
     <div class="grid cols-3">
       <div class="stat"><div class="label">Güncel Sürüm</div><div class="value">${esc(APP_VERSION)}</div><div class="foot">${fmtDate(cur.date)}</div></div>
-      <div class="stat green"><div class="label">Yayın</div><div class="value" style="font-size:19px">Canlı</div><div class="foot">GitHub Pages · Yerel Mod</div></div>
+      <div class="stat green"><div class="label">Yayın</div><div class="value" style="font-size:19px">Canlı</div><div class="foot">GitHub Pages · Bulut (Supabase)</div></div>
       <div class="stat"><div class="label">Toplam Sürüm</div><div class="value">${CHANGELOG.length}</div><div class="foot">Düzen: YIL.NO (artan)</div></div>
     </div>
     <div class="card" style="margin-top:18px">
