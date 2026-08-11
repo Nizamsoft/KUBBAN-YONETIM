@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.110";
+} from "./local-backend.js?v=2026.111";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.110";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.111";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -440,8 +440,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.110";
+const APP_VERSION = "2026.111";
 const CHANGELOG = [
+  { version: "2026.111", date: "2026-08-11", items: [
+    "T.Finans önizlemesi tek düz liste oldu (blokeye alma / çözümler ayrı bölüm değil)",
+    "T.Finans satır sırası dosyadaki sıranın tersi (son işlem üstte değil, ilk üstte)",
+  ]},
   { version: "2026.110", date: "2026-08-11", items: [
     "Açıklama artık kırpılmadan tam görünüyor (kalem simgesi kalktı, metne tıkla → düzenle)",
     "Banka Açıklaması tek satır (kırpılı); üstüne tıklayınca genişleyip tamamını gösteriyor",
@@ -4339,16 +4343,16 @@ async function viewBanka(c) {
     const matched = results.filter((r) => r.card);
     const unmatched = results.filter((r) => !r.card);
 
-    // Blokeye Alma: yatış günü bazında topla + gün sonu 108 borç ile kontrol
+    // Blokeye Alma: yatış günü bazında topla + gün sonu 108 borç ile kontrol (dosya sırası için seq izlenir)
     const almaByDay = {};
-    st.hesap.alma.forEach((a) => { (almaByDay[a.date] = almaByDay[a.date] || { sum: 0, n: 0 }); almaByDay[a.date].sum += a.amt; almaByDay[a.date].n++; });
+    st.hesap.alma.forEach((a) => { const g = (almaByDay[a.date] = almaByDay[a.date] || { sum: 0, n: 0, seq: a.seq }); g.sum += a.amt; g.n++; g.seq = Math.min(g.seq, a.seq); });
     const prevISO = (iso) => { const [y, m, d] = iso.split("-").map(Number); const dt = new Date(y, m - 1, d); dt.setDate(dt.getDate() - 1); return bkISO(dt); };
     const gsBorcByDay = {};
     entries.filter((e) => e.source === "gunsonu-bloke" && blokeAcc && e.accountId === blokeAcc.id)
       .forEach((e) => { gsBorcByDay[e.date] = (gsBorcByDay[e.date] || 0) + parseNum(e.borc); });
     const almaRows = Object.keys(almaByDay).sort().map((d) => {
       const gsDate = prevISO(d), gsBorc = gsBorcByDay[gsDate] || 0, sum = almaByDay[d].sum, fark = gsBorc - sum;
-      return { almaDate: d, gsDate, sum, n: almaByDay[d].n, gsBorc, fark, ok: Math.abs(fark) < 1 };
+      return { almaDate: d, gsDate, sum, n: almaByDay[d].n, gsBorc, fark, ok: Math.abs(fark) < 1, seq: almaByDay[d].seq };
     });
 
     const cardOpts = st.cards.map((c, i) => ({ i, label: `${fmtDateShort(c.date)} · ${c.merchant} · ${fmtNum(c.amt)}` }));
@@ -4408,21 +4412,20 @@ async function viewBanka(c) {
     const totMatch = matched.reduce((s, r) => s + r.amt, 0);
     const totUn = unmatched.reduce((s, r) => s + r.amt, 0);
 
+    // Tek düz liste (ara başlık yok) — dosya sırası ters çevrilmiş (yüksek seq üstte)
+    const tfSeq = [
+      ...almaRows.map((a) => ({ kind: "alma", seq: a.seq, a, giren: a.sum, cikan: 0 })),
+      ...results.map((r) => ({ kind: "coz", seq: r.seq, r, giren: 0, cikan: r.amt })),
+    ].sort((x, y) => y.seq - x.seq);
+
     let run = bankBase;
-    let tfBody = "";
-    if (almaRows.length) {
-      tfBody += `<tr class="pv-day"><td colspan="9">🏦 Blokeye Alma → Banka (108 → 102)</td></tr>`;
-      almaRows.forEach((a) => { run += a.sum; tfBody += almaRowHtml(a, run); });
-    }
-    if (results.length) {
-      tfBody += `<tr class="pv-day"><td colspan="9">💳 Bloke Çözümleri → Kart Harcamaları</td></tr>`;
-      matched.forEach((r) => { run -= r.amt; tfBody += cozumRowHtml(r, results.indexOf(r), "match", run); });
-      if (unmatched.length) {
-        tfBody += `<tr class="pv-day"><td colspan="9">❓ Eşleşmeyenler — elle kart seç</td></tr>`;
-        unmatched.forEach((r) => { run -= r.amt; tfBody += cozumRowHtml(r, results.indexOf(r), "unmatch", run); });
-      }
-    }
-    const rowsHtml = (almaRows.length || results.length) ? `<div class="pv-tbl-wrap"><table class="data pv-tbl">
+    const tfBody = tfSeq.map((row) => {
+      run += (row.giren - row.cikan);
+      if (row.kind === "alma") return almaRowHtml(row.a, run);
+      return cozumRowHtml(row.r, results.indexOf(row.r), row.r.card ? "match" : "unmatch", run);
+    }).join("");
+
+    const rowsHtml = tfSeq.length ? `<div class="pv-tbl-wrap"><table class="data pv-tbl">
       <thead><tr><th>Tarih</th><th>İşlem Adı</th><th>İlgili Hesap</th><th>Açıklama</th><th>Banka Açıklaması</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th></tr></thead>
       <tbody>${tfBody}</tbody>
     </table></div>` : `<div class="empty" style="padding:16px">Bloke çözümü yok.</div>`;
