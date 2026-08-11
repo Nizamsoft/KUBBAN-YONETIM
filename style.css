@@ -997,9 +997,18 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 .pv-tbl .pv-ic { margin-right: 4px; }
 .pv-tbl .pv-muted { color: var(--ink-faint); }
 .pv-tbl td.pv-bank { color: var(--ink-soft); font-size: 12px; }
-.pv-tbl .pv-note { display: flex; align-items: center; gap: 6px; }
+/* Açıklama = tıklanır metin (kutu yok); tıkla → düzenle alanı açılır */
+.pv-tbl .bk-note { display: inline-flex; align-items: center; gap: 6px; border: none; background: transparent; padding: 0; font: inherit; font-size: 13px; color: var(--ink); cursor: pointer; text-align: left; }
+.pv-tbl .bk-note:hover .bk-note-txt { text-decoration: underline; text-decoration-color: var(--gold-light); }
+.pv-tbl .bk-note .pv-edit { font-size: 11px; opacity: .5; }
 .pv-tbl .pv-acik-inline { display: block; width: 100%; margin-top: 6px; font: inherit; font-size: 12px; padding: 6px 9px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-2); color: var(--ink); }
 .pv-tbl .pv-acik-inline[hidden] { display: none; }
+/* İlgili Hesap / Rapor = kutu değil, tıklanır metin */
+.pv-tbl input.pv-pick { width: 100%; min-width: 80px; border: none; background: transparent; padding: 2px 0; font: inherit; font-size: 13px; font-weight: 700; color: var(--ink); cursor: pointer; border-radius: 0; }
+.pv-tbl input.pv-pick:hover { text-decoration: underline; text-decoration-color: var(--gold-light); }
+.pv-tbl input.pv-pick:focus { outline: none; box-shadow: none; background: transparent; }
+.pv-tbl input.pv-pick::placeholder { color: var(--gold-dark); font-weight: 600; opacity: 1; text-decoration: underline; }
+.pv-tbl input.pv-pick.bk-req, .pv-tbl input.pv-pick.bk-req::placeholder { color: var(--danger); text-decoration-color: var(--danger); }
 /* Giren/Çıkan/Bakiye renkleri — defterdeki gibi */
 .pv-tbl td.pv-in { color: var(--ok); font-variant-numeric: tabular-nums; font-weight: 700; }
 .pv-tbl td.pv-out { color: var(--danger); font-variant-numeric: tabular-nums; font-weight: 700; }
@@ -1010,16 +1019,10 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 .pv-tbl tr.pv-day small { text-transform: uppercase; letter-spacing: .3px; }
 .pv-tbl tr.pv-pos td { background: rgba(120,100,70,.03); }
 .pv-tbl tr.pv-oth:hover td, .pv-tbl tr.tf-cz:hover td { background: #fbf6ea; }
-.pv-tbl .bk-note { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--surface); font-size: 13px; cursor: pointer; color: var(--ink-soft); vertical-align: middle; }
-.pv-tbl .bk-note.on { background: var(--gold); border-color: var(--gold); color: #fff; }
 .pv-tbl tbody tr.tf-cz { background: transparent; border: none; }   /* eski .tf-cz kart stilini ez */
-/* tablo içi girdi alanları */
-.pv-tbl input.f, .pv-tbl select.f { width: 100%; min-width: 120px; font: inherit; font-size: 12.5px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface-2); color: var(--ink); }
-.pv-tbl input.f[readonly] { cursor: pointer; }
-.pv-tbl input.f:focus, .pv-tbl select.f:focus { outline: none; border-color: var(--gold); background: var(--surface); box-shadow: 0 0 0 3px rgba(166,123,46,.12); }
-.pv-tbl input.f::placeholder { color: var(--ink-faint); }
-.pv-tbl input.f.bk-req { background: #fdf3f1; border-color: #e6b3ad; }   /* boş-zorunlu: hafif kırmızı. Dolu = normal (yeşil yok) */
-.pv-tbl .bk-acc, .pv-tbl .tf-acc { font-weight: 700; }
+/* kart seçimi (select) — kutu kalsın */
+.pv-tbl select.f { width: 100%; min-width: 120px; font: inherit; font-size: 12.5px; padding: 7px 10px; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface-2); color: var(--ink); }
+.pv-tbl select.f:focus { outline: none; border-color: var(--gold); background: var(--surface); box-shadow: 0 0 0 3px rgba(166,123,46,.12); }
 .pv-tbl tr.tf-cz.unmatch td { background: #fdf6e7; }
 .pv-tbl tr.tf-cardpick-row td { border-bottom: 1px solid var(--line); padding-top: 0; }
 .pv-tbl .neg { color: var(--danger); }

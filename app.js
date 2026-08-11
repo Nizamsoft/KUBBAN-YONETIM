@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.107";
+} from "./local-backend.js?v=2026.108";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.107";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.108";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -440,8 +440,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.107";
+const APP_VERSION = "2026.108";
 const CHANGELOG = [
+  { version: "2026.108", date: "2026-08-11", items: [
+    "Banka önizlemesinde 'yatış günü' ara başlık satırları kaldırıldı",
+    "İlgili Hesap, Rapor ve Açıklama artık kutu değil düz metin — üstüne tıklayınca düzenleniyor",
+    "Açıklamadaki çift kutu/metin sorunu giderildi (özel açıklama sadece tıklayınca açılır)",
+  ]},
   { version: "2026.107", date: "2026-08-11", items: [
     "Banka önizleme kolonları yenilendi: İşlem No kalktı, 'Şahıs' → 'İlgili Hesap', ayrı 'Banka Açıklaması' kolonu ve 'Güncel Bakiye' kolonu (102 bankanın yürüyen bakiyesi)",
     "POS'ta İlgili Hesap = Garanti/T.Finans Bloke; Tarih = yatış günü, çekim tarihi açıklamada; komisyon ayrı satır",
@@ -4055,12 +4060,10 @@ async function viewBanka(c) {
       + entries.filter((e) => e.accountId === bankAcc.id).reduce((s, e) => s + parseNum(e.giren) - parseNum(e.cikan), 0);
     const blokeLabel = blokeAcc ? `${blokeAcc.code} · ${blokeAcc.name}` : "108 Bloke";
 
-    // Sıralı satır dizisi (yürüyen bakiye için POS ve komisyon ayrı satır)
+    // Sıralı satır dizisi (yatış günü sırasına göre; ara başlık yok, yürüyen bakiye için POS/komisyon ayrı)
     const seq = [];
     days.forEach((d) => {
       const items = byDay[d].items.slice().sort((a, b) => a.ord - b.ord);
-      const dayNet = items.reduce((s, it) => s + (it.kind === "pos" ? it.g.net : it.o.amt), 0);
-      seq.push({ t: "day", d, tot: dayNet });
       items.forEach((it) => {
         if (it.kind === "pos") {
           const g = it.g;
@@ -4073,7 +4076,6 @@ async function viewBanka(c) {
       });
     });
 
-    const dayRowHtml = (d, tot) => `<tr class="pv-day"><td colspan="9">📅 ${fmtDate(d)} <small>yatış günü</small> <b>${fmtTRY(tot)}</b></td></tr>`;
     const posRowHtml = (g, bal) => `<tr class="pv-r pv-pos">
         <td data-label="Tarih">${fmtDateShort(g.dep)}</td>
         <td data-label="İşlem Adı">${tipIco(g.tip)} POS</td>
@@ -4105,18 +4107,19 @@ async function viewBanka(c) {
       }
       const accVal = sug ? `${sug.code} · ${sug.name}` : "";
       const rapVal = sug ? sug.rapor : "";
-      const acikVal = sug ? sug.acik : "";
+      // Otomatik notu (tahsil edildi/ödendi) özel açıklama sanma; sadece gerçek özel not kalsın
+      const acikVal = (sug && sug.acik && !/tahsil edildi|ödendi/i.test(sug.acik)) ? sug.acik : "";
       const inc = o.amt >= 0;
       const note = `Garanti ile ${inc ? "tahsil edildi" : "ödendi"}`;
       const rapCell = !inc
-        ? `<td data-label="Rapor"><input class="bk-rapor f bk-pick" data-seq="${o.seq}" placeholder="🔎 Rapor seç" value="${esc(rapVal)}" readonly /></td>`
+        ? `<td data-label="Rapor"><input class="bk-rapor pv-pick bk-pick" data-seq="${o.seq}" placeholder="🔎 Rapor seç" value="${esc(rapVal)}" readonly /></td>`
         : `<td data-label="Rapor" class="pv-dash">—</td>`;
       return `<tr class="pv-r pv-oth" data-seq="${o.seq}">
           <td data-label="Tarih">${fmtDateShort(o.dep)}</td>
           <td data-label="İşlem Adı">${inc ? "↘️" : "↗️"} Para Transferi</td>
-          <td data-label="İlgili Hesap"><input class="bk-acc f bk-pick" data-seq="${o.seq}" placeholder="🔎 Hesap seç / ekle" value="${esc(accVal)}" readonly /></td>
-          <td data-label="Açıklama"><div class="pv-note">${esc(note)} <button class="bk-note ${acikVal ? "on" : ""}" type="button" data-seq="${o.seq}" title="Özel açıklama ekle">📝</button></div>
-            <input class="bk-acik pv-acik-inline" data-seq="${o.seq}" placeholder="Özel açıklama…" value="${esc(acikVal)}" ${acikVal ? "" : "hidden"} /></td>
+          <td data-label="İlgili Hesap"><input class="bk-acc pv-pick bk-pick" data-seq="${o.seq}" placeholder="🔎 Hesap seç / ekle" value="${esc(accVal)}" readonly /></td>
+          <td data-label="Açıklama"><button class="bk-note" type="button" data-seq="${o.seq}" data-def="${esc(note)}" title="Düzenlemek için tıkla"><span class="bk-note-txt">${esc(acikVal || note)}</span> <span class="pv-edit">✏️</span></button>
+            <input class="bk-acik pv-acik-inline" data-seq="${o.seq}" placeholder="Özel açıklama…" value="${esc(acikVal)}" hidden /></td>
           <td data-label="Banka Açıklaması" class="pv-bank">${esc(o.desc)}</td>
           ${rapCell}
           <td class="num ${inc ? "pv-in" : "pv-dash"}" data-label="Giren Tutar">${inc ? fmtTRY(o.amt) : "—"}</td>
@@ -4127,14 +4130,13 @@ async function viewBanka(c) {
 
     let run = bankBase;
     const bodyRows = seq.map((r) => {
-      if (r.t === "day") return dayRowHtml(r.d, r.tot);
       run += (r.giren - r.cikan);
       if (r.t === "pos") return posRowHtml(r.g, run);
       if (r.t === "kom") return komRowHtml(r.g, run);
       return othRowHtml(r.o, run);
     }).join("");
 
-    const tableHtml = seq.some((r) => r.t !== "day") ? `<div class="pv-tbl-wrap"><table class="data pv-tbl">
+    const tableHtml = seq.length ? `<div class="pv-tbl-wrap"><table class="data pv-tbl">
       <thead><tr><th>Tarih</th><th>İşlem Adı</th><th>İlgili Hesap</th><th>Açıklama</th><th>Banka Açıklaması</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th></tr></thead>
       <tbody>${bodyRows}</tbody>
     </table></div>` : `<div class="empty" style="padding:16px">Hareket yok.</div>`;
@@ -4183,14 +4185,13 @@ async function viewBanka(c) {
       raporItems, query: inp.value,
       onPick: (val) => { inp.value = val; inp.dispatchEvent(new Event("input", { bubbles: true })); },
     }));
-    // Not simgesi → aynı hücredeki özel açıklama alanını aç/kapat
-    $$(".bk-note", editor).forEach((b) => b.onclick = () => {
+    // Açıklama metnine tıkla → özel açıklama düzenleme alanını aç/kapat; yazınca metni güncelle
+    $$(".bk-note", editor).forEach((b) => {
       const seq = b.dataset.seq, inp = $(`.bk-acik[data-seq="${seq}"]`, editor);
+      const txt = $(".bk-note-txt", b);
       if (!inp) return;
-      const show = inp.hidden;
-      inp.hidden = !show;
-      b.classList.toggle("on", show);
-      if (show) inp.focus(); else inp.value = "";
+      b.onclick = () => { const show = inp.hidden; inp.hidden = !show; if (show) inp.focus(); };
+      inp.addEventListener("input", () => { txt.textContent = inp.value.trim() || b.dataset.def || ""; });
     });
     // Canlı doğrulama: hesap (+ çıkanlarda rapor) dolmadan İşle pasif (dolanlar normal görünür)
     function bkSync() {
@@ -4373,10 +4374,10 @@ async function viewBanka(c) {
       return `<tr class="pv-r tf-cz ${kind}" data-i="${i}" data-kind="${kind}">
           <td data-label="Tarih">${fmtDateShort(r.date)}${r.approx ? " <small>~</small>" : ""}</td>
           <td data-label="İşlem Adı">${kind === "match" ? (r.approx ? "🟡" : "🔓") : "❓"} Kart Harcaması</td>
-          <td data-label="İlgili Hesap"><input class="tf-acc f tf-pick" data-i="${i}" placeholder="🔎 Hesap * seç / ekle" value="${esc(accVal)}" readonly /></td>
+          <td data-label="İlgili Hesap"><input class="tf-acc pv-pick tf-pick" data-i="${i}" placeholder="🔎 Hesap * seç / ekle" value="${esc(accVal)}" readonly /></td>
           <td data-label="Açıklama">T. Finans ile ödendi</td>
           <td data-label="Banka Açıklaması" class="pv-bank"><span class="nm">${merc ? esc(merc) : "Eşleşmedi — kart seç"}</span>${r.ref ? ` <small>${esc(r.ref)}</small>` : ""}</td>
-          <td data-label="Rapor"><input class="tf-rapor f tf-pick" data-i="${i}" placeholder="🔎 Rapor *" value="${esc(rapVal)}" readonly /></td>
+          <td data-label="Rapor"><input class="tf-rapor pv-pick tf-pick" data-i="${i}" placeholder="🔎 Rapor *" value="${esc(rapVal)}" readonly /></td>
           <td class="num pv-dash" data-label="Giren Tutar">—</td>
           <td class="num pv-out" data-label="Çıkan Tutar">${fmtTRY(r.amt)}</td>
           <td class="num pv-bal" data-label="Güncel Bakiye">${fmtTRY(bal)}</td>
