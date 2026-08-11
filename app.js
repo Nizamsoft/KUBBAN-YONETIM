@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.99";
+} from "./local-backend.js?v=2026.100";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.99";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.100";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -120,6 +120,25 @@ function confirmDialog(message, onYes) {
       mkBtn("Evet, devam et", "btn-danger", () => { m.close(); onYes(); }),
     ],
   });
+}
+
+// Tamamlama animasyonu: içe aktarım/işlem bitince animasyonlu ✓
+function successAnim(message, onDone) {
+  const el = document.createElement("div");
+  el.className = "success-anim";
+  el.innerHTML = `
+    <div class="sa-box">
+      <svg class="sa-check" viewBox="0 0 52 52" aria-hidden="true">
+        <circle class="sa-circle" cx="26" cy="26" r="24"></circle>
+        <path class="sa-tick" d="M14 27 l8 8 l16 -18"></path>
+      </svg>
+      ${message ? `<div class="sa-msg">${esc(message)}</div>` : ""}
+    </div>`;
+  document.body.appendChild(el);
+  setTimeout(() => {
+    el.classList.add("out");
+    setTimeout(() => { el.remove(); onDone && onDone(); }, 260);
+  }, 1200);
 }
 
 // Aranabilir hesap seçici (fatura + banka aktarımında ortak, uygulama tasarımlı)
@@ -360,8 +379,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.99";
+const APP_VERSION = "2026.100";
 const CHANGELOG = [
+  { version: "2026.100", date: "2026-08-11", items: [
+    "İçe aktarım/işlem tamamlanınca animasyonlu ✓ (fatura, banka Garanti/T.Finans, toplu cari, gün sonu)",
+  ]},
   { version: "2026.99", date: "2026-08-11", items: [
     "Fatura eşleştirme sadeleşti: 'Yeni' düğmesi kalktı, tek 'Eşleştir / Ekle'. Seçici boş açılır (ara), bulamazsan alttaki 'fatura adıyla yeni hesap aç' ile tek tıkta ekler",
     "Pencere (modal) açılışı akıcılaştı; seçici yüksekliği sabit tutuldu (filtrelerken kasma yok)",
@@ -1848,7 +1870,8 @@ async function viewGunSonuAktarim(c) {
         await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
         toast("Gün sonu kaydedildi.", "ok");
         gsState = null;
-        location.hash = "#/gunsonu-kayitlar";
+        successAnim("Gün sonu kaydedildi", () => { location.hash = "#/gunsonu-kayitlar"; });
+        return;
       } catch (e) { toast("Kaydedilemedi: " + e.message, "err"); }
     };
 
@@ -2858,6 +2881,7 @@ async function viewCariImport(c) {
       }
       await logAction("İçe Aktarma", "Cari", `Toplu: ${created} yeni, ${updated} güncelleme`);
       toast(`${created} yeni cari, ${updated} güncelleme.`, "ok");
+      successAnim(`${created + updated} cari işlendi`);
       editor.innerHTML = `<div class="notice info">✔ İçe aktarıldı: <b>${created}</b> yeni cari, <b>${updated}</b> güncelleme.
         <a href="#/hesaplar">← Hesaplara dön</a></div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
@@ -3614,12 +3638,15 @@ async function viewCariHareket(c) {
           const borclandin = docs.reduce((s, d) => s + Math.max(0, parseNum(d.alacak) - parseNum(d.borc)), 0);
           sumHtml = `<div class="inv-line"><span class="e">🧾</span> Bugün <b class="neg">${fmtTRY(borclandin)}</b> borçlandın</div>`;
         }
-        const body = document.createElement("div");
-        body.innerHTML = `<div class="inv-sum">${sumHtml}<div class="inv-note">${docs.length} ${faturaTuru} işlendi · ${affected.length} cari${sDup ? ` · ${sDup} zaten vardı` : ""}</div></div>`;
-        const m = openModal({ title: "✅ İşlem Özeti", body, footer: [
-          mkBtn("Kapat", "", () => m.close()),
-          mkBtn("Carileri İncele →", "btn-primary", () => { m.close(); reviewQueue = { ids: affected, index: 0 }; location.hash = "#/hesap-detay?id=" + affected[0]; }),
-        ]});
+        // Önce tamamlama animasyonu, sonra özet
+        successAnim(`${docs.length} fatura işlendi`, () => {
+          const body = document.createElement("div");
+          body.innerHTML = `<div class="inv-sum">${sumHtml}<div class="inv-note">${docs.length} ${faturaTuru} işlendi · ${affected.length} cari${sDup ? ` · ${sDup} zaten vardı` : ""}</div></div>`;
+          const m = openModal({ title: "✅ İşlem Özeti", body, footer: [
+            mkBtn("Kapat", "", () => m.close()),
+            mkBtn("Carileri İncele →", "btn-primary", () => { m.close(); reviewQueue = { ids: affected, index: 0 }; location.hash = "#/hesap-detay?id=" + affected[0]; }),
+          ]});
+        });
       } catch (e) { toast("Hata: " + e.message, "err"); sendBtn.disabled = false; }
     }
 
@@ -4276,6 +4303,7 @@ async function viewBanka(c) {
       await batchAdd(C.accountEntries, docs);
       await logAction("İçe Aktarma", "Banka", `${bank.label} · ${almaRows.length} blokeye alma + ${rows.length} harcama · ${docs.length} kayıt`);
       toast(`${rows.length} harcama + ${almaRows.length} blokeye alma işlendi.`, "ok");
+      successAnim(`${rows.length + almaRows.length} kayıt işlendi`);
       editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${almaRows.length}</b> blokeye alma (108→102), <b>${rows.length}</b> kart harcaması (102 çıkış + hesap kapama).
         <a href="#/hesap-detay?id=${bankAcc.id}">102.02 T.Finans Banka</a> defterinde görebilirsin.</div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
@@ -4417,6 +4445,7 @@ async function viewBanka(c) {
       await batchAdd(C.accountEntries, docs);
       await logAction("İçe Aktarma", "Banka", `${bank.label} · ${groups.length} POS + ${assigns.length} transfer · ${docs.length} kayıt`);
       toast(`${groups.length} POS + ${assigns.length} transfer işlendi.`, "ok");
+      successAnim(`${groups.length + assigns.length} kayıt işlendi`);
       editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${groups.length}</b> POS çözülmesi, <b>${assigns.length}</b> para transferi.
         <a href="#/hesap-detay?id=${bankAcc.id}">102.01 Garanti</a> defterinde görebilirsin.</div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
