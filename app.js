@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.132";
+} from "./supabase-backend.js?v=2026.133";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.132";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.133";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.132";
+const APP_VERSION = "2026.133";
 const CHANGELOG = [
+  { version: "2026.133", date: "2026-08-11", items: [
+    "Toplu Cari: artık TÜM hesap kodları (108 dahil) oluşturuluyor; yalnızca Hesap Türü (hesap kodu) boş satırlar atlanıyor",
+    "Toplu Cari: güncel bakiye ALINMIYOR — açılış 0 eklenir, bakiye hesap hareketlerinden otomatik hesaplanır (mevcut hesabın bakiyesine dokunulmaz)",
+  ]},
   { version: "2026.132", date: "2026-08-11", items: [
     "🧹 Grup Temizle (Hesaplar → ✏️ Düzenle → 🧹 Grup Temizle): 320/120/128 gibi grupların verilerini toplu temizle — (A) alt hesaplar + hareketler silinir (başlık kalır) ya da (B) sadece hareketler silinir. Önizleme + onay ile; yönetici",
   ]},
@@ -3228,15 +3232,16 @@ const CI_TUR = {
   "121": { code: "121", name: "Alacak Senetleri", type: "musteri", sign: -1 },
   "128": { code: "128", name: "Şüpheli Ticari Alacaklar", type: "musteri", sign: -1 },
 };
-// Hesap türü çözümleyici: bilinenler CI_TUR'dan; diğer 1xx → müşteri (alacak),
-// 3xx → tedarikçi (borç). 108 (bloke) cari değildir → atlanır.
+// Hesap türü çözümleyici: bilinenler CI_TUR'dan; 108 → blokeli, 1xx → müşteri,
+// 3xx → tedarikçi, diğer tüm 3 haneli kodlar → diğer. Yalnızca GEÇERLİ HESAP KODU
+// yoksa (3 haneli sayı bulunamıyorsa) satır atlanır.
 function ciCfg(tur) {
   if (CI_TUR[tur]) return CI_TUR[tur];
   if (!/^\d{3}$/.test(tur)) return null;
-  if (tur === "108") return null;
+  if (tur === "108") return { code: "108", name: "Blokeli Hesaplar", type: "diger", sign: -1 };
   if (tur[0] === "1") return { code: tur, name: `Alacaklar (${tur})`, type: "musteri", sign: -1 };
   if (tur[0] === "3") return { code: tur, name: `Borçlar (${tur})`, type: "tedarikci", sign: -1 };
-  return null;
+  return { code: tur, name: `Hesap (${tur})`, type: "diger", sign: -1 };
 }
 function ciParseBal(v) {
   if (typeof v === "number") return v;
@@ -3252,8 +3257,8 @@ async function viewCariImport(c) {
   c.innerHTML = `
     <div class="card">
       <div class="card-head"><h3>📥 Toplu Cari İçe Aktar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
-      <div class="pv-fhint">Excel/CSV yükle — sütunlar: <b>Cari No · Cari Adı · Bakiye · Hesap Türü</b>.<br>
-        <b>320/336</b> = ona borçlusun (Alacak bakiye) · <b>120</b> = senin alacağın (Borç bakiye). Mevcut cari varsa <b>bakiyesi güncellenir</b>.</div>
+      <div class="pv-fhint">Excel/CSV yükle — sütunlar: <b>Cari No · Cari Adı · Hesap Türü</b> (Bakiye alınmaz).<br>
+        <b>Tüm hesap kodları</b> (108 dahil) oluşturulur; yalnızca <b>Hesap Türü boş olan</b> satırlar atlanır. Açılış bakiyesi <b>0</b> — bakiye, hesap hareketlerinden hesaplanır.</div>
       <div id="ci-drop" style="margin-top:12px"></div>
     </div>
     <div id="ci-editor"></div>`;
@@ -3274,7 +3279,7 @@ async function viewCariImport(c) {
       bakiye: guessCol(headers, ["bakiye", "tutar"]),
       tur: guessCol(headers, ["hesap tür", "hesap tur", "tür", "tur"]),
     };
-    if (!col.ad || !col.bakiye) return toast("'Cari Adı' ve 'Bakiye' sütunları bulunamadı.", "err");
+    if (!col.ad) return toast("'Cari Adı' sütunu bulunamadı.", "err");
 
     const items = [], skipped = [];
     rows.forEach((r) => {
@@ -3288,7 +3293,7 @@ async function viewCariImport(c) {
       if (!cfg) { skipped.push({ ad, tur: turRaw }); return; }
       items.push({ no, ad, bakiye, tur, cfg });
     });
-    if (!items.length) return toast("İşlenecek cari bulunamadı (Hesap Türü 1xx alacak / 3xx borç olmalı; 108 hariç).", "err");
+    if (!items.length) return toast("İşlenecek cari bulunamadı — 'Hesap Türü' (hesap kodu) sütunu dolu olmalı.", "err");
 
     // Mevcut eşleştirme: aynı ana kod altında extNo ya da ada göre
     const findExisting = (it) => {
@@ -3296,8 +3301,8 @@ async function viewCariImport(c) {
       return list.find((a) => a.extNo && it.no && String(a.extNo) === it.no)
           || list.find((a) => normTr(a.name) === normTr(it.ad)) || null;
     };
-    // İşaret korunur: 320'de +bakiye = borcun (alacak/negatif), −bakiye = alacağın (borç/pozitif)
-    items.forEach((it) => { it.exist = findExisting(it); it.opening = it.cfg.sign * it.bakiye; });
+    // Bakiye ALINMIYOR — açılış hep 0 (güncel bakiye hesap hareketlerinden hesaplanır)
+    items.forEach((it) => { it.exist = findExisting(it); it.opening = 0; });
 
     const yeni = items.filter((it) => !it.exist).length;
     const guncelle = items.length - yeni;
@@ -3309,20 +3314,20 @@ async function viewCariImport(c) {
     editor.innerHTML = `
       <div class="card">
         <div class="pv-head"><div class="pv-title">${items.length} cari okundu</div>
-          <div class="pv-sub">${yeni} yeni · ${guncelle} güncelle · ${turOzet}${skipped.length ? ` · ${skipped.length} atlandı` : ""}</div></div>
+          <div class="pv-sub">${yeni} yeni · ${guncelle} mevcut · ${turOzet}${skipped.length ? ` · ${skipped.length} atlandı` : ""}</div></div>
         <div class="table-wrap"><table class="data">
-          <thead><tr><th>Cari No</th><th>Cari Adı</th><th>Tür</th><th class="num">Bakiye</th><th>Yön</th><th>Durum</th></tr></thead>
+          <thead><tr><th>Cari No</th><th>Cari Adı</th><th>Tür</th><th class="num">Bakiye (alınmaz)</th><th>Durum</th></tr></thead>
           <tbody>${items.slice(0, 300).map((it) => `<tr>
             <td>${esc(it.no || "—")}</td>
             <td>${esc(it.ad)}</td>
             <td>${esc(it.tur)}</td>
-            <td class="num">${fmtTRY(Math.abs(it.bakiye))}</td>
-            <td>${it.opening < 0 ? '<span style="color:var(--danger)">Alacak</span>' : it.opening > 0 ? '<span style="color:var(--ok)">Borç</span>' : "0"}</td>
-            <td>${it.exist ? '<span style="color:var(--gold-dark)">Güncelle</span>' : "Yeni"}</td>
+            <td class="num" style="color:var(--ink-faint)">${fmtTRY(Math.abs(it.bakiye))}</td>
+            <td>${it.exist ? '<span style="color:var(--gold-dark)">Var</span>' : "Yeni"}</td>
           </tr>`).join("")}</tbody>
         </table></div>
         ${items.length > 300 ? `<div class="pv-fhint">İlk 300 satır gösteriliyor; hepsi (${items.length}) işlenecek.</div>` : ""}
-        ${skipped.length ? `<div class="notice warn" style="margin-top:10px">⚠️ ${skipped.length} satır atlandı (Hesap Türü 320/336/120 değil): ${esc(skipped.slice(0, 6).map((s) => s.ad + (s.tur ? " [" + s.tur + "]" : "")).join(", "))}${skipped.length > 6 ? "…" : ""}</div>` : ""}
+        <div class="pv-fhint">Açılış bakiyesi <b>0</b> olarak eklenir — güncel bakiye, hesap hareketleri yüklenince otomatik hesaplanır.</div>
+        ${skipped.length ? `<div class="notice warn" style="margin-top:10px">⚠️ ${skipped.length} satır atlandı (Hesap Türü / hesap kodu boş): ${esc(skipped.slice(0, 6).map((s) => s.ad + (s.tur ? " [" + s.tur + "]" : "")).join(", "))}${skipped.length > 6 ? "…" : ""}</div>` : ""}
       </div>
       <div class="pv-cta"><div class="grow"></div><button class="btn btn-primary" id="ci-save">✓ ${items.length} Cariyi İçe Aktar</button></div>`;
 
@@ -3356,12 +3361,13 @@ async function viewCariImport(c) {
       for (const it of items) {
         const parent = await ensureParent(it.cfg);
         if (it.exist) {
-          await updateDoc(doc(db, "accounts", it.exist.id), { openingBalance: it.opening, ...(it.no ? { extNo: it.no } : {}) });
-          it.exist.openingBalance = it.opening;
+          // Bakiyeye dokunma; yalnızca dış cari no'yu güncelle (varsa)
+          if (it.no && String(it.exist.extNo || "") !== it.no)
+            await updateDoc(doc(db, "accounts", it.exist.id), { extNo: it.no });
           updated++;
         } else {
           const code = nextCode(it.cfg.code);
-          const payload = { code, name: titleCase(it.ad), type: it.cfg.type, parentId: parent.id, parentCode: it.cfg.code, vkn: "", extNo: it.no || "", openingBalance: it.opening, createdAt: serverTimestamp() };
+          const payload = { code, name: titleCase(it.ad), type: it.cfg.type, parentId: parent.id, parentCode: it.cfg.code, vkn: "", extNo: it.no || "", openingBalance: 0, createdAt: serverTimestamp() };
           const ref = await addDoc(C.accounts(), payload);
           accounts.push({ id: ref.id, ...payload });
           created++;
@@ -3369,10 +3375,10 @@ async function viewCariImport(c) {
         done++;
         if (done % 10 === 0 || done === total) btn.textContent = `İşleniyor… ${done}/${total}`;
       }
-      await logAction("İçe Aktarma", "Cari", `Toplu: ${created} yeni, ${updated} güncelleme`);
-      toast(`${created} yeni cari, ${updated} güncelleme.`, "ok");
+      await logAction("İçe Aktarma", "Cari", `Toplu: ${created} yeni, ${updated} mevcut`);
+      toast(`${created} yeni cari eklendi (${updated} zaten vardı).`, "ok");
       successAnim(`${created + updated} cari işlendi`);
-      editor.innerHTML = `<div class="notice info">✔ İçe aktarıldı: <b>${created}</b> yeni cari, <b>${updated}</b> güncelleme.
+      editor.innerHTML = `<div class="notice info">✔ İçe aktarıldı: <b>${created}</b> yeni cari, <b>${updated}</b> zaten mevcut.
         <a href="#/hesaplar">← Hesaplara dön</a></div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
