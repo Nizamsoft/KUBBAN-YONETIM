@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.108";
+} from "./local-backend.js?v=2026.109";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.108";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.109";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -440,8 +440,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.108";
+const APP_VERSION = "2026.109";
 const CHANGELOG = [
+  { version: "2026.109", date: "2026-08-11", items: [
+    "Açıklama kolonu tek satır (kelime kelime kaymıyor); Banka Açıklaması sarmalı",
+    "POS komisyonları Rapor'da otomatik 'POS Komisyonu' olarak görünüyor ve öyle kaydediliyor",
+  ]},
   { version: "2026.108", date: "2026-08-11", items: [
     "Banka önizlemesinde 'yatış günü' ara başlık satırları kaldırıldı",
     "İlgili Hesap, Rapor ve Açıklama artık kutu değil düz metin — üstüne tıklayınca düzenleniyor",
@@ -4093,7 +4097,7 @@ async function viewBanka(c) {
         <td data-label="İlgili Hesap" class="pv-dash">—</td>
         <td data-label="Açıklama">${fmtDateShort(g.cek)} ${esc(g.tip)} Komisyonu</td>
         <td data-label="Banka Açıklaması" class="pv-dash">—</td>
-        <td data-label="Rapor" class="pv-dash">—</td>
+        <td data-label="Rapor" class="pv-muted">POS Komisyonu</td>
         <td class="num pv-dash" data-label="Giren Tutar">—</td>
         <td class="num pv-out" data-label="Çıkan Tutar">${fmtTRY(g.kom)}</td>
         <td class="num pv-bal" data-label="Güncel Bakiye">${fmtTRY(bal)}</td>
@@ -4670,7 +4674,7 @@ async function viewBanka(c) {
         if (g.kom > 0.005) {
           docs.push({
             accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
-            date: g.dep, islemAdi: "Komisyon", sahis: "", aciklama: `${fmtDateShort(g.cek)} ${g.tip} Komisyonu`, rapor: "",
+            date: g.dep, islemAdi: "Komisyon", sahis: "", aciklama: `${fmtDateShort(g.cek)} ${g.tip} Komisyonu`, rapor: "POS Komisyonu",
             giren: 0, cikan: g.kom,
             source: "banka-pos-komisyon", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
           });
