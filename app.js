@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.131";
+} from "./supabase-backend.js?v=2026.132";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.131";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.132";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.131";
+const APP_VERSION = "2026.132";
 const CHANGELOG = [
+  { version: "2026.132", date: "2026-08-11", items: [
+    "🧹 Grup Temizle (Hesaplar → ✏️ Düzenle → 🧹 Grup Temizle): 320/120/128 gibi grupların verilerini toplu temizle — (A) alt hesaplar + hareketler silinir (başlık kalır) ya da (B) sadece hareketler silinir. Önizleme + onay ile; yönetici",
+  ]},
   { version: "2026.131", date: "2026-08-11", items: [
     "İçe aktarımda başlık satırı akıllıca bulunuyor — dosya tepesinde başlık bandı / yanda menü metni olsa da sütunlar tanınıyor (Toplu Cari, Fatura)",
   ]},
@@ -2837,6 +2840,7 @@ async function viewHesaplar(c) {
       <button class="btn btn-sm" id="acc-carigec" style="display:none">🧾 Cari Geçmişi</button>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
+      <button class="btn btn-sm btn-danger" id="acc-clean" style="display:none">🧹 Grup Temizle</button>
     </div>
     <div class="card" id="acc-plan-card" style="padding:0;overflow:hidden">
       <div class="acc-plan-head">
@@ -2970,7 +2974,11 @@ async function viewHesaplar(c) {
     btn.classList.toggle("active", on);
     $("#acc-add", c).style.display = on ? "" : "none";
     $("#acc-complete", c).style.display = on ? "" : "none";
+    const cl = $("#acc-clean", c);
+    if (cl) cl.style.display = (on && isAdmin()) ? "" : "none";
   };
+  const cleanBtn = $("#acc-clean", c);
+  if (cleanBtn) cleanBtn.onclick = () => groupCleanModal(accounts, cari, bank, entries);
   $("#acc-complete").onclick = () =>
     confirmDialog("Eksik varsayılan hesaplar (ör. 108 bloke alt hesapları) eklensin mi? Mevcut hesaplar korunur.", async () => {
       try {
@@ -2987,6 +2995,123 @@ async function viewHesaplar(c) {
     const a = byId.get(b.dataset.edit);
     accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [] });
   });
+}
+
+// 🧹 Grup Temizle — bir ana hesap grubunun (ör. 320 / 120 / 128) verilerini siler.
+//   Mod A: grubun ALT hesaplarını + tüm hareketlerini siler (ana başlık kalır)
+//   Mod B: hesaplar kalır, sadece hareketleri siler + açılış bakiyeleri 0'lanır
+//   Hareketler 4 yerde: accountEntries (accountId), currentMovements (code),
+//   bankTransactions (accountId).
+function groupCleanModal(accounts, cari = [], bank = [], entries = []) {
+  if (!isAdmin()) return toast("Bu işlem yalnızca yönetici içindir.", "err");
+  const kidsByParent = new Map();
+  accounts.forEach((a) => {
+    if (a.parentId) {
+      if (!kidsByParent.has(a.parentId)) kidsByParent.set(a.parentId, []);
+      kidsByParent.get(a.parentId).push(a);
+    }
+  });
+  const roots = accounts.filter((a) => !a.parentId)
+    .sort((x, y) => String(x.code || "").localeCompare(String(y.code || ""), "tr"));
+
+  // Grup istatistikleri
+  const stat = (root) => {
+    const children = kidsByParent.get(root.id) || [];
+    const groupAccts = [root, ...children];
+    const ids = new Set(groupAccts.map((a) => a.id));
+    const codes = new Set(groupAccts.map((a) => String(a.code || "").trim()).filter(Boolean));
+    const nEntry = entries.filter((e) => ids.has(e.accountId)).length;
+    const nCur = cari.filter((m) => codes.has(String(m.code || "").trim())).length;
+    const nBank = bank.filter((t) => ids.has(t.accountId)).length;
+    return { root, children, ids, codes, nChild: children.length, nMov: nEntry + nCur + nBank };
+  };
+  const stats = roots.map(stat).filter((s) => s.nChild > 0 || s.nMov > 0);
+  if (!stats.length) return toast("Temizlenecek grup yok.", "err");
+
+  const rowHtml = (s) => `
+    <label class="gc-row">
+      <input type="checkbox" class="gc-ck" data-id="${s.root.id}" />
+      <span class="gc-code">${esc(s.root.code || "—")}</span>
+      <span class="gc-name">${esc(s.root.name || "")}</span>
+      <span class="gc-meta">${s.nChild} hesap · ${s.nMov.toLocaleString("tr-TR")} hareket</span>
+    </label>`;
+
+  const wrap = document.createElement("div");
+  wrap.innerHTML = `
+    <div class="gc-note">Seçtiğin grupların verilerini siler. <b>Geri alınamaz.</b></div>
+    <div class="gc-list">${stats.map(rowHtml).join("")}</div>
+    <div class="gc-modes">
+      <label class="gc-mode"><input type="radio" name="gc-mode" value="A" checked />
+        <span><b>Hesapları ve hareketlerini sil</b><small>Alt hesaplar (ör. cariler) tamamen silinir; ana başlık (${esc(stats.map((s) => s.root.code).join(", "))}) kalır. Yeniden içe aktarmadan önce ideal.</small></span></label>
+      <label class="gc-mode"><input type="radio" name="gc-mode" value="B" />
+        <span><b>Sadece hareketleri sil</b><small>Hesaplar (isimler) kalır; borç/alacak hareketleri silinir ve açılış bakiyeleri 0'lanır.</small></span></label>
+    </div>`;
+
+  const m = openModal({
+    title: "🧹 Grup Temizle",
+    body: wrap,
+    footer: [
+      mkBtn("Vazgeç", "", () => m.close()),
+      mkBtn("Temizle", "btn-danger", () => {
+        const picked = $$(".gc-ck", wrap).filter((ck) => ck.checked).map((ck) => ck.dataset.id);
+        if (!picked.length) return toast("En az bir grup seç.", "err");
+        const mode = ($("input[name='gc-mode']:checked", wrap) || {}).value || "A";
+        const chosen = stats.filter((s) => picked.includes(s.root.id));
+        const sumChild = chosen.reduce((n, s) => n + s.nChild, 0);
+        const sumMov = chosen.reduce((n, s) => n + s.nMov, 0);
+        const codesTxt = chosen.map((s) => s.root.code).join(", ");
+        const msg = mode === "A"
+          ? `${codesTxt} — ${sumChild} alt hesap ve ${sumMov.toLocaleString("tr-TR")} hareket SİLİNECEK (ana başlıklar kalır). Emin misin?`
+          : `${codesTxt} — ${sumMov.toLocaleString("tr-TR")} hareket silinecek, açılış bakiyeleri 0'lanacak (hesaplar kalır). Emin misin?`;
+        m.close();
+        confirmDialog(msg, () => runGroupClean(chosen, mode));
+      }),
+    ],
+  });
+}
+
+async function runGroupClean(chosen, mode) {
+  const lb = loadingBar("Temizleniyor…");
+  try {
+    const delOps = [];
+    // Taze veri çek (önbellek eskimişse doğru id'lerle sil)
+    const [freshEntries, freshCur, freshBank] = await Promise.all([
+      fetchAll(C.accountEntries).catch(() => []),
+      fetchAll(C.currentMovements).catch(() => []),
+      fetchAll(C.bankTransactions).catch(() => []),
+    ]);
+    const allIds = new Set(), allCodes = new Set();
+    const acctDelIds = [], acctZeroIds = [];
+    for (const s of chosen) {
+      s.ids.forEach((id) => allIds.add(id));
+      s.codes.forEach((cd) => allCodes.add(cd));
+      if (mode === "A") s.children.forEach((ch) => acctDelIds.push(ch.id));
+      else [s.root, ...s.children].forEach((a) => acctZeroIds.push(a.id));
+    }
+    freshEntries.forEach((e) => { if (allIds.has(e.accountId)) delOps.push(["accountEntries", e.id]); });
+    freshCur.forEach((mv) => { if (allCodes.has(String(mv.code || "").trim())) delOps.push(["currentMovements", mv.id]); });
+    freshBank.forEach((t) => { if (allIds.has(t.accountId)) delOps.push(["bankTransactions", t.id]); });
+    if (mode === "A") acctDelIds.forEach((id) => delOps.push(["accounts", id]));
+
+    for (let i = 0; i < delOps.length; i += 400) {
+      const b = writeBatch(db);
+      delOps.slice(i, i + 400).forEach(([coll, id]) => b.delete(doc(db, coll, id)));
+      await b.commit();
+    }
+    if (mode === "B") {
+      for (let i = 0; i < acctZeroIds.length; i += 400) {
+        const b = writeBatch(db);
+        acctZeroIds.slice(i, i + 400).forEach((id) => b.update(doc(db, "accounts", id), { openingBalance: 0 }));
+        await b.commit();
+      }
+    }
+    const codesTxt = chosen.map((s) => s.root.code).join(", ");
+    await logAction("Temizleme", "Hesap Grubu", `${codesTxt} · ${mode === "A" ? "hesap+hareket" : "sadece hareket"} · ${delOps.length} kayıt`);
+    lb.finish(() => {
+      toast(`${codesTxt} temizlendi (${delOps.length.toLocaleString("tr-TR")} kayıt silindi).`, "ok");
+      route();
+    });
+  } catch (e) { lb.finish(); toast("Hata: " + e.message, "err"); }
 }
 
 // Bir ana hesabın bir sonraki alt hesap kodunu üretir (102.03 sonrası 102.04)

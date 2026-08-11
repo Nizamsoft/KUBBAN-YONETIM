@@ -978,6 +978,23 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 .mg-keep { font-size: 13.5px; font-weight: 800; color: var(--ink); }
 .mg-reason { align-self: center; flex: 0 0 auto; }
 
+/* ===== Grup Temizle penceresi ===== */
+.gc-note { font-size: 13px; color: var(--ink-soft); margin-bottom: 12px; line-height: 1.5; }
+.gc-note b { color: var(--danger, #c0392b); }
+.gc-list { max-height: 46vh; overflow: auto; margin-bottom: 14px; }
+.gc-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; cursor: pointer; background: var(--surface); }
+.gc-row:hover { border-color: var(--gold); background: var(--surface-2); }
+.gc-row input { width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--gold); }
+.gc-code { font-weight: 800; color: var(--gold-dark); min-width: 46px; }
+.gc-name { flex: 1; min-width: 0; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gc-meta { flex: 0 0 auto; font-size: 12px; color: var(--ink-faint); }
+.gc-modes { display: flex; flex-direction: column; gap: 8px; }
+.gc-mode { display: flex; gap: 10px; align-items: flex-start; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; cursor: pointer; background: var(--surface); }
+.gc-mode input { margin-top: 3px; width: 17px; height: 17px; flex: 0 0 auto; accent-color: var(--gold); }
+.gc-mode span { display: flex; flex-direction: column; gap: 2px; }
+.gc-mode b { font-size: 13.5px; color: var(--ink); }
+.gc-mode small { font-size: 12px; color: var(--ink-soft); line-height: 1.45; }
+
 /* ===== Banka seçimi (Garanti / T.Finans / Ziraat) ===== */
 .bk-choose { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; margin-top: 18px; }
 .bk-c { border: 1.5px solid var(--line-strong); border-radius: 15px; padding: 18px 8px; cursor: pointer; background: var(--surface); font: inherit; color: inherit; display: flex; flex-direction: column; align-items: center; gap: 8px; transition: border-color .15s, background .15s, transform .06s; }
