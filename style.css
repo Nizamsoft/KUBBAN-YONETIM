@@ -1242,23 +1242,33 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 }
 
 /* ---- Tamamlama animasyonu (içe aktarım bitince ✓) ---- */
-.success-anim { position: fixed; inset: 0; z-index: 4000; display: flex; align-items: center; justify-content: center; background: rgba(36,29,21,.34); animation: saFade .18s ease both; }
-.success-anim.out { animation: saFadeOut .26s ease forwards; }
-.sa-box { background: var(--surface); border-radius: 22px; padding: 28px 40px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; align-items: center; gap: 14px; animation: saPop .4s cubic-bezier(.2,.8,.3,1.25) both; }
-.sa-check { width: 88px; height: 88px; }
-.sa-check .sa-circle { fill: none; stroke: var(--ok); stroke-width: 3; stroke-dasharray: 151; stroke-dashoffset: 151; animation: saCircle .5s ease forwards; }
-.sa-check .sa-tick { fill: none; stroke: var(--ok); stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40; animation: saTick .3s .46s ease forwards; }
+.success-anim { position: fixed; inset: 0; z-index: 4000; display: flex; align-items: center; justify-content: center; background: rgba(36,29,21,.34); animation: saFade .18s ease both; will-change: opacity; }
+.success-anim.out { animation: saFadeOut .24s ease forwards; }
+.sa-box { background: var(--surface); border-radius: 22px; padding: 26px 38px; box-shadow: var(--shadow-lg); display: flex; flex-direction: column; align-items: center; gap: 12px; animation: saPop .34s cubic-bezier(.2,.8,.3,1.25) both; }
 .sa-msg { font-weight: 800; font-size: 15px; color: var(--ink); text-align: center; }
-/* dolan bar (başarı animasyonu) */
-.sa-track { width: 176px; height: 10px; border-radius: 999px; background: rgba(120,100,70,.16); overflow: hidden; }
-.sa-fill { width: 0; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--ok), #7fd18a); transition: width .6s cubic-bezier(.3,.7,.3,1); }
+
+/* sahne: bar ile ✓ üst üste — display/width yok, sadece transform+opacity (GPU) */
+.sa-stage { position: relative; width: 188px; height: 60px; }
+.sa-track { position: absolute; left: 0; right: 0; top: 50%; transform: translateY(-50%); height: 10px; border-radius: 999px; background: rgba(120,100,70,.16); overflow: hidden; }
+.sa-fill { position: absolute; inset: 0; border-radius: 999px; background: linear-gradient(90deg, var(--ok), #7fd18a); transform: scaleX(0); transform-origin: left center; will-change: transform; }
+.sa-check { position: absolute; left: 50%; top: 50%; width: 60px; height: 60px; margin: -30px 0 0 -30px; opacity: 0; transform: scale(.4); will-change: transform, opacity; }
+.sa-check .sa-circle { fill: none; stroke: var(--ok); stroke-width: 3; stroke-dasharray: 151; stroke-dashoffset: 151; }
+.sa-check .sa-tick { fill: none; stroke: var(--ok); stroke-width: 4.5; stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 40; stroke-dashoffset: 40; }
+
+/* .go tetikleyince zamanlama tamamen CSS'te */
+.sa-box.go .sa-fill  { transform: scaleX(1); transition: transform .5s cubic-bezier(.3,.75,.25,1); }
+.sa-box.go .sa-track { opacity: 0; transition: opacity .25s ease .5s; }
+.sa-box.go .sa-check { opacity: 1; transform: scale(1); transition: opacity .2s ease .52s, transform .42s cubic-bezier(.2,.8,.3,1.5) .52s; }
+.sa-box.go .sa-circle { animation: saCircle .42s ease .54s forwards; }
+.sa-box.go .sa-tick   { animation: saTick .26s ease .92s forwards; }
+
 @keyframes saCircle { to { stroke-dashoffset: 0; } }
 @keyframes saTick { to { stroke-dashoffset: 0; } }
-@keyframes saPop { from { opacity: 0; transform: scale(.82); } to { opacity: 1; transform: none; } }
+@keyframes saPop { from { opacity: 0; transform: scale(.86); } to { opacity: 1; transform: none; } }
 @keyframes saFade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes saFadeOut { to { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
-  .sa-box, .sa-check .sa-circle, .sa-check .sa-tick { animation-duration: .01s; }
+  .sa-box, .sa-fill, .sa-track, .sa-check, .sa-circle, .sa-tick { transition-duration: .01s !important; animation-duration: .01s !important; }
 }
 
 /* ---- Dosya okunurken dolan bar ---- */

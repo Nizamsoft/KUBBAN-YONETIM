@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.101";
+} from "./local-backend.js?v=2026.102";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.101";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.102";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -147,26 +147,29 @@ function loadingBar(label) {
 }
 
 // Tamamlama animasyonu: dolan bar → animasyonlu ✓
+// Tüm hareket GPU'da (transform/opacity), zamanlama CSS'te — ana iş parçacığı
+// meşgul olsa bile kasmaz. Başlangıç çift rAF ile: sonrasındaki DOM işi bitsin.
 function successAnim(message, onDone) {
   const el = document.createElement("div");
   el.className = "success-anim";
   el.innerHTML = `
     <div class="sa-box">
-      <div class="sa-track"><div class="sa-fill"></div></div>
-      <svg class="sa-check" viewBox="0 0 52 52" aria-hidden="true" style="display:none">
-        <circle class="sa-circle" cx="26" cy="26" r="24"></circle>
-        <path class="sa-tick" d="M14 27 l8 8 l16 -18"></path>
-      </svg>
+      <div class="sa-stage">
+        <div class="sa-track"><div class="sa-fill"></div></div>
+        <svg class="sa-check" viewBox="0 0 52 52" aria-hidden="true">
+          <circle class="sa-circle" cx="26" cy="26" r="24"></circle>
+          <path class="sa-tick" d="M14 27 l8 8 l16 -18"></path>
+        </svg>
+      </div>
       ${message ? `<div class="sa-msg">${esc(message)}</div>` : ""}
     </div>`;
   document.body.appendChild(el);
-  const fill = $(".sa-fill", el), check = $(".sa-check", el), track = $(".sa-track", el);
-  requestAnimationFrame(() => { fill.style.width = "100%"; });   // bar dolar (~0.6s)
-  setTimeout(() => { track.style.display = "none"; check.style.display = ""; }, 640);
+  const box = $(".sa-box", el);
+  requestAnimationFrame(() => requestAnimationFrame(() => box.classList.add("go")));
   setTimeout(() => {
     el.classList.add("out");
-    setTimeout(() => { el.remove(); onDone && onDone(); }, 260);
-  }, 1500);
+    setTimeout(() => { el.remove(); onDone && onDone(); }, 240);
+  }, 1350);
 }
 
 // Aranabilir hesap seçici (fatura + banka aktarımında ortak, uygulama tasarımlı)
@@ -407,8 +410,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.101";
+const APP_VERSION = "2026.102";
 const CHANGELOG = [
+  { version: "2026.102", date: "2026-08-11", items: [
+    "Tamamlama animasyonu tamamen GPU'da çalışacak şekilde yeniden yazıldı — aktarım bitişinde artık kasmıyor, akıcı",
+  ]},
   { version: "2026.101", date: "2026-08-11", items: [
     "Dosya yüklerken akıcı 'dolan bar' göstergesi (fatura, banka Garanti/T.Finans, toplu cari, gün sonu)",
     "Tamamlama animasyonu artık dolan bar → animasyonlu ✓ şeklinde",
