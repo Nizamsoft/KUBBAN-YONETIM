@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.123";
+} from "./supabase-backend.js?v=2026.124";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.123";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.124";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -536,8 +536,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.123";
+const APP_VERSION = "2026.124";
 const CHANGELOG = [
+  { version: "2026.124", date: "2026-08-11", items: [
+    "Hesap Defteri: sütun genişlikleri sabitlendi — sayfalar arası geçişte başlık artık daralmıyor (Açıklama gerekince alta sarar)",
+  ]},
   { version: "2026.123", date: "2026-08-11", items: [
     "Hesap Defteri: arama çubuğu daraltıldı, sayfalama aynı satıra alındı (‹ sayfa/no › — ortada no, iki yanında ok)",
     "Kayıt sayısı/aralık yazıları kaldırıldı (sade görünüm)",
@@ -3437,7 +3440,7 @@ async function viewAccountLedger(c) {
     <td>${esc(String(e.cariNo ?? "—"))}</td>
     <td>${fmtDate(e.date)}</td>
     <td>${esc(e.sahis || "")}</td>
-    <td>${esc(e.aciklama || "")}</td>
+    <td class="tdwrap">${esc(e.aciklama || "")}</td>
     <td class="num">${e.borc ? fmtTRY(parseNum(e.borc)) : "—"}</td>
     <td class="num">${e.alacak ? fmtTRY(parseNum(e.alacak)) : "—"}</td>
     <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
@@ -3450,7 +3453,7 @@ async function viewAccountLedger(c) {
     <td>${fmtDate(e.date)}</td>
     <td>${esc(e.islemAdi || "")}</td>
     <td>${esc(e.sahis || "")}</td>
-    <td>${esc(e.aciklama || "")}</td>
+    <td class="tdwrap">${esc(e.aciklama || "")}</td>
     <td>${esc(e.rapor || "")}</td>
     <td class="num" style="color:var(--ok)">${e.giren ? fmtTRY(parseNum(e.giren)) : "—"}</td>
     <td class="num" style="color:var(--danger)">${e.cikan ? fmtTRY(parseNum(e.cikan)) : "—"}</td>
@@ -3480,6 +3483,10 @@ async function viewAccountLedger(c) {
     ? `<tr><th>İşlem No</th><th>Cari No</th><th>Tarih</th><th>Şahıs</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th><th>Fatura Türü</th><th>Fatura No</th><th></th></tr>`
     : `<tr><th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th></tr>`;
   const colCount = cari ? 11 : 10;
+  // Sabit sütun genişlikleri — sayfalar arası "başlık daralması" olmasın (Açıklama esner/wrap)
+  const colgroup = cari
+    ? `<colgroup><col style="width:66px"><col style="width:70px"><col style="width:92px"><col style="width:150px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:120px"><col style="width:110px"><col style="width:96px"></colgroup>`
+    : `<colgroup><col style="width:66px"><col style="width:92px"><col style="width:120px"><col style="width:150px"><col><col style="width:130px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:96px"></colgroup>`;
   const tfoot = !rows.length ? "" : (cari
     ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="5">Toplam</td><td class="num">${fmtTRY(totBorc)}</td><td class="num">${fmtTRY(totAlacak)}</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
     : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num" style="color:var(--ok)">${fmtTRY(totGiren)}</td><td class="num" style="color:var(--danger)">${fmtTRY(totCikan)}</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
@@ -3524,6 +3531,7 @@ async function viewAccountLedger(c) {
       ${rows.length ? toolsHtml : ""}
       <div class="ledger-cards"></div>
       <div class="table-wrap ledger-table"><table class="data">
+        ${colgroup}
         <thead>${thead}</thead>
         <tbody></tbody>
         ${tfoot}

@@ -286,7 +286,11 @@ button { font-family: inherit; }
 .stat.green { border-left-color: var(--ok); }
 
 /* Dikey de kaydırılabilir kutu: tekerlek satırları kaydırır, başlık üstte yapışık kalır */
-.table-wrap { overflow: auto; max-height: calc(100dvh - 200px); -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: var(--radius); }
+.table-wrap { overflow: auto; max-height: calc(100dvh - 200px); -webkit-overflow-scrolling: touch; border: 1px solid var(--line); border-radius: var(--radius); scrollbar-gutter: stable; }
+/* Defter tablosu: sabit sütun genişliği (sayfalar arası başlık kayması olmaz) */
+.ledger-table table.data { table-layout: fixed; }
+.ledger-table table.data th, .ledger-table table.data td { overflow: hidden; text-overflow: ellipsis; }
+.ledger-table table.data td.tdwrap { white-space: normal; word-break: break-word; }
 table.data { width: 100%; border-collapse: collapse; font-size: 13px; background: var(--surface); }
 table.data th, table.data td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--line); white-space: nowrap; }
 table.data th { background: var(--surface-2); color: var(--ink-soft); font-weight: 700; font-size: 11.5px; text-transform: uppercase; letter-spacing: .4px; position: sticky; top: 0; z-index: 3; box-shadow: inset 0 -1px 0 var(--line); }
