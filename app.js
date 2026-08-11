@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.98";
+} from "./local-backend.js?v=2026.99";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.98";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.99";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -123,8 +123,9 @@ function confirmDialog(message, onYes) {
 }
 
 // Aranabilir hesap seçici (fatura + banka aktarımında ortak, uygulama tasarımlı)
-// opts: { accounts:[leaf], title, allowNew, query, onPick({acc}|{newName}) }
-function openAccountPicker({ accounts = [], title = "Hesap Seç", allowNew = true, query = "", onPick }) {
+// opts: { accounts:[leaf], title, allowNew, query, fixedNewName, onPick({acc}|{newName}) }
+//   fixedNewName verilirse: arama BOŞ açılır, "yeni hesap aç" hep bu adı kullanır (yazılana bakmaz)
+function openAccountPicker({ accounts = [], title = "Hesap Seç", allowNew = true, query = "", fixedNewName = "", onPick }) {
   const body = document.createElement("div");
   body.className = "ap";
   body.innerHTML = `
@@ -137,15 +138,16 @@ function openAccountPicker({ accounts = [], title = "Hesap Seç", allowNew = tru
     const raw = search.value.trim(), q = normTr(raw);
     const hits = (!q ? accounts.slice(0, 40)
       : accounts.filter((a) => normTr((a.code || "") + " " + (a.name || "")).includes(q)).slice(0, 60));
+    const newName = fixedNewName || raw;   // sabit ad varsa onu, yoksa yazılanı
     list.innerHTML =
       hits.map((a) => `<button class="ap-item" data-id="${a.id}">
           <span class="ap-code">${esc(a.code || "")}</span>
           <span class="ap-name">${esc(a.name || "")}</span>
         </button>`).join("")
-      + (allowNew && raw ? `<button class="ap-item ap-new" data-new="1">➕ "<b>${esc(titleCase(raw))}</b>" adıyla <b>yeni hesap</b> aç</button>` : "")
-      + (!hits.length && !raw ? `<div class="ap-empty">Yazarak ara…</div>` : (!hits.length && raw && !allowNew ? `<div class="ap-empty">Eşleşen hesap yok.</div>` : ""));
+      + (allowNew && newName ? `<button class="ap-item ap-new" data-new="1">➕ "<b>${esc(titleCase(newName))}</b>" adıyla <b>yeni hesap</b> aç</button>` : "")
+      + (!hits.length && !raw ? `<div class="ap-empty">Aramak için yaz…${allowNew && newName ? " ya da alttan yeni aç." : ""}</div>` : (!hits.length && raw && !allowNew ? `<div class="ap-empty">Eşleşen hesap yok.</div>` : ""));
     $$(".ap-item", list).forEach((b) => b.onclick = () =>
-      b.dataset.new ? pick({ newName: raw }) : pick({ acc: accounts.find((a) => a.id === b.dataset.id) }));
+      b.dataset.new ? pick({ newName }) : pick({ acc: accounts.find((a) => a.id === b.dataset.id) }));
   }
   search.addEventListener("input", render);
   render();
@@ -358,8 +360,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.98";
+const APP_VERSION = "2026.99";
 const CHANGELOG = [
+  { version: "2026.99", date: "2026-08-11", items: [
+    "Fatura eşleştirme sadeleşti: 'Yeni' düğmesi kalktı, tek 'Eşleştir / Ekle'. Seçici boş açılır (ara), bulamazsan alttaki 'fatura adıyla yeni hesap aç' ile tek tıkta ekler",
+    "Pencere (modal) açılışı akıcılaştı; seçici yüksekliği sabit tutuldu (filtrelerken kasma yok)",
+  ]},
   { version: "2026.98", date: "2026-08-11", items: [
     "Fatura: türe basınca direkt dosya seçme açılıyor (üstteki yükleme kutusu kalktı, ince çubuk + 'Başka Dosya')",
     "Fatura önizleme tablosunda Fatura No en sağda ve tam görünüyor (kısaltma yok)",
@@ -3264,7 +3270,7 @@ async function viewCariHareket(c) {
     // Elle eşleştir: seçilen hesabı sabitle + fatura adını hesabın alias'ına ekle (kalıcı hafıza)
     async function matchCari(it) {
       openAccountPicker({
-        accounts: allLeaf, title: "Hesap Eşleştir", query: it.ad || "",
+        accounts: allLeaf, title: "Hesap Eşleştir", query: "", fixedNewName: it.ad || "",
         onPick: async (res) => {
           if (res.newName) { const acc = await createCari({ ...it, ad: res.newName }, true); it.forced = acc; toast(`Cari eklendi: ${acc.name}`, "ok"); draw(); return; }
           const acc = res.acc; if (!acc) return;
@@ -3474,8 +3480,7 @@ async function viewCariHareket(c) {
         const durumTxt = it.durum === "acik" ? "" : ` · ${d.label}`;
         const right = s.code === "nocari"
           ? `<div class="v">${fmtTRY(it.amount)}</div><div class="pv-acts">
-               <button class="pv-add match" data-matchcari="${i}">🔗 Eşleştir</button>
-               <button class="pv-add" data-addcari="${i}">➕ Yeni</button>
+               <button class="pv-add match" data-matchcari="${i}">🔗 Eşleştir / Ekle</button>
              </div>`
           : `<div class="v">${fmtTRY(it.amount)}</div><div class="st ${sw.c}">${sw.w}</div>`;
         return `<div class="pv-row" data-row="${i}" data-ask="${i}">
@@ -3501,7 +3506,7 @@ async function viewCariHareket(c) {
           const it = items[i], s = st[i], sw = stWord(s.code), a = amountsOf(it);
           const durumTxt = it.durum === "acik" ? "" : ` · ${durumInfo(it).label}`;
           const act = s.code === "nocari"
-            ? `<button class="pv-add match" data-matchcari="${i}">🔗 Eşleştir</button> <button class="pv-add" data-addcari="${i}">➕ Yeni</button>` : "";
+            ? `<button class="pv-add match" data-matchcari="${i}">🔗 Eşleştir / Ekle</button>` : "";
           return `<tr data-row="${i}" data-ask="${i}">
             <td><span class="dot ${sw.c}"></span></td>
             <td class="pv-tnm">${esc(titleCase(it.ad || "-"))}</td>
