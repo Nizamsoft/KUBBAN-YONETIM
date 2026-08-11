@@ -12,9 +12,10 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.125";
+  setRevalidateHandler,
+} from "./supabase-backend.js?v=2026.126";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.125";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.126";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -536,8 +537,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.125";
+const APP_VERSION = "2026.126";
 const CHANGELOG = [
+  { version: "2026.126", date: "2026-08-11", items: [
+    "⚡ Bellek önbelleği: veriler bir kez yüklenir, sonraki sayfa geçişleri anında olur",
+    "Veriler arka planda sessizce tazelenir; ekleme/düzenleme sonrası otomatik güncellenir",
+    "Sayfa yüklenirken üstte ince ilerleme çubuğu (yalnız gerçekten beklerken görünür)",
+  ]},
   { version: "2026.125", date: "2026-08-11", items: [
     "Hesap Defteri: dip toplamda yalnız Güncel Bakiye gösteriliyor (Giren/Çıkan toplamları kaldırıldı)",
     "Üstteki hesap kartı sabitlendi — sayfa değiştirince artık küçülmüyor",
@@ -1182,7 +1188,8 @@ function toggleGroup(group) {
   if (willOpen) group.classList.add("open");
 }
 
-async function route() {
+async function route(opts = {}) {
+  const silent = opts === true || opts?.silent;   // sessiz tazeleme: göstergesiz, animasyonsuz
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
   const r = ROUTES[path] || ROUTES["dashboard"];
   closeDrawer(); // mobilde gezinince menüyü kapat
@@ -1203,17 +1210,58 @@ async function route() {
     else { backEl.style.display = "none"; backEl.onclick = null; }
   }
   const c = $("#view-container");
+  // İlk yükleme yavaşsa (önbellek yoksa) üstte ince ilerleme çubuğu göster.
+  // Önbellekten anında gelen geçişlerde (<140ms) hiç görünmez → titremez.
+  const barTimer = silent ? null : setTimeout(showRouteBar, 140);
   try {
     await r.render(c);
-    // Yumuşak geçiş (GPU: opacity + transform)
-    c.style.animation = "none";
-    void c.offsetWidth;
-    c.style.animation = "viewIn .22s cubic-bezier(.22,.61,.36,1)";
+    if (!silent) {
+      // Yumuşak geçiş (GPU: opacity + transform)
+      c.style.animation = "none";
+      void c.offsetWidth;
+      c.style.animation = "viewIn .22s cubic-bezier(.22,.61,.36,1)";
+    }
   } catch (err) {
     console.error(err);
     c.innerHTML = `<div class="notice warn"><b>Hata:</b> ${esc(err.message || err)}</div>`;
+  } finally {
+    if (barTimer) clearTimeout(barTimer);
+    if (!silent) hideRouteBar();
   }
 }
+
+// Üst ilerleme çubuğu (sayfa yüklenirken) --------------------------------
+function showRouteBar() {
+  let bar = document.getElementById("route-bar");
+  if (!bar) { bar = document.createElement("div"); bar.id = "route-bar"; document.body.appendChild(bar); }
+  bar.classList.remove("done");
+  bar.style.width = "0%";
+  void bar.offsetWidth;
+  bar.classList.add("on");
+  bar.style.width = "82%";           // trickle
+}
+function hideRouteBar() {
+  const bar = document.getElementById("route-bar");
+  if (!bar) return;
+  bar.style.width = "100%";
+  setTimeout(() => { bar.classList.remove("on"); bar.style.width = "0%"; }, 220);
+}
+
+// Arka plan tazelemesi veri değiştirdiğinde: mevcut sayfayı SESSİZCE yeniden çiz.
+// Defterde/pencerede/yazarken dokunma (yerel durum/odak kaybolmasın).
+let _silentTimer = null;
+function scheduleSilentRefresh() {
+  clearTimeout(_silentTimer);
+  _silentTimer = setTimeout(() => {
+    const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
+    if (path === "hesap-detay") return;                        // defterde yerel durum var
+    if ($("#modal-root")?.children.length) return;             // pencere açık
+    const ae = document.activeElement;
+    if (ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName)) return; // kullanıcı yazıyor
+    route({ silent: true });
+  }, 250);
+}
+if (typeof setRevalidateHandler === "function") setRevalidateHandler(scheduleSilentRefresh);
 // requestAnimationFrame ile kısıtlama (akıcı yeniden hesaplama için)
 function rafThrottle(fn) {
   let scheduled = false;
@@ -1223,7 +1271,7 @@ function rafThrottle(fn) {
     requestAnimationFrame(() => { scheduled = false; fn(...a); });
   };
 }
-window.addEventListener("hashchange", route);
+window.addEventListener("hashchange", () => route());
 
 // ---------------------------------------------------------------------------
 //  FIRESTORE OKUMA YARDIMCILARI

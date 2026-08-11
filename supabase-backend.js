@@ -9,7 +9,7 @@
 //  Kurulum SQL'i: supabase-setup.sql · Ayarlar: config.js (SUPABASE_URL / KEY)
 // ============================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.125";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.126";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
@@ -62,10 +62,10 @@ function applyConstraints(rows, constraints = []) {
   return out;
 }
 
-// Tüm satırları getir (Supabase 1000 satır sınırını aşar).
+// Tüm satırları AĞDAN getir (Supabase 1000 satır sınırını aşar).
 // İlk sayfayla birlikte toplam sayıyı alır, KALAN sayfaları PARALEL çeker —
-// 27.000 satır için 28 ardışık istek yerine 1 + paralel; geçişler hızlanır.
-async function fetchRows(name) {
+// 27.000 satır için 28 ardışık istek yerine 1 + paralel.
+async function _networkRows(name) {
   const page = 1000;
   const first = await sb.from(name).select("id,doc", { count: "exact" }).range(0, page - 1);
   if (first.error) throw new Error(`${name}: ${first.error.message}`);
@@ -82,6 +82,57 @@ async function fetchRows(name) {
     (r.data || []).forEach((row) => out.push({ id: row.id, ...(row.doc || {}) }));
   }
   return out;
+}
+
+// ---- Önbellek (stale-while-revalidate) -----------------------------------
+// İlk yüklemede ağdan alır ve belleğe koyar; sonraki okumalar ANINDA önbellekten
+// döner. Önbellek eskiyse (>REVALIDATE_MS) arka planda sessizce yenilenir; veri
+// değiştiyse kayıtlı geri-çağırma (app) mevcut sayfayı tazeler. Yazma işlemleri
+// ilgili tablonun önbelleğini geçersiz kılar → sonraki okuma ağdan taze alır.
+const REVALIDATE_MS = 15000;
+const _cache = new Map();     // name -> { rows, ts, sig }
+const _inflight = new Map();  // name -> Promise
+let _revalidateCb = null;
+export function setRevalidateHandler(fn) { _revalidateCb = fn; }
+export function invalidateCache(name) { if (name) _cache.delete(name); else _cache.clear(); }
+
+// Hafif imza: satır sayısı + id'lerin karması (ekleme/silme/sıra değişimini yakalar)
+function _sig(rows) {
+  let h = (5381 ^ rows.length) >>> 0;
+  for (const r of rows) { const s = r.id || ""; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; }
+  return h >>> 0;
+}
+const _clone = (rows) => rows.map((r) => ({ ...r }));   // önbelleği mutasyondan koru
+
+function _bgRefresh(name, prevSig) {
+  if (_inflight.has(name)) return;
+  const p = _networkRows(name).then((rows) => {
+    _inflight.delete(name);
+    const sig = _sig(rows);
+    _cache.set(name, { rows, ts: Date.now(), sig });
+    if (sig !== prevSig && _revalidateCb) { try { _revalidateCb(name); } catch (_) {} }
+  }).catch(() => { _inflight.delete(name); });
+  _inflight.set(name, p);
+}
+
+async function fetchRows(name) {
+  const c = _cache.get(name);
+  if (c) {
+    if (Date.now() - c.ts > REVALIDATE_MS) _bgRefresh(name, c.sig);   // arka planda tazele
+    return _clone(c.rows);
+  }
+  if (_inflight.has(name)) {
+    await _inflight.get(name).catch(() => {});
+    const c2 = _cache.get(name);
+    return c2 ? _clone(c2.rows) : [];
+  }
+  const p = _networkRows(name);
+  _inflight.set(name, p);
+  try {
+    const rows = await p;
+    _cache.set(name, { rows, ts: Date.now(), sig: _sig(rows) });
+    return _clone(rows);
+  } finally { _inflight.delete(name); }
 }
 
 // ---- Okuma / Yazma -------------------------------------------------------
@@ -101,12 +152,14 @@ export async function addDoc(colRef, data) {
   const id = genId();
   const { error } = await sb.from(colRef.name).insert({ id, doc: data });
   if (error) throw new Error(error.message);
+  invalidateCache(colRef.name);
   return { id };
 }
 
 export async function setDoc(ref, data) {
   const { error } = await sb.from(ref.name).upsert({ id: ref.id, doc: data });
   if (error) throw new Error(error.message);
+  invalidateCache(ref.name);
 }
 
 export async function updateDoc(ref, data) {
@@ -116,11 +169,13 @@ export async function updateDoc(ref, data) {
   const merged = { ...(cur?.doc || {}), ...data };
   const { error } = await sb.from(ref.name).upsert({ id: ref.id, doc: merged });
   if (error) throw new Error(error.message);
+  invalidateCache(ref.name);
 }
 
 export async function deleteDoc(ref) {
   const { error } = await sb.from(ref.name).delete().eq("id", ref.id);
   if (error) throw new Error(error.message);
+  invalidateCache(ref.name);
 }
 
 // Toplu yazma — set/update tablo başına tek upsert, delete tablo başına tek in()
@@ -141,10 +196,12 @@ export function writeBatch(_db) {
       for (const [n, rows] of Object.entries(upserts)) {
         const { error } = await sb.from(n).upsert(rows);
         if (error) throw new Error(`${n}: ${error.message}`);
+        invalidateCache(n);
       }
       for (const [n, ids] of Object.entries(dels)) {
         const { error } = await sb.from(n).delete().in("id", ids);
         if (error) throw new Error(`${n}: ${error.message}`);
+        invalidateCache(n);
       }
       for (const op of updates) await updateDoc(op.ref, op.data);
     },
@@ -254,6 +311,7 @@ export async function importAll(payload, { replace = true } = {}) {
       if (error) throw new Error(`${n}: ${error.message}`);
     }
   }
+  invalidateCache();   // tüm önbelleği temizle
 }
 
 export async function storageStats() {
@@ -269,4 +327,5 @@ export async function storageStats() {
 
 export async function clearAllData() {
   for (const n of COLLECTIONS) await sb.from(n).delete().neq("id", "___none___");
+  invalidateCache();
 }

@@ -218,6 +218,10 @@ export async function adminUsers() {
   throw new Error("Kullanıcı yönetimi yalnızca bulut (Supabase) modunda kullanılır.");
 }
 
+// ---- Önbellek arayüzü (yerelde gerek yok — localStorage zaten anında) -----
+export function setRevalidateHandler() {}
+export function invalidateCache() {}
+
 // ---- Dosya yükleme (yerel: base64 data URL olarak döner) -----------------
 export function uploadAvatar(file, _uid) {
   return new Promise((resolve, reject) => {
