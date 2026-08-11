@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.129";
+} from "./supabase-backend.js?v=2026.130";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.129";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.130";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.129";
+const APP_VERSION = "2026.130";
 const CHANGELOG = [
+  { version: "2026.130", date: "2026-08-11", items: [
+    "Toplu Cari: daha çok hesap türü destekleniyor (128, 335 ve genel 1xx→müşteri / 3xx→tedarikçi; 108 hariç) — daha az satır atlanıyor",
+  ]},
   { version: "2026.129", date: "2026-08-11", items: [
     "🧾 Cari Geçmişi İçe Aktar: cari (120/320) borç/alacak hareketleri Excel'den yüklenir — satırlar ŞAHIS adına göre mevcut carilere eşleşir (açılış 0)",
     "Eşleşmeyen şahıslar uyarıyla listelenir; tekrar yüklemede öncekiler silinir",
@@ -3083,10 +3086,22 @@ const FATURA_TURU = ["", "Satış Faturası", "Alış Faturası", "İade Faturas
 // Dosya bakiyesi tek biçimli: (+) = Alacak, (−) = Borç → açılış = −bakiye (tüm türler).
 const CI_TUR = {
   "320": { code: "320", name: "Tedarikçiler", type: "tedarikci", sign: -1 },
+  "335": { code: "335", name: "Personele Borçlar", type: "tedarikci", sign: -1 },
   "336": { code: "336", name: "Diğer Çeşitli Borçlar", type: "tedarikci", sign: -1 },
   "120": { code: "120", name: "Alıcılar (Müşteriler)", type: "musteri", sign: -1 },
   "121": { code: "121", name: "Alacak Senetleri", type: "musteri", sign: -1 },
+  "128": { code: "128", name: "Şüpheli Ticari Alacaklar", type: "musteri", sign: -1 },
 };
+// Hesap türü çözümleyici: bilinenler CI_TUR'dan; diğer 1xx → müşteri (alacak),
+// 3xx → tedarikçi (borç). 108 (bloke) cari değildir → atlanır.
+function ciCfg(tur) {
+  if (CI_TUR[tur]) return CI_TUR[tur];
+  if (!/^\d{3}$/.test(tur)) return null;
+  if (tur === "108") return null;
+  if (tur[0] === "1") return { code: tur, name: `Alacaklar (${tur})`, type: "musteri", sign: -1 };
+  if (tur[0] === "3") return { code: tur, name: `Borçlar (${tur})`, type: "tedarikci", sign: -1 };
+  return null;
+}
 function ciParseBal(v) {
   if (typeof v === "number") return v;
   let s = String(v || "").replace(/[₺\s]/g, "");
@@ -3130,14 +3145,14 @@ async function viewCariImport(c) {
       const ad = String(r[col.ad] ?? "").trim();
       const turRaw = String(r[col.tur] ?? "").trim();
       const tur = (turRaw.match(/\d{3}/) || [])[0] || turRaw;
-      const cfg = CI_TUR[tur];
+      const cfg = ciCfg(tur);
       const no = String(r[col.no] ?? "").trim();
       const bakiye = ciParseBal(r[col.bakiye]);
       if (!ad) return;
       if (!cfg) { skipped.push({ ad, tur: turRaw }); return; }
       items.push({ no, ad, bakiye, tur, cfg });
     });
-    if (!items.length) return toast("İşlenecek cari bulunamadı (Hesap Türü 320/336/120 olmalı).", "err");
+    if (!items.length) return toast("İşlenecek cari bulunamadı (Hesap Türü 1xx alacak / 3xx borç olmalı; 108 hariç).", "err");
 
     // Mevcut eşleştirme: aynı ana kod altında extNo ya da ada göre
     const findExisting = (it) => {
