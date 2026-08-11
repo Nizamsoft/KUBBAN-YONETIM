@@ -587,17 +587,19 @@ table.data input.num { text-align: right; }
 
 /* Tablo arama + filtre çubuğu */
 .tbl-tools { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 2px 2px 12px; }
-.tbl-tools .tbl-search { flex: 1 1 220px; min-width: 180px; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 11px; font-size: 13px; font-family: inherit; background: var(--surface); color: var(--ink); }
+.tbl-tools .tbl-search { flex: 0 1 300px; min-width: 150px; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 11px; font-size: 13px; font-family: inherit; background: var(--surface); color: var(--ink); }
 .tbl-tools .tbl-search:focus { outline: none; border-color: var(--gold); }
 .tbl-tools .tbl-date { padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 11px; font-size: 13px; font-family: inherit; background: var(--surface); color: var(--ink); }
 .tbl-tools .tbl-dsep { color: var(--ink-faint); }
-.tbl-tools .tbl-count { font-size: 12.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; margin-left: auto; }
 .tbl-tools .tbl-lbl { font-size: 12px; color: var(--ink-soft); }
 
-/* Defter sayfalama çubuğu */
+/* Sayfalama — arama satırında, ortada no, iki yanında ok */
 .pager { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 6px 2px 12px; }
 .pager .pg-info { font-size: 12.5px; color: var(--ink-soft); font-variant-numeric: tabular-nums; margin: 0 4px; }
 .pager .btn[disabled] { opacity: .4; pointer-events: none; }
+.pager-mini { margin: 0 0 0 auto; gap: 6px; flex-wrap: nowrap; }
+.pager-mini .pg-info { min-width: 52px; text-align: center; margin: 0; font-weight: 700; color: var(--ink); }
+.pager-mini .btn { padding: 5px 12px; font-size: 16px; line-height: 1; }
 
 /* Banka uygulaması tarzı hareket kartları (mobil) */
 .ledger-cards { display: none; }

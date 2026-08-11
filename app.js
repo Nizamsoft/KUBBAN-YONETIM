@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.122";
+} from "./supabase-backend.js?v=2026.123";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.122";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.123";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -536,8 +536,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.122";
+const APP_VERSION = "2026.123";
 const CHANGELOG = [
+  { version: "2026.123", date: "2026-08-11", items: [
+    "Hesap Defteri: arama çubuğu daraltıldı, sayfalama aynı satıra alındı (‹ sayfa/no › — ortada no, iki yanında ok)",
+    "Kayıt sayısı/aralık yazıları kaldırıldı (sade görünüm)",
+  ]},
   { version: "2026.122", date: "2026-08-11", items: [
     "Hesap Defteri: '+ Yeni Hareket' kaldırıldı; 'Geri' artık üstte başlığın yanında ok (←) olarak",
   ]},
@@ -3498,14 +3502,7 @@ async function viewAccountLedger(c) {
   const hlIdx = hlTok ? rows.findIndex(({ e }) => isHl(e)) : -1;
   let page = hlIdx >= 0 ? Math.floor(hlIdx / PAGE_SIZE) : tp() - 1;  // vurgu varsa o sayfa, yoksa en yeni
 
-  const pagerHtml = `
-    <div class="pager">
-      <button class="btn btn-sm" data-pg="first">« İlk</button>
-      <button class="btn btn-sm" data-pg="prev">‹ Önceki</button>
-      <span class="pg-info"></span>
-      <button class="btn btn-sm" data-pg="next">Sonraki ›</button>
-      <button class="btn btn-sm" data-pg="last">Son »</button>
-    </div>`;
+  // Arama + tarih + sayfalama tek satırda; sayfalama ortada no, iki yanında ok
   const toolsHtml = `
     <div class="tbl-tools">
       <input class="tbl-search" type="search" placeholder="🔍 Ara — açıklama, şahıs, rapor, tutar…" autocomplete="off" />
@@ -3514,14 +3511,17 @@ async function viewAccountLedger(c) {
       <span class="tbl-dsep">—</span>
       <input class="tbl-date tbl-to" type="date" aria-label="Bitiş tarihi" />
       <button class="btn btn-sm tbl-clear">Temizle</button>
-      <span class="tbl-count"></span>
+      <div class="pager pager-mini">
+        <button class="btn btn-sm" data-pg="prev" aria-label="Önceki">‹</button>
+        <span class="pg-info"></span>
+        <button class="btn btn-sm" data-pg="next" aria-label="Sonraki">›</button>
+      </div>
     </div>`;
 
   c.innerHTML = `<div class="ledger-view">` + reviewBar + hero + `
     <div class="card ledger-card">
       <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span></div>
       ${rows.length ? toolsHtml : ""}
-      ${pagerHtml}
       <div class="ledger-cards"></div>
       <div class="table-wrap ledger-table"><table class="data">
         <thead>${thead}</thead>
@@ -3533,7 +3533,7 @@ async function viewAccountLedger(c) {
   const cardsEl = $(".ledger-cards", c);
   const tbodyEl = $(".ledger-table tbody", c);
   const searchEl = $(".tbl-search", c), fromEl = $(".tbl-from", c), toEl = $(".tbl-to", c);
-  const clearEl = $(".tbl-clear", c), countEl = $(".tbl-count", c);
+  const clearEl = $(".tbl-clear", c);
   const wireEdits = () => $$("[data-edit]", c).forEach((b) => b.onclick = () =>
     entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo }));
 
@@ -3541,7 +3541,7 @@ async function viewAccountLedger(c) {
     const totalPages = tp();
     page = Math.max(0, Math.min(totalPages - 1, page));
     if (!view.length) {
-      const msg = rows.length ? "Eşleşen hareket yok." : "Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.";
+      const msg = rows.length ? "Eşleşen hareket yok." : "Henüz hareket yok.";
       cardsEl.innerHTML = `<div class="empty" style="padding:28px"><div class="ico">🔍</div><p>${msg}</p></div>`;
       tbodyEl.innerHTML = `<tr><td colspan="${colCount}"><div class="empty"><div class="ico">🔍</div><p>${msg}</p></div></td></tr>`;
     } else {
@@ -3550,25 +3550,11 @@ async function viewAccountLedger(c) {
       cardsEl.innerHTML = slice.map(cardHtml).join("");
       tbodyEl.innerHTML = slice.map(rowHtml).join("");
     }
-    const from = view.length ? (page * PAGE_SIZE + 1) : 0, to = Math.min((page + 1) * PAGE_SIZE, view.length);
-    $$(".pg-info", c).forEach((el) => el.textContent =
-      `Sayfa ${page + 1}/${totalPages} · ${from.toLocaleString("tr-TR")}–${to.toLocaleString("tr-TR")} / ${view.length.toLocaleString("tr-TR")}`);
+    $$(".pg-info", c).forEach((el) => el.textContent = `${page + 1}/${totalPages}`);
     $$(".pager", c).forEach((p) => p.style.display = totalPages > 1 ? "" : "none");
     $$("[data-pg]", c).forEach((b) => {
       b.disabled = (b.dataset.pg === "first" || b.dataset.pg === "prev") ? page === 0 : page === totalPages - 1;
     });
-    // Filtre etkinse: eşleşen kayıt sayısı + süzülmüş toplam
-    if (countEl) {
-      const active = !!(searchEl.value.trim() || fromEl.value || toEl.value);
-      if (!active) countEl.textContent = "";
-      else if (cari) {
-        const b = view.reduce((s, { e }) => s + parseNum(e.borc), 0), a = view.reduce((s, { e }) => s + parseNum(e.alacak), 0);
-        countEl.textContent = `${view.length.toLocaleString("tr-TR")} kayıt · Borç ${fmtTRY(b)} · Alacak ${fmtTRY(a)}`;
-      } else {
-        const g = view.reduce((s, { e }) => s + parseNum(e.giren), 0), ck = view.reduce((s, { e }) => s + parseNum(e.cikan), 0);
-        countEl.textContent = `${view.length.toLocaleString("tr-TR")} kayıt · Giren ${fmtTRY(g)} · Çıkan ${fmtTRY(ck)}`;
-      }
-    }
     wireEdits();
   }
 
