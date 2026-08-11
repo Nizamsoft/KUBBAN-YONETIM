@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.103";
+} from "./local-backend.js?v=2026.104";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.103";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.104";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -189,7 +189,7 @@ function successAnim(message, onDone) {
 // Aranabilir hesap seçici (fatura + banka aktarımında ortak, uygulama tasarımlı)
 // opts: { accounts:[leaf], title, allowNew, query, fixedNewName, onPick({acc}|{newName}) }
 //   fixedNewName verilirse: arama BOŞ açılır, "yeni hesap aç" hep bu adı kullanır (yazılana bakmaz)
-function openAccountPicker({ accounts = [], title = "Hesap Seç", allowNew = true, query = "", fixedNewName = "", onPick }) {
+function openAccountPicker({ accounts = [], title = "Hesap Seç", allowNew = true, query = "", fixedNewName = "", newWord = "yeni hesap", onPick }) {
   const body = document.createElement("div");
   body.className = "ap";
   body.innerHTML = `
@@ -208,7 +208,7 @@ function openAccountPicker({ accounts = [], title = "Hesap Seç", allowNew = tru
           <span class="ap-code">${esc(a.code || "")}</span>
           <span class="ap-name">${esc(a.name || "")}</span>
         </button>`).join("")
-      + (allowNew && newName ? `<button class="ap-item ap-new" data-new="1">➕ "<b>${esc(titleCase(newName))}</b>" adıyla <b>yeni hesap</b> aç</button>` : "")
+      + (allowNew && newName ? `<button class="ap-item ap-new" data-new="1">➕ "<b>${esc(titleCase(newName))}</b>" adıyla <b>${esc(newWord)}</b> aç</button>` : "")
       + (!hits.length && !raw ? `<div class="ap-empty">Aramak için yaz…${allowNew && newName ? " ya da alttan yeni aç." : ""}</div>` : (!hits.length && raw && !allowNew ? `<div class="ap-empty">Eşleşen hesap yok.</div>` : ""));
     $$(".ap-item", list).forEach((b) => b.onclick = () =>
       b.dataset.new ? pick({ newName }) : pick({ acc: accounts.find((a) => a.id === b.dataset.id) }));
@@ -216,6 +216,15 @@ function openAccountPicker({ accounts = [], title = "Hesap Seç", allowNew = tru
   search.addEventListener("input", render);
   render();
   setTimeout(() => search.focus(), 60);
+}
+
+// Rapor kodu seçici — hesap seçici ile aynı pencere (grup·kod listesi, aranabilir)
+function openRaporPicker({ raporItems = [], query = "", onPick }) {
+  const accounts = raporItems.map((r) => ({ id: `${r.grup}||${r.ad}`, code: r.grup, name: r.ad }));
+  openAccountPicker({
+    accounts, title: "Rapor Kodu Seç", allowNew: true, query, newWord: "yeni rapor kodu",
+    onPick: (res) => onPick && onPick(res.acc ? res.acc.name : res.newName),
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -431,8 +440,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.103";
+const APP_VERSION = "2026.104";
 const CHANGELOG = [
+  { version: "2026.104", date: "2026-08-11", items: [
+    "Banka önizlemesi gerçek tabloya çevrildi (hesap defteri gibi) — PC'de tablo, mobilde kart",
+    "Rapor Kodu seçimi de hesap seçici gibi aranabilir pencerede açılıyor",
+    "Aktarım önizlemesinde alttaki bloke kontrolü kaldırıldı (artık inceleme sonrası pencerede)",
+  ]},
   { version: "2026.103", date: "2026-08-11", items: [
     "Banka önizlemesi PC'de tablo, mobilde kart görünümünde (Garanti + T.Finans)",
     "Banka aktarımından sonra hesaplar tek tek incelenir; eklenen kayıt sarı vurgulanır (faturada da düzeldi)",
@@ -4024,17 +4038,21 @@ async function viewBanka(c) {
     other.forEach((o) => day(o.dep).items.push({ kind: "other", ord: o.seq, o }));
     const days = Object.keys(byDay).sort();
 
-    const posRow = (g) => {
+    // POS grubu satırı (otomatik — girdi yok)
+    const posRowTbl = (g) => {
       const brut = g.net + g.kom;
-      return `<div class="bk-grp"><div class="ic">${tipIco(g.tip)}</div>
-        <div class="mid"><div class="nm">${fmtDateShort(g.cek)} · ${esc(g.tip)} Çekimi</div>
-          <div class="mt">${g.n} hareket${g.kom ? ` · komisyon ${fmtTRY(g.kom)}` : ""}</div></div>
-        <div class="amt"><div class="v">${fmtTRY(brut)}</div>${g.kom ? `<div class="k">brüt</div>` : ""}</div></div>`;
+      return `<tr class="pv-r pv-pos">
+        <td data-label="Tarih">${fmtDateShort(g.cek)}</td>
+        <td data-label="Açıklama"><span class="pv-ic">${tipIco(g.tip)}</span> ${esc(g.tip)} Çekimi <small>${g.n} hareket${g.kom ? ` · kom. ${fmtTRY(g.kom)}` : ""}</small></td>
+        <td data-label="Hesap" class="pv-muted">108 → 102 (otomatik)</td>
+        <td data-label="Rapor" class="pv-muted">—</td>
+        <td class="num" data-label="Tutar"><b>${fmtTRY(brut)}</b></td>
+      </tr>`;
     };
-    const otherRow = (o) => {
+    // POS dışı satır (hesap + rapor seçici)
+    const otherRowTbl = (o) => {
       let sug = aliasMap[bkSig(o.desc)];
       if (!sug) {
-        // Geçmiş yoksa: açıklama imzasıyla ada göre ilk tahmin
         const s = normTr(bkSig(o.desc));
         const a = s && leafAccs.find((x) => normTr(x.name).length >= 4 && (s.startsWith(normTr(x.name)) || normTr(x.name).startsWith(s)));
         if (a) sug = { code: a.code, name: a.name, rapor: "", acik: "" };
@@ -4042,35 +4060,33 @@ async function viewBanka(c) {
       const accVal = sug ? `${sug.code} · ${sug.name}` : "";
       const rapVal = sug ? sug.rapor : "";
       const acikVal = sug ? sug.acik : "";
-      // Tasarım 1: yön + açıklama + (tutar & not simgesi sağ üstte); altta Şahıs (çıkanlarda + Rapor)
-      const rapInp = o.amt < 0 ? `<input class="bk-rapor f" data-seq="${o.seq}" list="bk-rapor-list" placeholder="Rapor * (gider)" value="${esc(rapVal)}" autocomplete="off" />` : "";
-      return `<div class="bk-other" data-seq="${o.seq}">
-        <div class="bk-o-top">
-          <div class="ic">${o.amt < 0 ? "↗️" : "↘️"}</div>
-          <div class="mid"><div class="nm">${esc(o.desc)}</div></div>
-          <div class="bk-rt">
-            <div class="v" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</div>
-            <button class="bk-note ${acikVal ? "on" : ""}" type="button" data-seq="${o.seq}" title="Özel açıklama">📝</button>
-          </div>
-        </div>
-        <div class="bk-fields">
-          <input class="bk-acc f bk-pick" data-seq="${o.seq}" placeholder="🔎 Hesap seç / ekle" value="${esc(accVal)}" readonly />
-          ${rapInp}
-        </div>
-        <div class="bk-arow" data-seq="${o.seq}" ${acikVal ? "" : `style="display:none"`}>
-          <input class="bk-acik f" data-seq="${o.seq}" placeholder="Özel açıklama (boşsa 'Gelen/Giden Eft')" value="${esc(acikVal)}" />
-        </div>
-      </div>`;
+      const rapCell = o.amt < 0
+        ? `<input class="bk-rapor f bk-pick" data-seq="${o.seq}" placeholder="🔎 Rapor seç" value="${esc(rapVal)}" readonly />`
+        : `<span class="pv-muted">—</span>`;
+      return `<tr class="pv-r pv-oth" data-seq="${o.seq}">
+          <td data-label="Tarih">${fmtDateShort(o.dep)}</td>
+          <td data-label="Açıklama"><span class="pv-ic">${o.amt < 0 ? "↗️" : "↘️"}</span> ${esc(o.desc)}
+            <button class="bk-note ${acikVal ? "on" : ""}" type="button" data-seq="${o.seq}" title="Özel açıklama">📝</button></td>
+          <td data-label="Hesap"><input class="bk-acc f bk-pick" data-seq="${o.seq}" placeholder="🔎 Hesap seç / ekle" value="${esc(accVal)}" readonly /></td>
+          <td data-label="Rapor">${rapCell}</td>
+          <td class="num" data-label="Tutar" style="color:${o.amt < 0 ? "var(--danger)" : "var(--ok)"}">${fmtTRY(o.amt)}</td>
+        </tr>
+        <tr class="pv-acik-row" data-seq="${o.seq}" ${acikVal ? "" : "hidden"}>
+          <td colspan="5"><input class="bk-acik f" data-seq="${o.seq}" placeholder="Özel açıklama (boşsa 'Gelen/Giden Eft')" value="${esc(acikVal)}" /></td>
+        </tr>`;
     };
 
-    const dayHtml = days.map((d) => {
+    const bodyRows = days.map((d) => {
       const items = byDay[d].items.slice().sort((a, b) => a.ord - b.ord);
       const dayTot = items.reduce((s, it) => s + (it.kind === "pos" ? it.g.net + it.g.kom : it.o.amt), 0);
-      return `<div class="bk-day">
-        <div class="bk-day-h"><span>📅 ${fmtDate(d)} <small>yatış günü</small></span><b>${fmtTRY(dayTot)}</b></div>
-        ${items.map((it) => it.kind === "pos" ? posRow(it.g) : otherRow(it.o)).join("")}
-      </div>`;
+      return `<tr class="pv-day"><td colspan="5">📅 ${fmtDate(d)} <small>yatış günü</small> <b>${fmtTRY(dayTot)}</b></td></tr>`
+        + items.map((it) => it.kind === "pos" ? posRowTbl(it.g) : otherRowTbl(it.o)).join("");
     }).join("");
+
+    const tableHtml = bodyRows ? `<div class="pv-tbl-wrap"><table class="pv-tbl">
+      <thead><tr><th>Tarih</th><th>Açıklama</th><th>Hesap</th><th>Rapor</th><th class="num">Tutar</th></tr></thead>
+      <tbody>${bodyRows}</tbody>
+    </table></div>` : `<div class="empty" style="padding:16px">Hareket yok.</div>`;
 
     const ctrlHtml = `
       <div class="bk-ctrl head"><span>Grup</span><span class="num">Gün Sonu Bloke</span><span class="num">Çözülen (brüt)</span><span class="num">Fark</span></div>
@@ -4096,44 +4112,40 @@ async function viewBanka(c) {
       <div class="card">
         <div class="pv-head"><div class="pv-title">Banka Hareketleri</div>
           <div class="pv-sub">${groups.length} POS grubu · ${other.length} POS dışı · net ${fmtTRY(posNet)}${posKom ? ` · komisyon ${fmtTRY(posKom)}` : ""}</div></div>
-        ${dayHtml ? `<div class="bk-thead-pc"><span></span><span>Açıklama</span><span>Hesap</span><span>Rapor</span><span class="num">Tutar</span></div>` : ""}
-        <div>${dayHtml || `<div class="empty" style="padding:16px">Hareket yok.</div>`}</div>
+        ${tableHtml}
         ${belirsiz.length ? `<div class="notice warn" style="margin:12px 0 0">⚠️ ${belirsiz.length} hareketin kart tipi belirsiz (gün farkı 23/16/1 değil). Bunlar işlenmez; bana ilet.</div>` : ""}
-        ${other.length ? `<div class="pv-fhint" style="margin-top:10px">↘️/↗️ POS dışı satırlarda <b>hesap adı</b> zorunlu (yazdıkça tamamlanır). Boş bırakılan işlenmez.</div>` : ""}
+        ${other.length ? `<div class="pv-fhint" style="margin-top:10px">↘️/↗️ POS dışı satırlarda <b>Hesap</b> (ve çıkanlarda <b>Rapor</b>) zorunlu. Boş bırakılan işlenmez.</div>` : ""}
       </div>
-
-      <div class="card">
-        <div class="card-head"><h3>🧮 Bloke Kontrolü</h3><span class="hint">gün sonu ↔ çözülen</span></div>
-        ${ctrlHtml}
-        <div class="pv-fhint" style="margin-top:8px">Sarı satır = gün sonu bloke ile çözülen tutar tutmuyor.</div>
-      </div>
-
-      <datalist id="bk-acc-list">${leafAccs.map((a) => `<option value="${esc(accLabel(a))}"></option>`).join("")}</datalist>
-      <datalist id="bk-rapor-list">${raporItems.map((r) => `<option value="${esc(r.ad)}">${esc(r.grup)}</option>`).join("")}</datalist>
       <div class="pv-cta">
         <div class="grow"></div>
         <button class="btn btn-primary" id="bk-save">✓ İşle</button>
       </div>`;
 
     const saveBtn = $("#bk-save", editor);
-    // Hesap alanı → uygulama-içi aranabilir seçici (datalist yerine)
+    // Hesap alanı → uygulama-içi aranabilir seçici
     $$(".bk-acc", editor).forEach((inp) => inp.onclick = () => openAccountPicker({
       accounts: leafAccs, title: "Hesap Seç", query: /·/.test(inp.value) ? "" : inp.value,
       onPick: (res) => { inp.value = res.acc ? accLabel(res.acc) : res.newName; inp.dispatchEvent(new Event("input", { bubbles: true })); },
     }));
-    // Not simgesi → özel açıklama aç/kapat
+    // Rapor alanı → hesap seçici ile aynı pencere
+    $$(".bk-rapor", editor).forEach((inp) => inp.onclick = () => openRaporPicker({
+      raporItems, query: inp.value,
+      onPick: (val) => { inp.value = val; inp.dispatchEvent(new Event("input", { bubbles: true })); },
+    }));
+    // Not simgesi → özel açıklama satırı aç/kapat
     $$(".bk-note", editor).forEach((b) => b.onclick = () => {
-      const row = b.closest(".bk-other"), arow = $(".bk-arow", row);
-      const show = arow.style.display === "none";
-      arow.style.display = show ? "block" : "none";
+      const seq = b.dataset.seq, arow = $(`.pv-acik-row[data-seq="${seq}"]`, editor);
+      const show = arow.hidden;
+      arow.hidden = !show;
       b.classList.toggle("on", show);
-      if (show) $(".bk-acik", arow)?.focus(); else { const i = $(".bk-acik", arow); if (i) i.value = ""; }
+      const inp = $(".bk-acik", arow);
+      if (show) inp?.focus(); else if (inp) inp.value = "";
       bkSync();
     });
-    // Canlı doğrulama: şahıs (+ çıkanlarda rapor) dolmadan İşle pasif
+    // Canlı doğrulama: hesap (+ çıkanlarda rapor) dolmadan İşle pasif
     function bkSync() {
       let missing = 0;
-      $$(".bk-other", editor).forEach((row) => {
+      $$(".pv-oth", editor).forEach((row) => {
         const acc = $(".bk-acc", row), rap = $(".bk-rapor", row);
         const ae = !acc.value.trim();
         acc.classList.toggle("bk-req", ae); acc.classList.toggle("bk-ok", !ae);
@@ -4280,43 +4292,28 @@ async function viewBanka(c) {
 
     const cardOpts = st.cards.map((c, i) => ({ i, label: `${fmtDateShort(c.date)} · ${c.merchant} · ${fmtNum(c.amt)}` }));
 
-    const cozumRow = (r, i, kind) => {
+    const cozumRowTbl = (r, i, kind) => {
       const merc = r.card ? r.card.merchant : "";
       const sug = merc ? suggest(merc) : null;
       const accVal = sug ? `${sug.code} · ${sug.name}` : (merc ? titleCase(merc) : "");
       const rapVal = sug ? sug.rapor : "";
-      return `<div class="tf-cz ${kind}" data-i="${i}" data-kind="${kind}">
-        <div class="tf-cz-top">
-          <div class="ic">${kind === "match" ? (r.approx ? "🟡" : "🔓") : "❓"}</div>
-          <div class="mid">
-            <div class="nm">${merc ? esc(merc) : "Eşleşmedi — kart seç"}</div>
-            <div class="mt">${fmtDateShort(r.date)}${r.approx ? " · ~tarih farklı" : ""}${r.ref ? " · " + esc(r.ref) : ""}</div>
-          </div>
-          <div class="v neg">−${fmtNum(r.amt)}</div>
-        </div>
-        <div class="tf-cz-fields">
-          ${kind === "unmatch" ? `<select class="tf-card-pick f" data-i="${i}"><option value="">— kart harcaması seç (ops.) —</option>${cardOpts.map((o) => `<option value="${o.i}">${esc(o.label)}</option>`).join("")}</select>` : ""}
-          <input class="tf-acc f tf-pick" data-i="${i}" placeholder="🔎 Hesap * seç / ekle" value="${esc(accVal)}" readonly />
-          <input class="tf-rapor f" data-i="${i}" list="tf-rapor-list" placeholder="Rapor * (gider grubu)" value="${esc(rapVal)}" autocomplete="off" />
-        </div>
-      </div>`;
+      const pickRow = kind === "unmatch"
+        ? `<tr class="tf-cardpick-row" data-i="${i}"><td colspan="5">
+             <select class="tf-card-pick f" data-i="${i}"><option value="">— kart harcaması seç (ops.) —</option>${cardOpts.map((o) => `<option value="${o.i}">${esc(o.label)}</option>`).join("")}</select>
+           </td></tr>`
+        : "";
+      return `<tr class="pv-r tf-cz ${kind}" data-i="${i}" data-kind="${kind}">
+          <td data-label="Tarih">${fmtDateShort(r.date)}${r.approx ? " <small>~</small>" : ""}</td>
+          <td data-label="Mağaza"><span class="pv-ic">${kind === "match" ? (r.approx ? "🟡" : "🔓") : "❓"}</span> <span class="nm">${merc ? esc(merc) : "Eşleşmedi — kart seç"}</span>${r.ref ? ` <small>${esc(r.ref)}</small>` : ""}</td>
+          <td data-label="Hesap"><input class="tf-acc f tf-pick" data-i="${i}" placeholder="🔎 Hesap * seç / ekle" value="${esc(accVal)}" readonly /></td>
+          <td data-label="Rapor"><input class="tf-rapor f tf-pick" data-i="${i}" placeholder="🔎 Rapor *" value="${esc(rapVal)}" readonly /></td>
+          <td class="num" data-label="Tutar"><b class="neg">−${fmtNum(r.amt)}</b></td>
+        </tr>${pickRow}`;
     };
 
     const almaBad = almaRows.filter((a) => !a.ok).length;
-    const almaHtml = almaRows.length ? `
-      <div class="card">
-        <div class="card-head"><h3>🧮 Blokeye Alma Kontrolü</h3><span class="hint">gün sonu 108 ↔ blokeye alma</span></div>
-        <div class="bk-ctrl head"><span>Yatış günü</span><span class="num">Gün Sonu 108</span><span class="num">Blokeye Alma</span><span class="num">Fark</span></div>
-        ${almaRows.map((a) => `<div class="bk-ctrl ${a.ok ? "" : "warn"}">
-          <span>${fmtDateShort(a.almaDate)}<small> gs ${fmtDateShort(a.gsDate)}</small></span>
-          <span class="num">${a.gsBorc ? fmtNum(a.gsBorc) : "—"}</span>
-          <span class="num">${fmtNum(a.sum)}</span>
-          <span class="num ${a.ok ? "ok" : "bad"}">${fmtNum(a.fark)}</span>
-        </div>`).join("")}
-        <div class="pv-fhint" style="margin-top:8px">Blokeye alma tutarları <b>108 blokeyi kapatıp 102 T.Finans Banka</b>'ya "Çekim Çözüldü" olarak girer. ${almaBad ? `⚠️ ${almaBad} günde gün sonuyla tutmuyor (sarı) — yine de işlenir.` : "✓ Hepsi gün sonuyla tutuyor."}</div>
-      </div>` : "";
-    // İnceleme turu bitince gösterilecek blokeye alma kontrolü
-    lastBloke = almaRows.length ? { title: "🧮 Blokeye Alma Kontrolü", html: `<div class="bk-bloke-note">gün sonu 108 ↔ blokeye alma · sarı = tutmuyor</div>
+    // İnceleme turu bitince gösterilecek blokeye alma kontrolü (önizlemede gösterilmez)
+    lastBloke = almaRows.length ? { title: "🧮 Blokeye Alma Kontrolü", html: `<div class="bk-bloke-note">gün sonu 108 ↔ blokeye alma · sarı = tutmuyor${almaBad ? ` · ${almaBad} gün tutmuyor` : " · hepsi tutuyor"}</div>
       <div class="bk-ctrl head"><span>Yatış günü</span><span class="num">Gün Sonu 108</span><span class="num">Blokeye Alma</span><span class="num">Fark</span></div>
       ${almaRows.map((a) => `<div class="bk-ctrl ${a.ok ? "" : "warn"}">
         <span>${fmtDateShort(a.almaDate)}<small> gs ${fmtDateShort(a.gsDate)}</small></span>
@@ -4328,20 +4325,22 @@ async function viewBanka(c) {
     const totMatch = matched.reduce((s, r) => s + r.amt, 0);
     const totUn = unmatched.reduce((s, r) => s + r.amt, 0);
 
+    const rowsHtml = results.length ? `<div class="pv-tbl-wrap"><table class="pv-tbl">
+      <thead><tr><th>Tarih</th><th>Mağaza / Açıklama</th><th>Hesap</th><th>Rapor</th><th class="num">Tutar</th></tr></thead>
+      <tbody>
+        ${matched.map((r) => cozumRowTbl(r, results.indexOf(r), "match")).join("")}
+        ${unmatched.length ? `<tr class="pv-day"><td colspan="5">❓ Eşleşmeyenler — elle kart seç</td></tr>${unmatched.map((r) => cozumRowTbl(r, results.indexOf(r), "unmatch")).join("")}` : ""}
+      </tbody>
+    </table></div>` : `<div class="empty" style="padding:16px">Bloke çözümü yok.</div>`;
+
     editor.innerHTML = `
       <div class="card">
         <div class="pv-head"><div class="pv-title">Bloke Çözümleri → Kart Harcamaları</div>
           <div class="pv-sub">${matched.length} eşleşti (${fmtTRY(totMatch)})${unmatched.length ? ` · ${unmatched.length} eşleşmedi (${fmtTRY(totUn)})` : ""}${cancelCount ? ` · ${cancelCount} ters kayıt netlendi` : ""}</div></div>
-        ${results.length ? `<div class="tf-thead-pc"><span></span><span>Mağaza / Açıklama</span><span>Hesap</span><span>Rapor</span><span class="num">Tutar</span></div>` : ""}
-        ${matched.length ? matched.map((r) => cozumRow(r, results.indexOf(r), "match")).join("") : ""}
-        ${unmatched.length ? `<div class="tf-sec-h">❓ Eşleşmeyenler — elle</div>${unmatched.map((r) => cozumRow(r, results.indexOf(r), "unmatch")).join("")}` : ""}
-        ${!results.length ? `<div class="empty" style="padding:16px">Bloke çözümü yok.</div>` : ""}
-        <div class="pv-fhint" style="margin-top:10px">Her harcamada <b>Hesap</b> (kime ödendi — 320/120…) ve <b>Rapor</b> zorunlu. Ödeme <b>102.02 T.Finans Banka</b>'dan çıkar ve seçilen hesabı kapatır (tedarikçiye ödeme → 320 borç). Gider Durum Raporu'na düşer.</div>
+        ${rowsHtml}
+        <div class="pv-fhint" style="margin-top:10px">Her harcamada <b>Hesap</b> (kime ödendi — 320/120…) ve <b>Rapor</b> zorunlu. Ödeme <b>102.02 T.Finans Banka</b>'dan çıkar ve seçilen hesabı kapatır. Gider Durum Raporu'na düşer.</div>
       </div>
-      ${almaHtml}
       ${st.hesap.other.length ? `<div class="card"><div class="notice warn">ℹ️ ${st.hesap.other.length} satır bloke alma/çözüm değil (EFT vb.) — bu ekranda işlenmiyor.</div></div>` : ""}
-      <datalist id="tf-acc-list">${leafAccs.map((a) => `<option value="${esc(accLabel(a))}"></option>`).join("")}</datalist>
-      <datalist id="tf-rapor-list">${raporItems.map((r) => `<option value="${esc(r.ad)}">${esc(r.grup)}</option>`).join("")}</datalist>
       <div class="pv-cta"><div class="grow"></div><button class="btn btn-primary" id="tf-save">✓ İşle</button></div>`;
 
     // Hesap alanı → uygulama-içi aranabilir seçici
@@ -4349,9 +4348,14 @@ async function viewBanka(c) {
       accounts: leafAccs, title: "Hesap Seç", query: /·/.test(inp.value) ? "" : inp.value,
       onPick: (res) => { inp.value = res.acc ? `${res.acc.code} · ${res.acc.name}` : res.newName; inp.dispatchEvent(new Event("input", { bubbles: true })); },
     }));
+    // Rapor alanı → hesap seçici ile aynı pencere
+    $$(".tf-rapor", editor).forEach((inp) => inp.onclick = () => openRaporPicker({
+      raporItems, query: inp.value,
+      onPick: (val) => { inp.value = val; inp.dispatchEvent(new Event("input", { bubbles: true })); },
+    }));
     // Eşleşmeyen kart seçimi → mağaza adını + hesap/rapor önerisini satıra yaz
     $$(".tf-card-pick", editor).forEach((sel) => sel.onchange = () => {
-      const row = sel.closest(".tf-cz"), nm = $(".nm", row), acc = $(".tf-acc", row), rap = $(".tf-rapor", row);
+      const row = $(`.tf-cz[data-i="${sel.dataset.i}"]`, editor), nm = $(".nm", row), acc = $(".tf-acc", row), rap = $(".tf-rapor", row);
       const ci = sel.value === "" ? -1 : +sel.value;
       if (ci >= 0) {
         const m = st.cards[ci].merchant; nm.textContent = m;
