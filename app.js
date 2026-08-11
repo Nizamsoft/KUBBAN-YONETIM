@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.118";
+} from "./supabase-backend.js?v=2026.119";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.118";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.119";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -535,8 +535,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.118";
+const APP_VERSION = "2026.119";
 const CHANGELOG = [
+  { version: "2026.119", date: "2026-08-11", items: [
+    "⚡ Performans: hesap defteri artık sayfalı (100'erlik) — 27.000 satırda bile akıcı kayar",
+    "⚡ Veri çekişi paralelleştirildi: büyük tablolar (binlerce kayıt) çok daha hızlı yükleniyor",
+    "Defter altına/üstüne sayfa gezinme çubuğu (İlk · Önceki · Sonraki · Son)",
+  ]},
   { version: "2026.118", date: "2026-08-11", items: [
     "Kullanıcı yönetimi 'Yetkisiz (giriş yok)' hatası giderildi (oturum token'ı Edge Function'a açıkça gönderiliyor)",
   ]},
@@ -3409,89 +3414,120 @@ async function viewAccountLedger(c) {
       <button class="btn btn-primary btn-sm" id="add-entry">+ Yeni Hareket</button>
     </div>`;
 
-  if (cari) {
-    const totBorc = list.reduce((s, e) => s + parseNum(e.borc), 0);
-    const totAlacak = list.reduce((s, e) => s + parseNum(e.alacak), 0);
-    c.innerHTML = backBar + `
-      <div class="ledger-hero">
+  // Tablo satırı üreticileri (sayfalama için ayrı)
+  const cariRowHtml = ({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
+    <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
+    <td>${esc(String(e.cariNo ?? "—"))}</td>
+    <td>${fmtDate(e.date)}</td>
+    <td>${esc(e.sahis || "")}</td>
+    <td>${esc(e.aciklama || "")}</td>
+    <td class="num">${e.borc ? fmtTRY(parseNum(e.borc)) : "—"}</td>
+    <td class="num">${e.alacak ? fmtTRY(parseNum(e.alacak)) : "—"}</td>
+    <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
+    <td>${esc(e.faturaTuru || "")}</td>
+    <td>${esc(e.faturaNo || "")}</td>
+    <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
+  </tr>`;
+  const kasaRowHtml = ({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
+    <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
+    <td>${fmtDate(e.date)}</td>
+    <td>${esc(e.islemAdi || "")}</td>
+    <td>${esc(e.sahis || "")}</td>
+    <td>${esc(e.aciklama || "")}</td>
+    <td>${esc(e.rapor || "")}</td>
+    <td class="num" style="color:var(--ok)">${e.giren ? fmtTRY(parseNum(e.giren)) : "—"}</td>
+    <td class="num" style="color:var(--danger)">${e.cikan ? fmtTRY(parseNum(e.cikan)) : "—"}</td>
+    <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
+    <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
+  </tr>`;
+  const rowHtml = cari ? cariRowHtml : kasaRowHtml;
+  const cardHtml = cari ? cariCard : kasaCard;
+
+  const totBorc = list.reduce((s, e) => s + parseNum(e.borc), 0);
+  const totAlacak = list.reduce((s, e) => s + parseNum(e.alacak), 0);
+  const totGiren = list.reduce((s, e) => s + parseNum(e.giren), 0);
+  const totCikan = list.reduce((s, e) => s + parseNum(e.cikan), 0);
+
+  const hero = cari
+    ? `<div class="ledger-hero">
         <div class="lh-ico">${accEmoji(acc)}</div>
         <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
         <div class="lh-bal"><div class="lbl">${run >= 0 ? "Borç" : "Alacak"} Bakiye</div><div class="val">${fmtTRY(Math.abs(run))}</div></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h3>Cari Hareketler</h3><span class="hint">${list.length} hareket</span></div>
-        <div class="ledger-cards">${rows.length ? rows.map(cariCard).join("") : ledgerEmpty}</div>
-        <div class="table-wrap ledger-table"><table class="data">
-          <thead><tr>
-            <th>İşlem No</th><th>Cari No</th><th>Tarih</th><th>Şahıs</th><th>Açıklama</th>
-            <th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>
-            <th>Fatura Türü</th><th>Fatura No</th><th></th>
-          </tr></thead>
-          <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
-            <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
-            <td>${esc(String(e.cariNo ?? "—"))}</td>
-            <td>${fmtDate(e.date)}</td>
-            <td>${esc(e.sahis || "")}</td>
-            <td>${esc(e.aciklama || "")}</td>
-            <td class="num">${e.borc ? fmtTRY(parseNum(e.borc)) : "—"}</td>
-            <td class="num">${e.alacak ? fmtTRY(parseNum(e.alacak)) : "—"}</td>
-            <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
-            <td>${esc(e.faturaTuru || "")}</td>
-            <td>${esc(e.faturaNo || "")}</td>
-            <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
-          </tr>`).join("") : `<tr><td colspan="11"><div class="empty"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div></td></tr>`}
-          </tbody>
-          ${rows.length ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)">
-            <td colspan="5">Toplam</td>
-            <td class="num">${fmtTRY(totBorc)}</td>
-            <td class="num">${fmtTRY(totAlacak)}</td>
-            <td class="num">${fmtTRY(run)}</td><td colspan="3"></td>
-          </tr></tfoot>` : ""}
-        </table></div>
-      </div>`;
-  } else {
-    const totGiren = list.reduce((s, e) => s + parseNum(e.giren), 0);
-    const totCikan = list.reduce((s, e) => s + parseNum(e.cikan), 0);
-    c.innerHTML = backBar + `
-      <div class="ledger-hero">
+      </div>`
+    : `<div class="ledger-hero">
         <div class="lh-ico">${accEmoji(acc)}</div>
         <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
         <div class="lh-bal"><div class="lbl">Güncel Bakiye</div><div class="val" ${run < 0 ? 'style="color:#ffd9d0"' : ""}>${fmtTRY(run)}</div></div>
-      </div>
-      <div class="card">
-        <div class="card-head"><h3>Hareketler</h3><span class="hint">${list.length} hareket</span></div>
-        <div class="ledger-cards">${rows.length ? rows.map(kasaCard).join("") : ledgerEmpty}</div>
-        <div class="table-wrap ledger-table"><table class="data">
-          <thead><tr>
-            <th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
-            <th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th>
-          </tr></thead>
-          <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
-            <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
-            <td>${fmtDate(e.date)}</td>
-            <td>${esc(e.islemAdi || "")}</td>
-            <td>${esc(e.sahis || "")}</td>
-            <td>${esc(e.aciklama || "")}</td>
-            <td>${esc(e.rapor || "")}</td>
-            <td class="num" style="color:var(--ok)">${e.giren ? fmtTRY(parseNum(e.giren)) : "—"}</td>
-            <td class="num" style="color:var(--danger)">${e.cikan ? fmtTRY(parseNum(e.cikan)) : "—"}</td>
-            <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
-            <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
-          </tr>`).join("") : `<tr><td colspan="10"><div class="empty"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div></td></tr>`}
-          </tbody>
-          ${rows.length ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)">
-            <td colspan="6">Toplam</td>
-            <td class="num" style="color:var(--ok)">${fmtTRY(totGiren)}</td>
-            <td class="num" style="color:var(--danger)">${fmtTRY(totCikan)}</td>
-            <td class="num">${fmtTRY(run)}</td><td></td>
-          </tr></tfoot>` : ""}
-        </table></div>
       </div>`;
+  const thead = cari
+    ? `<tr><th>İşlem No</th><th>Cari No</th><th>Tarih</th><th>Şahıs</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th><th>Fatura Türü</th><th>Fatura No</th><th></th></tr>`
+    : `<tr><th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th></tr>`;
+  const colCount = cari ? 11 : 10;
+  const tfoot = !rows.length ? "" : (cari
+    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="5">Toplam</td><td class="num">${fmtTRY(totBorc)}</td><td class="num">${fmtTRY(totAlacak)}</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
+    : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num" style="color:var(--ok)">${fmtTRY(totGiren)}</td><td class="num" style="color:var(--danger)">${fmtTRY(totCikan)}</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
+
+  // Sayfalama: çok satırlı defterlerde (ör. 27.000) yalnız bir dilim çizilir
+  const PAGE_SIZE = 100;
+  const totalPages = Math.max(1, Math.ceil(rows.length / PAGE_SIZE));
+  const hlIdx = hlTok ? rows.findIndex(({ e }) => isHl(e)) : -1;
+  let page = hlIdx >= 0 ? Math.floor(hlIdx / PAGE_SIZE) : totalPages - 1;  // vurgu varsa o sayfa, yoksa en yeni
+
+  const pagerHtml = totalPages > 1 ? `
+    <div class="pager">
+      <button class="btn btn-sm" data-pg="first">« İlk</button>
+      <button class="btn btn-sm" data-pg="prev">‹ Önceki</button>
+      <span class="pg-info"></span>
+      <button class="btn btn-sm" data-pg="next">Sonraki ›</button>
+      <button class="btn btn-sm" data-pg="last">Son »</button>
+    </div>` : "";
+
+  c.innerHTML = backBar + hero + `
+    <div class="card">
+      <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span></div>
+      ${pagerHtml}
+      <div class="ledger-cards"></div>
+      <div class="table-wrap ledger-table"><table class="data">
+        <thead>${thead}</thead>
+        <tbody></tbody>
+        ${tfoot}
+      </table></div>
+      ${pagerHtml}
+    </div>`;
+
+  const cardsEl = $(".ledger-cards", c);
+  const tbodyEl = $(".ledger-table tbody", c);
+  const wireEdits = () => $$("[data-edit]", c).forEach((b) => b.onclick = () =>
+    entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo }));
+
+  function renderPage() {
+    page = Math.max(0, Math.min(totalPages - 1, page));
+    if (!rows.length) {
+      cardsEl.innerHTML = ledgerEmpty;
+      tbodyEl.innerHTML = `<tr><td colspan="${colCount}"><div class="empty"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div></td></tr>`;
+    } else {
+      const start = page * PAGE_SIZE;
+      const slice = rows.slice(start, start + PAGE_SIZE);
+      cardsEl.innerHTML = slice.map(cardHtml).join("");
+      tbodyEl.innerHTML = slice.map(rowHtml).join("");
+    }
+    const from = rows.length ? (page * PAGE_SIZE + 1) : 0, to = Math.min((page + 1) * PAGE_SIZE, rows.length);
+    $$(".pg-info", c).forEach((el) => el.textContent =
+      `Sayfa ${page + 1}/${totalPages} · ${from.toLocaleString("tr-TR")}–${to.toLocaleString("tr-TR")} / ${rows.length.toLocaleString("tr-TR")}`);
+    $$("[data-pg]", c).forEach((b) => {
+      b.disabled = (b.dataset.pg === "first" || b.dataset.pg === "prev") ? page === 0 : page === totalPages - 1;
+    });
+    wireEdits();
   }
+  $$("[data-pg]", c).forEach((b) => b.onclick = () => {
+    const k = b.dataset.pg;
+    page = k === "first" ? 0 : k === "last" ? totalPages - 1 : k === "prev" ? page - 1 : page + 1;
+    renderPage();
+    const tw = $(".ledger-table", c); if (tw) tw.scrollIntoView({ block: "nearest" });
+  });
+  renderPage();
 
   $("#add-entry").onclick = () => entryModal(acc, null, { nextNo, nextCariNo });
-  $$("[data-edit]", c).forEach((b) => b.onclick = () =>
-    entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo }));
 
   // Sarı vurgulanan (bu turda eklenen) ilk kayda kaydır
   if (hlTok) requestAnimationFrame(() => {

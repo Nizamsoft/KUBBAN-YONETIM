@@ -9,7 +9,7 @@
 //  Kurulum SQL'i: supabase-setup.sql · Ayarlar: config.js (SUPABASE_URL / KEY)
 // ============================================================================
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.118";
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from "./config.js?v=2026.119";
 
 export const sb = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: false },
@@ -62,15 +62,24 @@ function applyConstraints(rows, constraints = []) {
   return out;
 }
 
-// Tüm satırları getir (Supabase 1000 satır sınırını sayfalayarak aşar)
+// Tüm satırları getir (Supabase 1000 satır sınırını aşar).
+// İlk sayfayla birlikte toplam sayıyı alır, KALAN sayfaları PARALEL çeker —
+// 27.000 satır için 28 ardışık istek yerine 1 + paralel; geçişler hızlanır.
 async function fetchRows(name) {
-  const out = []; const page = 1000; let from = 0;
-  while (true) {
-    const { data, error } = await sb.from(name).select("id,doc").range(from, from + page - 1);
-    if (error) throw new Error(`${name}: ${error.message}`);
-    (data || []).forEach((r) => out.push({ id: r.id, ...(r.doc || {}) }));
-    if (!data || data.length < page) break;
-    from += page;
+  const page = 1000;
+  const first = await sb.from(name).select("id,doc", { count: "exact" }).range(0, page - 1);
+  if (first.error) throw new Error(`${name}: ${first.error.message}`);
+  const out = (first.data || []).map((r) => ({ id: r.id, ...(r.doc || {}) }));
+  const total = first.count ?? out.length;
+  if (total <= page || (first.data || []).length < page) return out;
+
+  const reqs = [];
+  for (let from = page; from < total; from += page)
+    reqs.push(sb.from(name).select("id,doc").range(from, from + page - 1));
+  const results = await Promise.all(reqs);
+  for (const r of results) {
+    if (r.error) throw new Error(`${name}: ${r.error.message}`);
+    (r.data || []).forEach((row) => out.push({ id: row.id, ...(row.doc || {}) }));
   }
   return out;
 }
