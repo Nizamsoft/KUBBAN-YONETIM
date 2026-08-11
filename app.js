@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.93";
+} from "./local-backend.js?v=2026.94";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.93";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.94";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -328,8 +328,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.93";
+const APP_VERSION = "2026.94";
 const CHANGELOG = [
+  { version: "2026.94", date: "2026-08-10", items: [
+    "Fatura sihirbazı: Satış faturasında Enter/varsayılan artık 'Kapalı' (tahsil edildi); Alış faturasında 'Açık' kalır",
+  ]},
   { version: "2026.93", date: "2026-08-10", items: [
     "Fatura cari eşleştirme güçlendi: artık 'önek' yerine kelime-örtüşmesi — kayıt ile fatura adı arasındaki kelime sırası/orta kelime farkları eşleşmeyi bozmuyor (farklı firmalar yine eşleşmez)",
   ]},
@@ -3330,8 +3333,11 @@ async function viewCariHareket(c) {
           <div style="font-weight:700;font-size:15px;margin-top:4px">${esc(titleCase(it.ad || "-"))}</div>
           <div style="font-size:12.5px;color:var(--ink-soft);margin:4px 0 14px">${esc(it.faturaNo)} · ${fmtDate(it.date)} · Tutar <b>${fmtTRY(it.amount)}</b></div>
           <div style="display:flex;gap:8px;flex-wrap:wrap">
-            <button class="btn btn-primary" data-w="acik">Açık ↵</button>
-            <button class="btn" data-w="kapali">Kapalı</button>
+            ${kind === "satis"
+              ? `<button class="btn btn-primary" data-w="kapali">Kapalı ↵</button>
+                 <button class="btn" data-w="acik">Açık</button>`
+              : `<button class="btn btn-primary" data-w="acik">Açık ↵</button>
+                 <button class="btn" data-w="kapali">Kapalı</button>`}
             <button class="btn" data-w="kismi">Kısmi Kapat</button>
           </div>
           <div id="wz-kismi" style="display:none;margin-top:14px">
@@ -3355,7 +3361,7 @@ async function viewCariHareket(c) {
         if (e.key !== "Enter") return;
         const p = $("#wz-kismi", body);
         if (p && p.style.display !== "none") { e.preventDefault(); $("#wz-ok", body).click(); return; }
-        e.preventDefault(); choose("acik");
+        e.preventDefault(); choose(kind === "satis" ? "kapali" : "acik");
       };
       document.addEventListener("keydown", keyH);
       step();
