@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.102";
+} from "./local-backend.js?v=2026.103";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.102";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.103";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -94,13 +94,27 @@ function openModal({ title, body, footer, onClose }) {
         <div class="modal-foot"></div>
       </div>
     </div>`;
+  const backdrop = $(".modal-backdrop", root);
   const bodyEl = $(".modal-body", root);
   const footEl = $(".modal-foot", root);
   if (typeof body === "string") bodyEl.innerHTML = body; else bodyEl.appendChild(body);
   (footer || []).forEach((b) => footEl.appendChild(b));
-  const close = () => { root.innerHTML = ""; onClose && onClose(); };
-  $(".modal-backdrop", root).addEventListener("mousedown", (e) => {
-    if (e.target.classList.contains("modal-backdrop")) close();
+  let closed = false;
+  // Kapanış: anında silmek yerine dışarı animasyonu (GPU) → sonra kaldır
+  const close = () => {
+    if (closed) return; closed = true;
+    backdrop.classList.add("out");
+    let fired = false;
+    const done = () => {
+      if (fired) return; fired = true;
+      if (backdrop.parentNode) backdrop.remove();   // sadece bu modalı kaldır (yenisi açıldıysa dokunma)
+      onClose && onClose();
+    };
+    backdrop.addEventListener("animationend", done, { once: true });
+    setTimeout(done, 240);   // animationend gelmezse güvenlik
+  };
+  backdrop.addEventListener("mousedown", (e) => {
+    if (e.target === backdrop) close();
   });
   return { close, bodyEl, footEl };
 }
@@ -252,12 +266,19 @@ function advanceReview() {
   if (!reviewQueue) return;
   reviewQueue.index++;
   if (reviewQueue.index >= reviewQueue.ids.length) {
+    const after = reviewQueue.after;
     reviewQueue = null;
-    toast("Tüm cari hesaplar incelendi. ✔", "ok");
-    location.hash = "#/hesaplar";
+    toast("Tüm hesaplar incelendi. ✔", "ok");
+    if (after) after(); else location.hash = "#/hesaplar";
   } else {
     location.hash = "#/hesap-detay?id=" + reviewQueue.ids[reviewQueue.index];
   }
+}
+function finishReview() {   // "Bitir": incelemeyi bırak, varsa son adıma (bloke kontrolü) geç
+  if (!reviewQueue) { location.hash = "#/hesaplar"; return; }
+  const after = reviewQueue.after;
+  reviewQueue = null;
+  if (after) after(); else location.hash = "#/hesaplar";
 }
 
 // ---------------------------------------------------------------------------
@@ -410,8 +431,15 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.102";
+const APP_VERSION = "2026.103";
 const CHANGELOG = [
+  { version: "2026.103", date: "2026-08-11", items: [
+    "Banka önizlemesi PC'de tablo, mobilde kart görünümünde (Garanti + T.Finans)",
+    "Banka aktarımından sonra hesaplar tek tek incelenir; eklenen kayıt sarı vurgulanır (faturada da düzeldi)",
+    "Hesap incelemesi bitince bloke kontrolü penceresi açılır (Garanti + T.Finans)",
+    "Bankayı seçince doğrudan dosya seçme açılır (üstteki yükleme kutusu kalktı)",
+    "Pencereler (modal) artık akıcı açılıp kapanıyor — kasma yok",
+  ]},
   { version: "2026.102", date: "2026-08-11", items: [
     "Tamamlama animasyonu tamamen GPU'da çalışacak şekilde yeniden yazıldı — aktarım bitişinde artık kasmıyor, akıcı",
   ]},
@@ -2950,10 +2978,14 @@ async function viewAccountLedger(c) {
   const nextNo = entries.reduce((m, e) => Math.max(m, e.islemNo || 0), 0) + 1;
   const nextCariNo = cari ? (list.reduce((m, e) => Math.max(m, e.cariNo || 0), 0) + 1) : null;
 
+  // Aktarım incelemesinde: bu turda eklenen kayıtlar sarı vurgulanır
+  const hlTok = reviewQueue && reviewQueue.tok;
+  const isHl = (e) => !!(hlTok && e.impTok === hlTok);
+
   // Mobil: banka uygulaması tarzı hareket kartları
   const ledgerEmpty = `<div class="empty" style="padding:28px"><div class="ico">🧾</div><p>Henüz hareket yok. <b>+ Yeni Hareket</b> ile ekleyin.</p></div>`;
   const kasaCard = ({ e, bakiye }) => `
-    <button class="tx-card" data-edit="${e.id}">
+    <button class="tx-card${isHl(e) ? " tx-hl" : ""}" data-edit="${e.id}">
       <div class="tx-left">
         <div class="tx-title">${esc(e.sahis || e.islemAdi || "Hareket")}</div>
         ${e.sahis
@@ -2968,7 +3000,7 @@ async function viewAccountLedger(c) {
       </div>
     </button>`;
   const cariCard = ({ e, bakiye }) => `
-    <button class="tx-card" data-edit="${e.id}">
+    <button class="tx-card${isHl(e) ? " tx-hl" : ""}" data-edit="${e.id}">
       <div class="tx-left">
         <div class="tx-title">${esc(e.sahis || e.aciklama || "Hareket")}</div>
         ${e.aciklama && e.sahis ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : ""}
@@ -3018,7 +3050,7 @@ async function viewAccountLedger(c) {
             <th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>
             <th>Fatura Türü</th><th>Fatura No</th><th></th>
           </tr></thead>
-          <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr>
+          <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
             <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
             <td>${esc(String(e.cariNo ?? "—"))}</td>
             <td>${fmtDate(e.date)}</td>
@@ -3057,7 +3089,7 @@ async function viewAccountLedger(c) {
             <th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
             <th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th>
           </tr></thead>
-          <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr>
+          <tbody>${rows.length ? rows.map(({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
             <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
             <td>${fmtDate(e.date)}</td>
             <td>${esc(e.islemAdi || "")}</td>
@@ -3084,10 +3116,16 @@ async function viewAccountLedger(c) {
   $$("[data-edit]", c).forEach((b) => b.onclick = () =>
     entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo }));
 
+  // Sarı vurgulanan (bu turda eklenen) ilk kayda kaydır
+  if (hlTok) requestAnimationFrame(() => {
+    const first = $(".tx-hl", c) || $(".hl-row", c);
+    if (first) first.scrollIntoView({ block: "center", behavior: "smooth" });
+  });
+
   // İnceleme turu: Sonraki / Bitir + Enter kısayolu
   if (inReview) {
     $("#rev-next").onclick = advanceReview;
-    $("#rev-finish").onclick = () => { reviewQueue = null; location.hash = "#/hesaplar"; };
+    $("#rev-finish").onclick = finishReview;
     reviewKeyHandler = (e) => {
       if (e.key !== "Enter") return;
       if ($("#modal-root").children.length) return;               // pencere açıksa karışma
@@ -3662,6 +3700,8 @@ async function viewCariHareket(c) {
         });
       }
       if (!docs.length) { sendBtn.disabled = false; return toast(`İşlenecek yeni fatura yok (${sDup} zaten var, ${sNo} cari yok).`, "err"); }
+      const impTok = "imp" + Date.now() + uid();
+      docs.forEach((d) => d.impTok = impTok);   // incelemede sarı vurgu için
       try {
         await batchAdd(C.accountEntries, docs);
         await logAction("İçe Aktarma", "Cari Fatura", `${main.code} ${main.name} · ${docs.length} ${faturaTuru}`);
@@ -3683,7 +3723,7 @@ async function viewCariHareket(c) {
           body.innerHTML = `<div class="inv-sum">${sumHtml}<div class="inv-note">${docs.length} ${faturaTuru} işlendi · ${affected.length} cari${sDup ? ` · ${sDup} zaten vardı` : ""}</div></div>`;
           const m = openModal({ title: "✅ İşlem Özeti", body, footer: [
             mkBtn("Kapat", "", () => m.close()),
-            mkBtn("Carileri İncele →", "btn-primary", () => { m.close(); reviewQueue = { ids: affected, index: 0 }; location.hash = "#/hesap-detay?id=" + affected[0]; }),
+            mkBtn("Carileri İncele →", "btn-primary", () => { m.close(); reviewQueue = { ids: affected, index: 0, tok: impTok }; location.hash = "#/hesap-detay?id=" + affected[0]; }),
           ]});
         });
       } catch (e) { toast("Hata: " + e.message, "err"); sendBtn.disabled = false; }
@@ -3839,7 +3879,27 @@ function tfMatch(cozum, cards) {
 async function viewBanka(c) {
   const allAcc = await fetchAll(C.accounts).catch(() => []);
   c.innerHTML = `<div id="bk-body"></div>`;
+  let lastBloke = null;   // { title, html } — son önizlemedeki bloke kontrolü (inceleme sonrası gösterilir)
   chooseBank();
+
+  // Aktarım sonrası: hesapları tek tek incele → bitince bloke kontrolü penceresi
+  function showBloke(ctrl) {
+    if (!ctrl || !ctrl.html) { location.hash = "#/hesaplar"; return; }
+    const body = document.createElement("div");
+    body.className = "bk-bloke-modal";
+    body.innerHTML = ctrl.html;
+    const m = openModal({ title: ctrl.title || "🧮 Bloke Kontrolü", body, footer: [
+      mkBtn("Bitti ✓", "btn-primary", () => { m.close(); location.hash = "#/hesaplar"; }),
+    ]});
+  }
+  function afterBankImport(affected, tok, ctrl) {
+    if (affected && affected.length) {
+      reviewQueue = { ids: affected, index: 0, tok, after: () => showBloke(ctrl) };
+      location.hash = "#/hesap-detay?id=" + affected[0];
+    } else {
+      showBloke(ctrl);
+    }
+  }
 
   function chooseBank() {
     const body = $("#bk-body");
@@ -3870,24 +3930,53 @@ async function viewBanka(c) {
     const bankAcc = allAcc.find((a) => String(a.code) === bank.bankCode);
     const blokeAcc = allAcc.find((a) => String(a.code) === bank.blokeCode);
     const body = $("#bk-body");
-    body.innerHTML = `
-      <div class="card">
-        <div class="card-head"><h3>🟢 Garanti · Dosya Yükle</h3><button class="btn btn-sm" id="bk-back">← Banka</button></div>
+    // Hesap planı eksikse önce uyar (dosya isteme)
+    if (!bankAcc || !blokeAcc) {
+      body.innerHTML = `<div class="card">
+        <div class="card-head"><h3>🟢 Garanti</h3><button class="btn btn-sm" id="bk-back">← Banka</button></div>
         ${bankAcc ? "" : `<div class="notice warn">⚠️ <b>102.01 Garanti Banka</b> hesabı yok. <a href="#/hesaplar">Hesaplar</a>'dan varsayılan planı oluşturun.</div>`}
-        ${blokeAcc ? "" : `<div class="notice warn">⚠️ <b>108.01 Garanti Bloke</b> hesabı yok.</div>`}
-        <div id="bk-drop"></div>
-      </div>
-      <div id="bk-editor"></div>`;
-    $("#bk-back", body).onclick = chooseBank;
-    $("#bk-drop", body).appendChild(fileDrop(async (file) => {
+        ${blokeAcc ? "" : `<div class="notice warn">⚠️ <b>108.01 Garanti Bloke</b> hesabı yok.</div>`}</div>`;
+      $("#bk-back", body).onclick = chooseBank;
+      return;
+    }
+    // Seçince direkt dosya iste (üstte yükleme kutusu yok)
+    pickGarantiFile(bank, bankAcc, blokeAcc);
+  }
+
+  function pickGarantiFile(bank, bankAcc, blokeAcc) {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = ".xlsx,.xls,.csv"; input.style.display = "none";
+    document.body.appendChild(input);
+    input.onchange = async () => {
+      const file = input.files && input.files[0]; input.remove();
+      if (!file) return;
       const lb = loadingBar("Dosya okunuyor…");
       try {
         const aoa = await parseSheetAOA(file);
         const { pos, other } = bkClassifyGaranti(aoa);
         if (!pos.length && !other.length) { lb.finish(); return toast("Hareket bulunamadı.", "err"); }
-        lb.finish(() => { buildGaranti(bank, bankAcc, blokeAcc, pos, other); toast(`${pos.length + other.length} hareket okundu.`, "ok"); });
+        lb.finish(() => {
+          showGarantiEditor(bank, bankAcc, blokeAcc);
+          buildGaranti(bank, bankAcc, blokeAcc, pos, other);
+          toast(`${pos.length + other.length} hareket okundu.`, "ok");
+        });
       } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
-    }, ".xlsx,.xls,.csv", true));
+    };
+    input.click();
+  }
+
+  function showGarantiEditor(bank, bankAcc, blokeAcc) {
+    const body = $("#bk-body");
+    body.innerHTML = `
+      <div class="ch-bar">
+        <span class="ch-title">🟢 Garanti</span>
+        <div class="grow"></div>
+        <button class="btn btn-sm" id="bk-reup">📄 Başka Dosya</button>
+        <button class="btn btn-sm" id="bk-back">← Banka</button>
+      </div>
+      <div id="bk-editor"></div>`;
+    $("#bk-back", body).onclick = chooseBank;
+    $("#bk-reup", body).onclick = () => pickGarantiFile(bank, bankAcc, blokeAcc);
   }
 
   async function buildGaranti(bank, bankAcc, blokeAcc, pos, other) {
@@ -3997,6 +4086,8 @@ async function viewBanka(c) {
             <span class="num ${warn ? "bad" : "ok"}">${fmtNum(fark)}</span>
           </div>`;
         }).join("")}`).join("")}`;
+    // İnceleme turu bitince gösterilecek bloke kontrolü
+    lastBloke = groups.length ? { title: "🧮 Bloke Kontrolü", html: `<div class="bk-bloke-note">gün sonu ↔ çözülen · sarı satır = tutmuyor</div>${ctrlHtml}` } : null;
 
     const posNet = groups.reduce((s, g) => s + g.net, 0);
     const posKom = groups.reduce((s, g) => s + g.kom, 0);
@@ -4005,6 +4096,7 @@ async function viewBanka(c) {
       <div class="card">
         <div class="pv-head"><div class="pv-title">Banka Hareketleri</div>
           <div class="pv-sub">${groups.length} POS grubu · ${other.length} POS dışı · net ${fmtTRY(posNet)}${posKom ? ` · komisyon ${fmtTRY(posKom)}` : ""}</div></div>
+        ${dayHtml ? `<div class="bk-thead-pc"><span></span><span>Açıklama</span><span>Hesap</span><span>Rapor</span><span class="num">Tutar</span></div>` : ""}
         <div>${dayHtml || `<div class="empty" style="padding:16px">Hareket yok.</div>`}</div>
         ${belirsiz.length ? `<div class="notice warn" style="margin:12px 0 0">⚠️ ${belirsiz.length} hareketin kart tipi belirsiz (gün farkı 23/16/1 değil). Bunlar işlenmez; bana ilet.</div>` : ""}
         ${other.length ? `<div class="pv-fhint" style="margin-top:10px">↘️/↗️ POS dışı satırlarda <b>hesap adı</b> zorunlu (yazdıkça tamamlanır). Boş bırakılan işlenmez.</div>` : ""}
@@ -4067,55 +4159,76 @@ async function viewBanka(c) {
     const blokeAcc = allAcc.find((a) => String(a.code) === bank.blokeCode); // 108.02
     const bankAcc = allAcc.find((a) => String(a.code) === bank.bankCode);   // 102.02
     const body = $("#bk-body");
-    body.innerHTML = `
-      <div class="card">
-        <div class="card-head"><h3>🔵 T. Finans · Dosya Yükle</h3><button class="btn btn-sm" id="bk-back">← Banka</button></div>
+    if (!blokeAcc || !bankAcc) {
+      body.innerHTML = `<div class="card">
+        <div class="card-head"><h3>🔵 T. Finans</h3><button class="btn btn-sm" id="bk-back">← Banka</button></div>
         ${blokeAcc ? "" : `<div class="notice warn">⚠️ <b>108.02 T.Finans Bloke</b> hesabı yok. <a href="#/hesaplar">Hesaplar</a>'dan varsayılan planı oluşturun.</div>`}
-        ${bankAcc ? "" : `<div class="notice warn">⚠️ <b>102.02 T.Finans Banka</b> hesabı yok.</div>`}
-        <div class="tf-steps">
-          <div class="tf-step">
-            <div class="tf-step-h"><span class="n">1</span> Hesap hareketleri <small>(bloke alma / çözüm)</small> <span id="tf-h-ok" class="tf-ok"></span></div>
-            <div id="tf-drop-h"></div>
-          </div>
-          <div class="tf-step">
-            <div class="tf-step-h"><span class="n">2</span> Kart hareketleri <small>(1-2 dosya)</small> <span id="tf-c-ok" class="tf-ok"></span></div>
-            <div id="tf-drop-c"></div>
-            <div id="tf-card-list" class="tf-card-list"></div>
-          </div>
-        </div>
-      </div>
-      <div id="tf-editor"></div>`;
-    $("#bk-back", body).onclick = chooseBank;
+        ${bankAcc ? "" : `<div class="notice warn">⚠️ <b>102.02 T.Finans Banka</b> hesabı yok.</div>`}</div>`;
+      $("#bk-back", body).onclick = chooseBank;
+      return;
+    }
     const st = { hesap: null, cards: [], cardFiles: [] };
 
-    $("#tf-drop-h", body).appendChild(fileDrop(async (file) => {
-      const lb = loadingBar("Dosya okunuyor…");
-      try {
-        const aoa = await parseSheetAOA(file);
-        st.hesap = tfParseHesap(aoa);
-        lb.finish(() => {
-          $("#tf-h-ok").textContent = `✓ ${st.hesap.alma.length} alma · ${st.hesap.cozum.length} çözüm`;
-          toast("Hesap dosyası okundu.", "ok"); rebuild();
-        });
-      } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
-    }, ".xlsx,.xls,.csv", true));
-
-    $("#tf-drop-c", body).appendChild(fileDrop(async (file) => {
-      const lb = loadingBar("Dosya okunuyor…");
-      try {
-        const aoa = await parseSheetAOA(file);
+    // Ortak dosya seçici (üstte yükleme kutusu yok)
+    function pickTF(onAoa) {
+      const input = document.createElement("input");
+      input.type = "file"; input.accept = ".xlsx,.xls,.csv"; input.style.display = "none";
+      document.body.appendChild(input);
+      input.onchange = async () => {
+        const file = input.files && input.files[0]; input.remove();
+        if (!file) return;
+        const lb = loadingBar("Dosya okunuyor…");
+        try { const aoa = await parseSheetAOA(file); lb.finish(() => onAoa(aoa, file)); }
+        catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
+      };
+      input.click();
+    }
+    function loadHesap() {
+      pickTF((aoa) => {
+        try {
+          st.hesap = tfParseHesap(aoa);
+          showTFBar(); rebuild();
+          toast(`Hesap: ${st.hesap.alma.length} alma · ${st.hesap.cozum.length} çözüm`, "ok");
+        } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+      });
+    }
+    function loadCard() {
+      pickTF((aoa, file) => {
         const rows = tfParseCard(aoa);
-        if (!rows.length) { lb.finish(); return toast("Kart hareketi bulunamadı.", "err"); }
-        lb.finish(() => {
-          st.cards.push(...rows); st.cardFiles.push({ name: file.name, n: rows.length });
-          $("#tf-c-ok").textContent = `✓ ${st.cards.length} kart hareketi`;
-          $("#tf-card-list").innerHTML = st.cardFiles.map((f) => `<div class="tf-cf">📄 ${esc(f.name)} <b>${f.n}</b></div>`).join("");
-          toast(`${rows.length} kart hareketi eklendi.`, "ok"); rebuild();
-        });
-      } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
-    }, ".xlsx,.xls,.csv", true));
-
+        if (!rows.length) return toast("Kart hareketi bulunamadı.", "err");
+        st.cards.push(...rows); st.cardFiles.push({ name: file.name, n: rows.length });
+        showTFBar(); rebuild();
+        toast(`${rows.length} kart hareketi eklendi.`, "ok");
+      });
+    }
+    function showTFBar() {
+      const b = $("#bk-body");
+      if (!$(".ch-bar", b)) {
+        b.innerHTML = `
+          <div class="ch-bar">
+            <span class="ch-title">🔵 T. Finans</span>
+            <span class="ch-info" id="tf-bar-info"></span>
+            <div class="grow"></div>
+            <button class="btn btn-sm" id="tf-add-card">📄 Kart Dosyası</button>
+            <button class="btn btn-sm" id="tf-reup">🔄 Hesap Dosyası</button>
+            <button class="btn btn-sm" id="bk-back">← Banka</button>
+          </div>
+          <div id="tf-editor"></div>`;
+        $("#bk-back", b).onclick = chooseBank;
+        $("#tf-reup", b).onclick = () => { st.hesap = null; st.cards = []; st.cardFiles = []; loadHesap(); };
+        $("#tf-add-card", b).onclick = loadCard;
+      }
+      const info = $("#tf-bar-info", b);
+      if (info) {
+        const parts = [];
+        if (st.hesap) parts.push(`${st.hesap.alma.length} alma · ${st.hesap.cozum.length} çözüm`);
+        if (st.cards.length) parts.push(`${st.cards.length} kart`);
+        info.textContent = parts.join(" · ");
+      }
+    }
     function rebuild() { if (st.hesap) buildTFinans(bank, blokeAcc, bankAcc, st); }
+
+    loadHesap();   // seçince direkt hesap dosyası iste
   }
 
   async function buildTFinans(bank, blokeAcc, bankAcc, st) {
@@ -4202,6 +4315,15 @@ async function viewBanka(c) {
         </div>`).join("")}
         <div class="pv-fhint" style="margin-top:8px">Blokeye alma tutarları <b>108 blokeyi kapatıp 102 T.Finans Banka</b>'ya "Çekim Çözüldü" olarak girer. ${almaBad ? `⚠️ ${almaBad} günde gün sonuyla tutmuyor (sarı) — yine de işlenir.` : "✓ Hepsi gün sonuyla tutuyor."}</div>
       </div>` : "";
+    // İnceleme turu bitince gösterilecek blokeye alma kontrolü
+    lastBloke = almaRows.length ? { title: "🧮 Blokeye Alma Kontrolü", html: `<div class="bk-bloke-note">gün sonu 108 ↔ blokeye alma · sarı = tutmuyor</div>
+      <div class="bk-ctrl head"><span>Yatış günü</span><span class="num">Gün Sonu 108</span><span class="num">Blokeye Alma</span><span class="num">Fark</span></div>
+      ${almaRows.map((a) => `<div class="bk-ctrl ${a.ok ? "" : "warn"}">
+        <span>${fmtDateShort(a.almaDate)}<small> gs ${fmtDateShort(a.gsDate)}</small></span>
+        <span class="num">${a.gsBorc ? fmtNum(a.gsBorc) : "—"}</span>
+        <span class="num">${fmtNum(a.sum)}</span>
+        <span class="num ${a.ok ? "ok" : "bad"}">${fmtNum(a.fark)}</span>
+      </div>`).join("")}` } : null;
 
     const totMatch = matched.reduce((s, r) => s + r.amt, 0);
     const totUn = unmatched.reduce((s, r) => s + r.amt, 0);
@@ -4210,6 +4332,7 @@ async function viewBanka(c) {
       <div class="card">
         <div class="pv-head"><div class="pv-title">Bloke Çözümleri → Kart Harcamaları</div>
           <div class="pv-sub">${matched.length} eşleşti (${fmtTRY(totMatch)})${unmatched.length ? ` · ${unmatched.length} eşleşmedi (${fmtTRY(totUn)})` : ""}${cancelCount ? ` · ${cancelCount} ters kayıt netlendi` : ""}</div></div>
+        ${results.length ? `<div class="tf-thead-pc"><span></span><span>Mağaza / Açıklama</span><span>Hesap</span><span>Rapor</span><span class="num">Tutar</span></div>` : ""}
         ${matched.length ? matched.map((r) => cozumRow(r, results.indexOf(r), "match")).join("") : ""}
         ${unmatched.length ? `<div class="tf-sec-h">❓ Eşleşmeyenler — elle</div>${unmatched.map((r) => cozumRow(r, results.indexOf(r), "unmatch")).join("")}` : ""}
         ${!results.length ? `<div class="empty" style="padding:16px">Bloke çözümü yok.</div>` : ""}
@@ -4343,12 +4466,15 @@ async function viewBanka(c) {
         docs.push({ ...common, accountId: acc.id, accountCode: acc.code, islemNo: ++gno,
           ...(cariStyle ? { cariNo: nextCno(acc.id) } : {}), islemAdi: "KART HARCAMASI", sahis: acc.name, aciklama: `${bank.label} ile ödendi`, ...side });
       }
+      const impTok = "imp" + Date.now() + uid();
+      docs.forEach((d) => d.impTok = impTok);
       await batchAdd(C.accountEntries, docs);
       await logAction("İçe Aktarma", "Banka", `${bank.label} · ${almaRows.length} blokeye alma + ${rows.length} harcama · ${docs.length} kayıt`);
       toast(`${rows.length} harcama + ${almaRows.length} blokeye alma işlendi.`, "ok");
-      successAnim(`${rows.length + almaRows.length} kayıt işlendi`);
-      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${almaRows.length}</b> blokeye alma (108→102), <b>${rows.length}</b> kart harcaması (102 çıkış + hesap kapama).
-        <a href="#/hesap-detay?id=${bankAcc.id}">102.02 T.Finans Banka</a> defterinde görebilirsin.</div>`;
+      // İncelenecek hesaplar: harcamanın kapattığı cari/gider hesapları
+      const affected = [...new Set(rows.map((r) => r.acc.id))];
+      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${almaRows.length}</b> blokeye alma (108→102), <b>${rows.length}</b> kart harcaması (102 çıkış + hesap kapama). İnceleme başlıyor…</div>`;
+      successAnim(`${rows.length + almaRows.length} kayıt işlendi`, () => afterBankImport(affected, impTok, lastBloke));
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
 
@@ -4485,12 +4611,15 @@ async function viewBanka(c) {
           islemAdi: "Para Transferi", sahis: acc.name,
           aciklama: `${bank.label} ile ${inn ? "tahsil edildi" : "ödendi"}${a.acik ? " · " + a.acik : ""}`, ...side });
       }
+      const impTok = "imp" + Date.now() + uid();
+      docs.forEach((d) => d.impTok = impTok);
       await batchAdd(C.accountEntries, docs);
       await logAction("İçe Aktarma", "Banka", `${bank.label} · ${groups.length} POS + ${assigns.length} transfer · ${docs.length} kayıt`);
       toast(`${groups.length} POS + ${assigns.length} transfer işlendi.`, "ok");
-      successAnim(`${groups.length + assigns.length} kayıt işlendi`);
-      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${groups.length}</b> POS çözülmesi, <b>${assigns.length}</b> para transferi.
-        <a href="#/hesap-detay?id=${bankAcc.id}">102.01 Garanti</a> defterinde görebilirsin.</div>`;
+      // İncelenecek hesaplar: transferin eşleştiği cari/gider hesapları (POS'lar banka/blokede)
+      const affected = [...new Set(assigns.map((a) => a.acc.id))];
+      editor.innerHTML = `<div class="notice info">✔ İşlendi: <b>${groups.length}</b> POS çözülmesi, <b>${assigns.length}</b> para transferi. İnceleme başlıyor…</div>`;
+      successAnim(`${groups.length + assigns.length} kayıt işlendi`, () => afterBankImport(affected, impTok, lastBloke));
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
 }
