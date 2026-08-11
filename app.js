@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.100";
+} from "./local-backend.js?v=2026.101";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.100";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.101";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -122,23 +122,51 @@ function confirmDialog(message, onYes) {
   });
 }
 
-// Tamamlama animasyonu: içe aktarım/işlem bitince animasyonlu ✓
+// Dosya okuma sırasında dolan bar (trickle). finish() ile %100 dolar ve kapanır.
+function loadingBar(label) {
+  const el = document.createElement("div");
+  el.className = "prog-anim";
+  el.innerHTML = `<div class="pa-box">
+    <div class="pa-label">${esc(label || "Yükleniyor…")}</div>
+    <div class="pa-track"><div class="pa-fill"></div></div>
+  </div>`;
+  document.body.appendChild(el);
+  const fill = $(".pa-fill", el);
+  requestAnimationFrame(() => { fill.classList.add("trickle"); fill.style.width = "88%"; });
+  const t0 = Date.now();
+  return {
+    finish(onDone) {
+      const go = () => {
+        fill.style.transition = "width .25s ease"; fill.style.width = "100%";
+        setTimeout(() => { el.classList.add("out"); setTimeout(() => { el.remove(); onDone && onDone(); }, 220); }, 240);
+      };
+      const wait = Math.max(0, 350 - (Date.now() - t0));   // en az görünsün
+      setTimeout(go, wait);
+    },
+  };
+}
+
+// Tamamlama animasyonu: dolan bar → animasyonlu ✓
 function successAnim(message, onDone) {
   const el = document.createElement("div");
   el.className = "success-anim";
   el.innerHTML = `
     <div class="sa-box">
-      <svg class="sa-check" viewBox="0 0 52 52" aria-hidden="true">
+      <div class="sa-track"><div class="sa-fill"></div></div>
+      <svg class="sa-check" viewBox="0 0 52 52" aria-hidden="true" style="display:none">
         <circle class="sa-circle" cx="26" cy="26" r="24"></circle>
         <path class="sa-tick" d="M14 27 l8 8 l16 -18"></path>
       </svg>
       ${message ? `<div class="sa-msg">${esc(message)}</div>` : ""}
     </div>`;
   document.body.appendChild(el);
+  const fill = $(".sa-fill", el), check = $(".sa-check", el), track = $(".sa-track", el);
+  requestAnimationFrame(() => { fill.style.width = "100%"; });   // bar dolar (~0.6s)
+  setTimeout(() => { track.style.display = "none"; check.style.display = ""; }, 640);
   setTimeout(() => {
     el.classList.add("out");
     setTimeout(() => { el.remove(); onDone && onDone(); }, 260);
-  }, 1200);
+  }, 1500);
 }
 
 // Aranabilir hesap seçici (fatura + banka aktarımında ortak, uygulama tasarımlı)
@@ -379,8 +407,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.100";
+const APP_VERSION = "2026.101";
 const CHANGELOG = [
+  { version: "2026.101", date: "2026-08-11", items: [
+    "Dosya yüklerken akıcı 'dolan bar' göstergesi (fatura, banka Garanti/T.Finans, toplu cari, gün sonu)",
+    "Tamamlama animasyonu artık dolan bar → animasyonlu ✓ şeklinde",
+  ]},
   { version: "2026.100", date: "2026-08-11", items: [
     "İçe aktarım/işlem tamamlanınca animasyonlu ✓ (fatura, banka Garanti/T.Finans, toplu cari, gün sonu)",
   ]},
@@ -1441,6 +1473,7 @@ async function viewGunSonuAktarim(c) {
       <div class="toolbar" style="margin-top:14px"><div class="grow"></div>
         <button class="btn btn-primary" id="gs-next" ${gsState.kasa ? "" : "disabled"}>İleri →</button></div>`;
     $("#gs-drop", body).appendChild(fileDrop(async (file) => {
+      const lb = loadingBar("Dosya okunuyor…");
       try {
         const aoa = await parseSheetAOA(file);
         gsState.kasa = gsExtractKasa(aoa);
@@ -1451,9 +1484,8 @@ async function viewGunSonuAktarim(c) {
         gsState.cariIslem = gsExtractCariIslem(aoa);
         gsState.cariTahsilat = gsExtractCariTahsilat(aoa);
         gsState.masraflar = gsExtractMasraflar(aoa);
-        toast("Rapor okundu.", "ok");
-        goto(1);
-      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+        lb.finish(() => { toast("Rapor okundu.", "ok"); goto(1); });
+      } catch (e) { lb.finish(() => toast("Okunamadı: " + e.message, "err")); }
     }, ".xlsx,.xls,.csv", true));
     $("#gs-next", body).onclick = () => goto(1);
   }
@@ -2770,11 +2802,12 @@ async function viewCariImport(c) {
     <div id="ci-editor"></div>`;
 
   $("#ci-drop").appendChild(fileDrop(async (file) => {
+    const lb = loadingBar("Dosya okunuyor…");
     try {
       const { headers, rows } = await parseSpreadsheet(file);
-      if (!rows.length) return toast("Veri bulunamadı.", "err");
-      build(headers, rows);
-    } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+      if (!rows.length) { lb.finish(); return toast("Veri bulunamadı.", "err"); }
+      lb.finish(() => build(headers, rows));
+    } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
   }, ".xlsx,.xls,.csv", true));
 
   function build(headers, rows) {
@@ -3203,12 +3236,12 @@ async function viewCariHareket(c) {
       const file = input.files && input.files[0];
       input.remove();
       if (!file) return;
+      const lb = loadingBar("Dosya okunuyor…");
       try {
         const { headers, rows } = await parseSpreadsheet(file);
-        if (!rows.length) return toast("Veri bulunamadı.", "err");
-        showEditor(kind);
-        buildPreview(headers, rows, kind);
-      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+        if (!rows.length) { lb.finish(); return toast("Veri bulunamadı.", "err"); }
+        lb.finish(() => { showEditor(kind); buildPreview(headers, rows, kind); });
+      } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
     };
     input.click();
   }
@@ -3841,13 +3874,13 @@ async function viewBanka(c) {
       <div id="bk-editor"></div>`;
     $("#bk-back", body).onclick = chooseBank;
     $("#bk-drop", body).appendChild(fileDrop(async (file) => {
+      const lb = loadingBar("Dosya okunuyor…");
       try {
         const aoa = await parseSheetAOA(file);
         const { pos, other } = bkClassifyGaranti(aoa);
-        if (!pos.length && !other.length) return toast("Hareket bulunamadı.", "err");
-        buildGaranti(bank, bankAcc, blokeAcc, pos, other);
-        toast(`${pos.length + other.length} hareket okundu.`, "ok");
-      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+        if (!pos.length && !other.length) { lb.finish(); return toast("Hareket bulunamadı.", "err"); }
+        lb.finish(() => { buildGaranti(bank, bankAcc, blokeAcc, pos, other); toast(`${pos.length + other.length} hareket okundu.`, "ok"); });
+      } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
     }, ".xlsx,.xls,.csv", true));
   }
 
@@ -4050,26 +4083,30 @@ async function viewBanka(c) {
     const st = { hesap: null, cards: [], cardFiles: [] };
 
     $("#tf-drop-h", body).appendChild(fileDrop(async (file) => {
+      const lb = loadingBar("Dosya okunuyor…");
       try {
         const aoa = await parseSheetAOA(file);
         st.hesap = tfParseHesap(aoa);
-        $("#tf-h-ok").textContent = `✓ ${st.hesap.alma.length} alma · ${st.hesap.cozum.length} çözüm`;
-        toast("Hesap dosyası okundu.", "ok");
-        rebuild();
-      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+        lb.finish(() => {
+          $("#tf-h-ok").textContent = `✓ ${st.hesap.alma.length} alma · ${st.hesap.cozum.length} çözüm`;
+          toast("Hesap dosyası okundu.", "ok"); rebuild();
+        });
+      } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
     }, ".xlsx,.xls,.csv", true));
 
     $("#tf-drop-c", body).appendChild(fileDrop(async (file) => {
+      const lb = loadingBar("Dosya okunuyor…");
       try {
         const aoa = await parseSheetAOA(file);
         const rows = tfParseCard(aoa);
-        if (!rows.length) return toast("Kart hareketi bulunamadı.", "err");
-        st.cards.push(...rows); st.cardFiles.push({ name: file.name, n: rows.length });
-        $("#tf-c-ok").textContent = `✓ ${st.cards.length} kart hareketi`;
-        $("#tf-card-list").innerHTML = st.cardFiles.map((f) => `<div class="tf-cf">📄 ${esc(f.name)} <b>${f.n}</b></div>`).join("");
-        toast(`${rows.length} kart hareketi eklendi.`, "ok");
-        rebuild();
-      } catch (e) { toast("Okunamadı: " + e.message, "err"); }
+        if (!rows.length) { lb.finish(); return toast("Kart hareketi bulunamadı.", "err"); }
+        lb.finish(() => {
+          st.cards.push(...rows); st.cardFiles.push({ name: file.name, n: rows.length });
+          $("#tf-c-ok").textContent = `✓ ${st.cards.length} kart hareketi`;
+          $("#tf-card-list").innerHTML = st.cardFiles.map((f) => `<div class="tf-cf">📄 ${esc(f.name)} <b>${f.n}</b></div>`).join("");
+          toast(`${rows.length} kart hareketi eklendi.`, "ok"); rebuild();
+        });
+      } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
     }, ".xlsx,.xls,.csv", true));
 
     function rebuild() { if (st.hesap) buildTFinans(bank, blokeAcc, bankAcc, st); }
