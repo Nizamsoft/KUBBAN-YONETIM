@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.121";
+} from "./supabase-backend.js?v=2026.122";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.121";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.122";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -536,8 +536,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.121";
+const APP_VERSION = "2026.122";
 const CHANGELOG = [
+  { version: "2026.122", date: "2026-08-11", items: [
+    "Hesap Defteri: '+ Yeni Hareket' kaldırıldı; 'Geri' artık üstte başlığın yanında ok (←) olarak",
+  ]},
   { version: "2026.121", date: "2026-08-11", items: [
     "Hesap Defteri: '← Hesaplar' ve '+ Yeni Hareket' düğmeleri hesap kartının içine alındı",
     "Defter ekran yüksekliğine kilitlendi: üst kısım sabit, yalnız tablo içi kayar (sayfa kaymaz)",
@@ -1102,7 +1105,7 @@ const ROUTES = {
   "hesaplar":         { title: "Hesaplar", crumb: "Hesaplar", render: viewHesaplar },
   "cari-import":      { title: "Toplu Cari İçe Aktar", crumb: "Hesaplar", render: viewCariImport },
   "kasa-import":      { title: "Kasa Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewKasaImport, admin: true },
-  "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger },
+  "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger, back: "#/hesaplar" },
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
   "kar-zarar":        { title: "Kâr / Zarar Durumu", crumb: "Raporlar", render: viewKarZarar },
@@ -1183,6 +1186,11 @@ async function route() {
     g.classList.toggle("open", Array.isArray(g._paths) && g._paths.includes(navPath)));
   $("#page-title").textContent = r.title;
   $("#crumb").textContent = r.crumb;
+  const backEl = $("#page-back");
+  if (backEl) {
+    if (r.back) { backEl.style.display = ""; backEl.onclick = () => { location.hash = r.back; }; }
+    else { backEl.style.display = "none"; backEl.onclick = null; }
+  }
   const c = $("#view-container");
   try {
     await r.render(c);
@@ -3418,11 +3426,6 @@ async function viewAccountLedger(c) {
       <button class="btn btn-primary btn-sm" id="rev-next">Sonraki ↵</button>
     </div>` : "";
 
-  // Butonlar artık hesap kartının (hero) içinde
-  const heroActions = `<div class="lh-actions">
-      <a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a>
-      <button class="btn btn-sm btn-primary" id="add-entry">+ Yeni Hareket</button>
-    </div>`;
 
   // Tablo satırı üreticileri (sayfalama için ayrı)
   const cariRowHtml = ({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
@@ -3461,12 +3464,12 @@ async function viewAccountLedger(c) {
   const hero = cari
     ? `<div class="ledger-hero">
         <div class="lh-ico">${accEmoji(acc)}</div>
-        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div>${heroActions}</div>
+        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
         <div class="lh-bal"><div class="lbl">${run >= 0 ? "Borç" : "Alacak"} Bakiye</div><div class="val">${fmtTRY(Math.abs(run))}</div></div>
       </div>`
     : `<div class="ledger-hero">
         <div class="lh-ico">${accEmoji(acc)}</div>
-        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div>${heroActions}</div>
+        <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
         <div class="lh-bal"><div class="lbl">Güncel Bakiye</div><div class="val" ${run < 0 ? 'style="color:#ffd9d0"' : ""}>${fmtTRY(run)}</div></div>
       </div>`;
   const thead = cari
@@ -3598,8 +3601,6 @@ async function viewAccountLedger(c) {
     const tw = $(".ledger-table", c); if (tw) { tw.scrollTop = 0; tw.scrollIntoView({ block: "nearest" }); }
   });
   renderPage();
-
-  $("#add-entry").onclick = () => entryModal(acc, null, { nextNo, nextCariNo });
 
   // Defteri ekrana kilitle: yalnız tablo içi kayar, sayfa kaymaz (masaüstü).
   // Mobilde tablo gizli (kartlar akar) → kilit uygulanmaz.
