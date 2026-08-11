@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS,
-} from "./local-backend.js?v=2026.97";
+} from "./local-backend.js?v=2026.98";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.97";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.98";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -358,8 +358,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.97";
+const APP_VERSION = "2026.98";
 const CHANGELOG = [
+  { version: "2026.98", date: "2026-08-11", items: [
+    "Fatura: türe basınca direkt dosya seçme açılıyor (üstteki yükleme kutusu kalktı, ince çubuk + 'Başka Dosya')",
+    "Fatura önizleme tablosunda Fatura No en sağda ve tam görünüyor (kısaltma yok)",
+    "Cari eşleştirme artık tüm hesaplarda arıyor (sadece cari değil)",
+  ]},
   { version: "2026.97", date: "2026-08-11", items: [
     "Fatura önizlemesi hesap defteri gibi: PC'de satırlı tablo (Cari · Fatura No · Tarih · Durum · Borç · Alacak), mobilde kart. Kontrol vurgusu iki görünümde de çalışır",
   ]},
@@ -3146,36 +3151,50 @@ async function viewCariHareket(c) {
 
   showChooser();
 
-  // 1) Önce fatura türünü seç
+  // 1) Önce fatura türünü seç → basınca direkt dosya seçme açılır
   function showChooser() {
     c.innerHTML = `
       <div class="card">
-        <div class="ft-q">Hangi fatura türünü aktaralım?<small>Önce türü seç, sonra dosyayı yükle</small></div>
+        <div class="ft-q">Hangi fatura türünü aktaralım?<small>Türe bas → dosyayı seç → tablo</small></div>
         <div class="ft-cards">
           <button class="ft-c sat" data-kind="satis"><span class="ic">📤</span><span class="t">Satış Faturası</span></button>
           <button class="ft-c al" data-kind="alis"><span class="ic">📥</span><span class="t">Alış Faturası</span></button>
         </div>
       </div>`;
-    $$(".ft-c", c).forEach((b) => b.onclick = () => showDrop(b.dataset.kind));
+    $$(".ft-c", c).forEach((b) => b.onclick = () => pickFile(b.dataset.kind));
   }
 
-  // 2) Sonra dosya yükle
-  function showDrop(kind) {
-    const label = kind === "alis" ? "📥 Alış Faturası" : "📤 Satış Faturası";
-    c.innerHTML = `
-      <div class="card">
-        <div class="card-head"><h3>${label} · Dosya Yükle</h3><button class="btn btn-sm" id="ch-back">← Tür</button></div>
-        <div id="ch-drop"></div>
-      </div>
-      <div id="ch-editor"></div>`;
-    $("#ch-back").onclick = showChooser;
-    $("#ch-drop").appendChild(fileDrop(async (file) => {
+  // 2) Direkt dosya seçtir (drop zone yok); seçilince tabloyu göster
+  function pickFile(kind) {
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = ".xlsx,.xls,.csv"; input.style.display = "none";
+    document.body.appendChild(input);
+    input.onchange = async () => {
+      const file = input.files && input.files[0];
+      input.remove();
+      if (!file) return;
       try {
         const { headers, rows } = await parseSpreadsheet(file);
         if (!rows.length) return toast("Veri bulunamadı.", "err");
+        showEditor(kind);
         buildPreview(headers, rows, kind);
       } catch (e) { toast("Okunamadı: " + e.message, "err"); }
-    }, ".xlsx,.xls,.csv", true));
+    };
+    input.click();
+  }
+
+  function showEditor(kind) {
+    const label = kind === "alis" ? "📥 Alış Faturası" : "📤 Satış Faturası";
+    c.innerHTML = `
+      <div class="ch-bar">
+        <span class="ch-title">${label}</span>
+        <div class="grow"></div>
+        <button class="btn btn-sm" id="ch-reup">📄 Başka Dosya</button>
+        <button class="btn btn-sm" id="ch-back">← Tür</button>
+      </div>
+      <div id="ch-editor"></div>`;
+    $("#ch-back").onclick = showChooser;
+    $("#ch-reup").onclick = () => pickFile(kind);
   }
 
   async function buildPreview(headers, rows, kind) {
@@ -3235,6 +3254,8 @@ async function viewCariHareket(c) {
       return false;
     };
     const allCari = accounts.filter((a) => isCari(a.type) && a.parentId);
+    const chParentIds = new Set(accounts.map((a) => a.parentId).filter(Boolean));
+    const allLeaf = accounts.filter((a) => !chParentIds.has(a.id) && a.code);   // eşleştirmede tüm hesaplar
     const findIn = (pool, it) =>
       (it.vkn && pool.find((a) => a.vkn && String(a.vkn) === it.vkn)) ||
       pool.find((a) => nameMatch(a.name, it.ad) || (a.nameAliases || []).some((al) => nameMatch(al, it.ad))) || null;
@@ -3243,7 +3264,7 @@ async function viewCariHareket(c) {
     // Elle eşleştir: seçilen hesabı sabitle + fatura adını hesabın alias'ına ekle (kalıcı hafıza)
     async function matchCari(it) {
       openAccountPicker({
-        accounts: allCari, title: "Cari Eşleştir", query: it.ad || "",
+        accounts: allLeaf, title: "Hesap Eşleştir", query: it.ad || "",
         onPick: async (res) => {
           if (res.newName) { const acc = await createCari({ ...it, ad: res.newName }, true); it.forced = acc; toast(`Cari eklendi: ${acc.name}`, "ok"); draw(); return; }
           const acc = res.acc; if (!acc) return;
@@ -3470,11 +3491,11 @@ async function viewCariHareket(c) {
           <div class="n">${g.n}</div><div class="l">${g.w}</div>
         </div>`).join("");
 
-      // PC: defter tablosu görünümü (mobilde kartlar gizlenir)
+      // PC: defter tablosu görünümü (mobilde kartlar gizlenir) · Fatura No en sağda, tam
       const tableHtml = `<div class="pv-table"><table class="data">
         <thead><tr>
-          <th></th><th>Cari Adı</th><th>Fatura No</th><th>Tarih</th><th>Durum</th>
-          <th class="num">Borç</th><th class="num">Alacak</th><th></th>
+          <th></th><th>Cari Adı</th><th>Tarih</th><th>Durum</th>
+          <th class="num">Borç</th><th class="num">Alacak</th><th></th><th class="pv-tfno">Fatura No</th>
         </tr></thead>
         <tbody>${visIdx.map((i) => {
           const it = items[i], s = st[i], sw = stWord(s.code), a = amountsOf(it);
@@ -3484,12 +3505,12 @@ async function viewCariHareket(c) {
           return `<tr data-row="${i}" data-ask="${i}">
             <td><span class="dot ${sw.c}"></span></td>
             <td class="pv-tnm">${esc(titleCase(it.ad || "-"))}</td>
-            <td>${esc(shortNo(it.faturaNo))}</td>
             <td>${fmtDate(it.date)}</td>
             <td><span class="st ${sw.c}">${sw.w}</span>${durumTxt}</td>
             <td class="num">${a.borc ? fmtTRY(a.borc) : "—"}</td>
             <td class="num">${a.alacak ? fmtTRY(a.alacak) : "—"}</td>
             <td class="pv-tact">${act}</td>
+            <td class="pv-tfno">${esc(it.faturaNo || "—")}</td>
           </tr>`;
         }).join("") || `<tr><td colspan="8"><div class="empty" style="padding:16px">Bu süzgeçte fatura yok.</div></td></tr>`}</tbody>
       </table></div>`;

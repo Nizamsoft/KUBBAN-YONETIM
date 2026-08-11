@@ -1225,3 +1225,8 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
   .pv-table { display: none; }
   .pv-rows { display: block; }
 }
+
+/* ---- Fatura: ince üst çubuk (drop zone yerine) + Fatura No sütunu ---- */
+.ch-bar { display: flex; align-items: center; gap: 8px; padding: 10px 14px; background: var(--surface); border: 1px solid var(--line); border-radius: 13px; margin-bottom: 12px; }
+.ch-bar .ch-title { font-weight: 800; font-size: 15px; color: var(--ink); }
+.pv-table td.pv-tfno, .pv-table th.pv-tfno { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--ink-soft); font-weight: 600; }
