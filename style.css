@@ -894,6 +894,10 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 .pv-head { margin: 2px 2px 12px; }
 .pv-title { font-family: Georgia, "Times New Roman", serif; font-size: 18px; font-weight: 700; line-height: 1.15; color: var(--ink); }
 .pv-sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 3px; }
+.ka-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-top: 8px; }
+.ka-cell { background: var(--surface-2); border: 1px solid var(--line); border-radius: 13px; padding: 12px 14px; }
+.ka-cell .k { font-size: 12px; color: var(--ink-soft); margin-bottom: 4px; }
+.ka-cell .v { font-size: 17px; font-weight: 800; color: var(--ink); font-variant-numeric: tabular-nums; }
 .pv-seg { display: flex; border: 1px solid var(--line-strong); border-radius: 13px; overflow: hidden; margin-bottom: 6px; background: var(--surface); }
 .pv-seg .s { flex: 1; text-align: center; padding: 9px 4px; border-right: 1px solid var(--line); cursor: pointer; transition: background .15s; }
 .pv-seg .s:last-child { border-right: none; }
@@ -1366,6 +1370,7 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 .pa-track { width: 200px; height: 10px; border-radius: 999px; background: rgba(120,100,70,.16); overflow: hidden; }
 .pa-fill { width: 6%; height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--gold-dark), var(--gold-light)); box-shadow: 0 0 8px rgba(166,123,46,.5); }
 .pa-fill.trickle { transition: width 2.2s cubic-bezier(.15,.85,.35,1); }
+.pa-sub { font-size: 12px; color: var(--ink-faint); font-variant-numeric: tabular-nums; min-height: 15px; }
 @media (prefers-reduced-motion: reduce) {
   .pa-fill, .pa-fill.trickle, .sa-fill { transition-duration: .05s; }
 }

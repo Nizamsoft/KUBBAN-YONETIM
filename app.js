@@ -12,9 +12,9 @@ import {
   getAuth, onAuthStateChanged, signInWithEmailAndPassword,
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
-} from "./supabase-backend.js?v=2026.116";
+} from "./supabase-backend.js?v=2026.117";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.116";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.117";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -156,6 +156,31 @@ function loadingBar(label) {
       };
       const wait = Math.max(0, 350 - (Date.now() - t0));   // en az görünsün
       setTimeout(go, wait);
+    },
+  };
+}
+
+// Belirlenebilir (deterministik) ilerleme çubuğu — set(pct,msg) ile sürülür.
+// Uzun toplu işlerde (ör. 27.000 satır aktarımı) gerçek yüzde gösterir.
+function progressBar(label) {
+  const el = document.createElement("div");
+  el.className = "prog-anim";
+  el.innerHTML = `<div class="pa-box">
+    <div class="pa-label">${esc(label || "İşleniyor…")}</div>
+    <div class="pa-track"><div class="pa-fill" style="width:0%"></div></div>
+    <div class="pa-sub"></div>
+  </div>`;
+  document.body.appendChild(el);
+  const fill = $(".pa-fill", el), sub = $(".pa-sub", el);
+  fill.style.transition = "width .18s ease";
+  return {
+    set(pct, msg) {
+      fill.style.width = Math.max(0, Math.min(100, pct)) + "%";
+      if (msg != null) sub.textContent = msg;
+    },
+    done(cb) {
+      fill.style.width = "100%";
+      setTimeout(() => { el.classList.add("out"); setTimeout(() => { el.remove(); cb && cb(); }, 220); }, 220);
     },
   };
 }
@@ -510,8 +535,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.116";
+const APP_VERSION = "2026.117";
 const CHANGELOG = [
+  { version: "2026.117", date: "2026-08-11", items: [
+    "📒 Kasa Geçmişi İçe Aktar: 100 Kasa hesabının eski hareketleri Excel'den yüklenebiliyor (yönetici)",
+    "Açılış bakiyesi otomatik hesaplanıyor; yürüyen bakiye dosyadaki 'Güncel Tutar' ile doğrulanıyor",
+    "Büyük aktarımlarda gerçek yüzdeli ilerleme çubuğu (parça parça, kasmadan)",
+  ]},
   { version: "2026.116", date: "2026-08-11", items: [
     "Kullanıcı yönetimi Edge Function bağlantısı düzeltildi (fonksiyon adı eşleşmesi)",
   ]},
@@ -1053,6 +1083,7 @@ const ROUTES = {
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
   "hesaplar":         { title: "Hesaplar", crumb: "Hesaplar", render: viewHesaplar },
   "cari-import":      { title: "Toplu Cari İçe Aktar", crumb: "Hesaplar", render: viewCariImport },
+  "kasa-import":      { title: "Kasa Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewKasaImport, admin: true },
   "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger },
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
@@ -2688,6 +2719,7 @@ async function viewHesaplar(c) {
         <div class="acc-suggest" id="acc-suggest"></div>
       </div>
       <button class="btn btn-sm" id="acc-import">📥 Toplu Cari</button>
+      <button class="btn btn-sm" id="acc-kasa" style="display:none">📒 Kasa Geçmişi</button>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
     </div>
@@ -2807,6 +2839,8 @@ async function viewHesaplar(c) {
 
   $("#acc-add").onclick = openNewChooser;
   $("#acc-import").onclick = () => { location.hash = "#/cari-import"; };
+  const kasaBtn = $("#acc-kasa", c);
+  if (kasaBtn) { if (isAdmin()) kasaBtn.style.display = ""; kasaBtn.onclick = () => { location.hash = "#/kasa-import"; }; }
   // "Hesapları Düzenle" modu: düzenle/alt ekle ikonları görünür olur
   $("#edit-toggle").onclick = () => {
     const list = $(".acc-list", c);
@@ -3085,6 +3119,213 @@ async function viewCariImport(c) {
       editor.innerHTML = `<div class="notice info">✔ İçe aktarıldı: <b>${created}</b> yeni cari, <b>${updated}</b> güncelleme.
         <a href="#/hesaplar">← Hesaplara dön</a></div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
+  }
+}
+
+// ---------------------------------------------------------------------------
+//  KASA GEÇMİŞİ İÇE AKTAR — 100 Kasa hesabının eski hareketlerini (xlsx) yükler
+//  Sütunlar: No(atlanır) · Tarih · İşlem Adı · Şahıs · Açıklama · Rapor ·
+//            Giren · Çıkan · Güncel Tutar(yalnızca doğrulama).
+//  İşlem No uygulama tarafından yeniden verilir (dosya sırası = 1..N).
+//  Açılış bakiyesi = ilk satırın Güncel'i − (ilk Giren − ilk Çıkan) → böylece
+//  hesaplanan son bakiye dosyadaki son Güncel ile birebir uyar.
+//  source:"kasa-gecmis" ile işaretlenir → tekrar yüklemede öncekiler silinir.
+// ---------------------------------------------------------------------------
+const KASA_SRC = "kasa-gecmis";
+async function viewKasaImport(c) {
+  if (!isAdmin()) {
+    c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`;
+    return;
+  }
+  const accounts = await fetchAll(C.accounts).catch(() => []);
+  const kasa = accounts.find((a) => String(a.code) === "100")
+            || accounts.find((a) => a.type === "kasa" && !a.parentId)
+            || accounts.find((a) => a.type === "kasa");
+  const priorEntries = await fetchAll(C.accountEntries).catch(() => []);
+  const priorCount = kasa ? priorEntries.filter((e) => e.accountId === kasa.id && e.source === KASA_SRC).length : 0;
+
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head"><h3>📒 Kasa Geçmişi İçe Aktar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
+      ${!kasa ? `<div class="notice warn">⚠️ <b>100 Kasa</b> hesabı bulunamadı. Önce Hesaplar sayfasından oluşturun.</div>` : `
+      <div class="pv-fhint">Excel (.xlsx) yükleyin — sütunlar: <b>Tarih · İşlem Adı · Şahıs · Açıklama · Rapor · Giren · Çıkan · Güncel Tutar</b>.<br>
+        İşlem numaraları <b>uygulama tarafından</b> yeniden verilir (dosya sırası 1…N). <b>Güncel Tutar</b> yalnızca doğrulama için kullanılır.<br>
+        Hedef hesap: <b>${esc(kasa.code || "")} ${esc(kasa.name || "")}</b>.
+        ${priorCount ? `<br>⚠️ Bu hesapta daha önce içe aktarılmış <b>${priorCount.toLocaleString("tr-TR")}</b> geçmiş hareket var — yeni yükleme <b>bunların yerini alır</b>.` : ""}</div>
+      <div id="ka-drop" style="margin-top:12px"></div>`}
+    </div>
+    <div id="ka-editor"></div>`;
+  if (!kasa) return;
+
+  const pad2 = (n) => String(n).padStart(2, "0");
+  const kdate = (v) => {
+    if (v instanceof Date) return `${v.getUTCFullYear()}-${pad2(v.getUTCMonth() + 1)}-${pad2(v.getUTCDate())}`;
+    const m = String(v || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
+    if (!m) return "";
+    let y = m[3]; if (y.length === 2) y = "20" + y;
+    return `${y}-${pad2(+m[2])}-${pad2(+m[1])}`;
+  };
+
+  $("#ka-drop").appendChild(fileDrop(async (file) => {
+    const lb = loadingBar("Dosya okunuyor…");
+    try {
+      const aoa = await parseSheetAOA(file);
+      lb.finish(() => build(aoa));
+    } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
+  }, ".xlsx,.xls", true));
+
+  function build(aoa) {
+    // Başlık satırını bul: tarih + (giren/çıkan) + açıklama içeren satır
+    let hi = aoa.findIndex((r) => {
+      const j = (r || []).map(normTr).join("|");
+      return j.includes("tarih") && (j.includes("giren") || j.includes("cikan")) && j.includes("aciklama");
+    });
+    if (hi < 0) hi = aoa.findIndex((r) => (r || []).some((x) => String(x).trim() !== ""));
+    if (hi < 0) return toast("Veri bulunamadı.", "err");
+    const header = aoa[hi] || [];
+    const idxOf = (kw) => header.findIndex((h) => normTr(h).includes(kw));
+    const col = {
+      date: idxOf("tarih"), islemAdi: idxOf("islem ad"), sahis: idxOf("sahis"),
+      aciklama: idxOf("aciklama"), rapor: idxOf("rapor"),
+      giren: idxOf("giren"), cikan: idxOf("cikan"), guncel: idxOf("guncel"),
+    };
+    if (col.date < 0 || (col.giren < 0 && col.cikan < 0))
+      return toast("'Tarih' ve 'Giren/Çıkan' sütunları bulunamadı.", "err");
+
+    const get = (r, i) => (i >= 0 ? String(r[i] ?? "").trim() : "");
+    const rows = [];
+    aoa.slice(hi + 1).forEach((r) => {
+      if (!r || !r.some((x) => String(x).trim() !== "")) return;
+      const date = kdate(r[col.date]);
+      const giren = col.giren >= 0 ? parseNum(r[col.giren]) : 0;
+      const cikan = col.cikan >= 0 ? parseNum(r[col.cikan]) : 0;
+      const islemAdi = get(r, col.islemAdi), sahis = get(r, col.sahis);
+      const aciklama = get(r, col.aciklama), rapor = get(r, col.rapor);
+      // Tamamen boş / başlık tekrarı satırlarını atla
+      if (!date && !giren && !cikan && !islemAdi && !aciklama) return;
+      const gRaw = col.guncel >= 0 ? String(r[col.guncel] ?? "").trim() : "";
+      const guncel = gRaw !== "" ? parseNum(r[col.guncel]) : null;
+      rows.push({ date, islemAdi, sahis, aciklama, rapor, giren, cikan, guncel });
+    });
+    if (!rows.length) return toast("İşlenecek satır bulunamadı.", "err");
+
+    // Açılış bakiyesi: ilk satırın Güncel'inden o satırın hareketini geri al
+    const first = rows[0];
+    const opening = first.guncel != null ? (first.guncel - (first.giren - first.cikan)) : 0;
+
+    // Doğrulama: dosya sırasında yürüyen bakiye, Güncel Tutar ile örtüşmeli
+    let run = opening, mismatch = 0, firstBad = null;
+    rows.forEach((r, i) => {
+      run += r.giren - r.cikan;
+      r.run = run;
+      if (r.guncel != null && Math.abs(run - r.guncel) > 0.5) { mismatch++; if (firstBad == null) firstBad = i; }
+    });
+    const finalBal = run;
+    const last = rows[rows.length - 1];
+    const totGiren = rows.reduce((s, r) => s + r.giren, 0);
+    const totCikan = rows.reduce((s, r) => s + r.cikan, 0);
+    const noDate = rows.filter((r) => !r.date).length;
+    const ok = mismatch === 0;
+
+    const editor = $("#ka-editor");
+    editor.innerHTML = `
+      <div class="card">
+        <div class="pv-head">
+          <div class="pv-title">${rows.length.toLocaleString("tr-TR")} hareket okundu</div>
+          <div class="pv-sub">Giren ${fmtTRY(totGiren)} · Çıkan ${fmtTRY(totCikan)}${noDate ? ` · ${noDate} tarihsiz` : ""}</div>
+        </div>
+        <div class="ka-grid">
+          <div class="ka-cell"><div class="k">Açılış Bakiyesi</div><div class="v">${fmtTRY(opening)}</div></div>
+          <div class="ka-cell"><div class="k">Hesaplanan Son Bakiye</div><div class="v">${fmtTRY(finalBal)}</div></div>
+          <div class="ka-cell"><div class="k">Dosyadaki Son Güncel</div><div class="v">${last.guncel != null ? fmtTRY(last.guncel) : "—"}</div></div>
+        </div>
+        <div class="notice ${ok ? "info" : "warn"}" style="margin-top:12px">
+          ${ok
+            ? `✅ <b>Doğrulama başarılı</b> — yürüyen bakiye tüm satırlarda “Güncel Tutar” ile birebir uyuşuyor.`
+            : `⚠️ <b>${mismatch.toLocaleString("tr-TR")} satırda</b> yürüyen bakiye “Güncel Tutar” ile uyuşmuyor (ilki: ${firstBad + 1}. satır — hesaplanan ${fmtTRY(rows[firstBad].run)}, dosyada ${fmtTRY(rows[firstBad].guncel)}). Yine de aktarabilirsiniz; sıralama/eksik satır olabilir.`}
+        </div>
+        <div class="table-wrap" style="margin-top:12px"><table class="data">
+          <thead><tr>
+            <th>#</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
+            <th class="num">Giren</th><th class="num">Çıkan</th><th class="num">Bakiye</th><th class="num">Dosya Güncel</th>
+          </tr></thead>
+          <tbody>${rows.slice(0, 50).map((r, i) => {
+            const bad = r.guncel != null && Math.abs(r.run - r.guncel) > 0.5;
+            return `<tr class="${bad ? "hl-row" : ""}">
+              <td><b>${i + 1}</b></td>
+              <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--danger)">—</span>'}</td>
+              <td>${esc(r.islemAdi)}</td>
+              <td>${esc(r.sahis)}</td>
+              <td>${esc(r.aciklama)}</td>
+              <td>${esc(r.rapor)}</td>
+              <td class="num" style="color:var(--ok)">${r.giren ? fmtTRY(r.giren) : "—"}</td>
+              <td class="num" style="color:var(--danger)">${r.cikan ? fmtTRY(r.cikan) : "—"}</td>
+              <td class="num" style="font-weight:700">${fmtTRY(r.run)}</td>
+              <td class="num" style="color:${bad ? "var(--danger)" : "var(--ink-faint)"}">${r.guncel != null ? fmtTRY(r.guncel) : "—"}</td>
+            </tr>`;
+          }).join("")}</tbody>
+        </table></div>
+        ${rows.length > 50 ? `<div class="pv-fhint">İlk 50 satır gösteriliyor; hepsi (${rows.length.toLocaleString("tr-TR")}) aktarılacak.</div>` : ""}
+      </div>
+      <div class="pv-cta">
+        <div class="grow"></div>
+        <button class="btn btn-primary" id="ka-save">✓ ${rows.length.toLocaleString("tr-TR")} Hareketi İçe Aktar</button>
+      </div>`;
+
+    $("#ka-save", editor).onclick = () => {
+      confirmDialog(
+        `${rows.length.toLocaleString("tr-TR")} hareket “${kasa.code} ${kasa.name}” hesabına aktarılacak.` +
+        (priorCount ? ` Önceki ${priorCount.toLocaleString("tr-TR")} geçmiş hareket silinecek.` : "") +
+        ` Açılış bakiyesi ${fmtTRY(opening)}, son bakiye ${fmtTRY(finalBal)} olacak. Devam edilsin mi?`,
+        () => doImport(rows, opening));
+    };
+  }
+
+  async function doImport(rows, opening) {
+    const pb = progressBar("Kasa geçmişi aktarılıyor…");
+    try {
+      // 1) Açılış bakiyesini ayarla
+      pb.set(2, "Açılış bakiyesi ayarlanıyor…");
+      await updateDoc(doc(db, "accounts", kasa.id), { openingBalance: opening });
+
+      // 2) Önceki geçmiş hareketleri sil (yeniden yüklemede birikmesin)
+      const stale = priorEntries.filter((e) => e.accountId === kasa.id && e.source === KASA_SRC);
+      if (stale.length) {
+        pb.set(5, `${stale.length.toLocaleString("tr-TR")} eski kayıt siliniyor…`);
+        for (let i = 0; i < stale.length; i += 400) {
+          const b = writeBatch(db);
+          stale.slice(i, i + 400).forEach((e) => b.delete(doc(db, "accountEntries", e.id)));
+          await b.commit();
+        }
+      }
+
+      // 3) Yeni hareketleri parçalar hâlinde yaz (İşlem No = dosya sırası)
+      const now = new Date().toISOString();
+      const docs = rows.map((r, i) => ({
+        accountId: kasa.id, accountCode: String(kasa.code || "100"),
+        islemNo: i + 1, date: r.date, islemAdi: r.islemAdi, sahis: r.sahis,
+        aciklama: r.aciklama, rapor: r.rapor,
+        giren: r.giren || 0, cikan: r.cikan || 0,
+        source: KASA_SRC, createdAt: now,
+      }));
+      const total = docs.length;
+      for (let i = 0; i < total; i += 400) {
+        const b = writeBatch(db);
+        docs.slice(i, i + 400).forEach((d) => b.set(doc(C.accountEntries()), d));
+        await b.commit();
+        const done = Math.min(i + 400, total);
+        pb.set(10 + Math.round((done / total) * 88), `${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")}`);
+      }
+
+      await logAction("İçe Aktarma", "Kasa Geçmişi", `${total} hareket · açılış ${fmtTRY(opening)}`);
+      pb.done(() => {
+        successAnim(`${total.toLocaleString("tr-TR")} kasa hareketi aktarıldı`, () => {
+          location.hash = "#/hesap-detay?id=" + kasa.id;
+        });
+      });
+    } catch (e) {
+      pb.done(() => toast("Hata: " + e.message, "err"));
+    }
   }
 }
 
