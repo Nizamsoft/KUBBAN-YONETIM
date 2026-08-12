@@ -542,8 +542,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.153";
+const APP_VERSION = "2026.154";
 const CHANGELOG = [
+  { version: "2026.154", date: "2026-08-12", items: [
+    "🔗 Çift-taraflı kayıt bağlama: banka aktarımında bir işlem birden çok hesaba yazınca (POS çözüm 108+102+komisyon, transfer/T.Finans 2 taraf) tüm satırlar artık ortak bir Kayıt No + gizli bağ ile bağlı. Düzenleme penceresinde '🔗 Kayıt No X · N hesaba bağlı' görünür",
+    "Bir kaydı SİLİNCE bağlı tüm kayıtlar birlikte silinir (yarım/orphan kalmaz). TARİH değişikliği bağlı hepsine yayılır. TUTAR değişikliği yalnız 2 kayıtlı işlemde karşı tarafa aynen yansır (POS'ta 3 taraf olduğundan yansımaz)",
+    "Yalnız bundan sonraki aktarımlar bağlı; eski kayıtlar eski düzende kalır. Tek-hesaplı kayıtlar (fatura, gün sonu) zaten tekil, bağ gerekmez",
+  ]},
   { version: "2026.153", date: "2026-08-12", items: [
     "🏦 Banka Aktarımı çıpası dosya SIRALAMASINI (yön) algılıyor: T.Finans ekstresi en-yeni-üstte, Garanti en-eski-üstte. Önceden hep 'dosyada sonraki' alındığından T.Finans'ta ters tarafı (eski satırlar) işleniyordu (ör. 67.834,78 yerine olması gereken 64.624,20). Artık İşlem Tarih+Saat / Dekont No ile yön bulunup kaldığımız yerin DOĞRU (yeni) tarafı işleniyor",
   ]},
@@ -5202,14 +5207,31 @@ function entryModal(acc, entry, opts) {
       </div>`;
   }
   wireMoney(body);
+  // 🔗 Bağlı işlem bandı: aynı Kayıt No / txId'li kayıtlar (çift taraflı) — silme/tarih hepsine uygulanır
+  if (!isNew && entry?.txId) {
+    const bar = document.createElement("div");
+    bar.className = "notice info"; bar.style.marginBottom = "10px";
+    bar.innerHTML = `🔗 <b>Kayıt No ${esc(String(entry.kayitNo ?? "?"))}</b> · bağlı işlem`;
+    body.insertBefore(bar, body.firstChild);
+    fetchAll(C.accountEntries).then((all) => {
+      const n = all.filter((e) => e.txId && e.txId === entry.txId).length;
+      if (n > 1) bar.innerHTML = `🔗 <b>Kayıt No ${esc(String(entry.kayitNo ?? ""))}</b> · bu işlem <b>${n}</b> hesaba bağlı — silme ve tarih değişikliği hepsine uygulanır.`;
+    }).catch(() => {});
+  }
   const footer = [];
   if (!isNew) {
-    const del = mkBtn("🗑️ Sil", "btn-danger", () =>
-      confirmDialog("Hareket silinsin mi?", async () => {
-        await deleteDoc(doc(db, "accountEntries", entry.id));
-        await logAction("Silme", "Hesap Hareketi", `${acc.code || ""} ${acc.name || ""} · İşlem No ${entry.islemNo ?? ""}`);
-        m.close(); toast("Silindi.", "ok"); route();
-      }));
+    const del = mkBtn("🗑️ Sil", "btn-danger", async () => {
+      const all = await fetchAll(C.accountEntries).catch(() => []);
+      const linked = entry.txId ? all.filter((e) => e.txId && e.txId === entry.txId) : [entry];
+      const msg = linked.length > 1
+        ? `Bu işlem ${linked.length} hesaba bağlı — hepsi birlikte silinecek. Emin misin?`
+        : "Hareket silinsin mi?";
+      confirmDialog(msg, async () => {
+        for (const e of linked) await deleteDoc(doc(db, "accountEntries", e.id));
+        await logAction("Silme", "Hesap Hareketi", `${acc.code || ""} ${acc.name || ""} · ${linked.length} kayıt`);
+        m.close(); toast(linked.length > 1 ? `${linked.length} bağlı kayıt silindi.` : "Silindi.", "ok"); route();
+      });
+    });
     del.style.marginRight = "auto";
     footer.push(del);
     // ↪️ Başka hesaba taşı — yanlış eşleşen kaydı doğru hesaba aktar (takma ad da düzelir)
@@ -5297,6 +5319,24 @@ function entryModal(acc, entry, opts) {
       } else {
         await updateDoc(doc(db, "accountEntries", entry.id), payload);
         await logAction("Düzenleme", "Hesap Hareketi", lbl);
+        // 🔗 Bağlı kayıtlara yay: TARİH her zaman; TUTAR yalnız 2-kayıtlı işlemde (karşı tarafa aynen)
+        if (entry.txId) {
+          const all = await fetchAll(C.accountEntries).catch(() => []);
+          const linked = all.filter((e) => e.txId === entry.txId && e.id !== entry.id);
+          const dateChanged = payload.date !== entry.date;
+          const newAmt = cari ? (payload.borc || payload.alacak) : (payload.giren || payload.cikan);
+          const oldAmt = cari ? (parseNum(entry.borc) || parseNum(entry.alacak)) : (parseNum(entry.giren) || parseNum(entry.cikan));
+          const mirror = linked.length === 1 && Math.abs(newAmt - oldAmt) > 0.005;   // 2 kayıt (bu+1)
+          for (const e of linked) {
+            const p = {};
+            if (dateChanged) p.date = payload.date;
+            if (mirror) {   // karşı tarafın dolu olan tutar alanını aynı büyüklüğe çek (yön korunur)
+              if (parseNum(e.borc)) p.borc = newAmt; else if (parseNum(e.alacak)) p.alacak = newAmt;
+              else if (parseNum(e.giren)) p.giren = newAmt; else if (parseNum(e.cikan)) p.cikan = newAmt;
+            }
+            if (Object.keys(p).length) { p.updatedAt = serverTimestamp(); await updateDoc(doc(db, "accountEntries", e.id), p); }
+          }
+        }
       }
       m.close(); toast("Kaydedildi.", "ok"); route();
     } catch (e) { toast("Hata: " + e.message, "err"); }
@@ -6658,6 +6698,7 @@ async function viewBanka(c) {
       for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
       const remaining = fresh.filter((e) => !isStale(e));
       let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+      let kno = remaining.reduce((m, e) => Math.max(m, e.kayitNo || 0), 0);   // ortak Kayıt No sayacı
       const cnoMap = new Map();
       const nextCno = (id) => {
         if (!cnoMap.has(id)) cnoMap.set(id, remaining.filter((e) => e.accountId === id).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
@@ -6668,7 +6709,7 @@ async function viewBanka(c) {
       for (const a of almaRows) {
         const almaKey = `${bank.key}|alma|${a.almaDate}`;
         const acik = `${fmtDateShort(a.almaDate)} Çekim Çözüldü`;
-        const common = { date: a.almaDate, source: "banka-tf-alma", almaKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email };
+        const common = { date: a.almaDate, source: "banka-tf-alma", almaKey, banka: bank.key, txId: "tx" + uid() + uid(), kayitNo: ++kno, createdAt: serverTimestamp(), createdBy: currentUser.email };
         docs.push({ ...common, accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
           islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: acik, rapor: "", borc: 0, alacak: a.sum });
         docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
@@ -6679,6 +6720,7 @@ async function viewBanka(c) {
         const acc = r.acc, ok = `${bank.key}|coz|${r.ref || r.date + "|" + r.seq}`;
         const common = { date: r.date, rapor: r.rapor, source: "banka-diger",
           otherKey: ok, banka: bank.key, bankaAciklama: r.merchant || "", matchedCode: acc.code, matchedName: acc.name, ref: r.ref || "",
+          txId: "tx" + uid() + uid(), kayitNo: ++kno,
           createdAt: serverTimestamp(), createdBy: currentUser.email };
         // 1) Banka çıkışı (102): açıklama = mağaza
         docs.push({ ...common, accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
@@ -6779,6 +6821,7 @@ async function viewBanka(c) {
       for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
       const remaining = fresh.filter((e) => !isStale(e));
       let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+      let kno = remaining.reduce((m, e) => Math.max(m, e.kayitNo || 0), 0);   // ortak Kayıt No sayacı
       const cnoMap = new Map();
       const nextCno = (id) => {
         if (!cnoMap.has(id)) cnoMap.set(id, remaining.filter((e) => e.accountId === id).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
@@ -6790,24 +6833,25 @@ async function viewBanka(c) {
         const brut = g.net + g.kom;
         const posKey = `${bank.key}|${g.dep}|${g.cek}|${g.tip}`;
         const acik = `${fmtDateShort(g.cek)} ${g.tip} Çözüldü`;
+        const tx = "tx" + uid() + uid(), kn = ++kno;   // aynı işlemin tüm satırları bağlı
         docs.push({
           accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
           date: g.dep, islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: acik, rapor: "",
           borc: 0, alacak: brut, faturaTuru: "", faturaNo: "",
-          source: "banka-pos", posKey, banka: bank.key, dekontler: g.dekontler || [], createdAt: serverTimestamp(), createdBy: currentUser.email,
+          source: "banka-pos", posKey, banka: bank.key, dekontler: g.dekontler || [], txId: tx, kayitNo: kn, createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
         docs.push({
           accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
           date: g.dep, islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: acik, rapor: "",
           giren: brut, cikan: 0,
-          source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
+          source: "banka-pos", posKey, banka: bank.key, txId: tx, kayitNo: kn, createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
         if (g.kom > 0.005) {
           docs.push({
             accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
             date: g.dep, islemAdi: "Komisyon", sahis: "", aciklama: `${fmtDateShort(g.cek)} ${g.tip} Komisyonu`, rapor: "POS Komisyonu",
             giren: 0, cikan: g.kom,
-            source: "banka-pos-komisyon", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
+            source: "banka-pos-komisyon", posKey, banka: bank.key, txId: tx, kayitNo: kn, createdAt: serverTimestamp(), createdBy: currentUser.email,
           });
         }
       }
@@ -6819,6 +6863,7 @@ async function viewBanka(c) {
         const common = {
           date: o.dep, aciklama: disp, rapor, source: "banka-diger", otherKey: ok, banka: bank.key,
           bankaAciklama: o.desc, matchedCode: acc.code, matchedName: acc.name, dekont: o.dekont || "",
+          txId: "tx" + uid() + uid(), kayitNo: ++kno,
           createdAt: serverTimestamp(), createdBy: currentUser.email,
         };
         // 1) Banka tarafı (giren/çıkan) — açıklama = karşı taraf / özel not
