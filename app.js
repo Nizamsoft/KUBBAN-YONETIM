@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.145";
+const APP_VERSION = "2026.146";
 const CHANGELOG = [
+  { version: "2026.146", date: "2026-08-12", items: [
+    "🔴 Tarih gün kayması düzeltildi: Excel'deki gerçek tarih hücreleri UTC ile okunuyordu; Türkiye (UTC+3) saat diliminde tarihler BİR GÜN GERİ kayıyordu (10.08 → 09.08). Artık yerel bileşenlerle okunuyor — kasa, banka, cari ve fatura içe aktarımlarında doğru gün. (Not: önceden yanlış aktarılan kayıtlar için ilgili kaynağı silip yeniden yükleyin.)",
+  ]},
   { version: "2026.145", date: "2026-08-12", items: [
     "Defter en alta açılırken başa dönme hatası giderildi: yükseklik kilidi (fitLedger) iç kaydırmayı sıfırlıyordu — kaydırma artık her ölçümden sonra uygulanıyor, en altta kalıyor",
   ]},
@@ -1396,7 +1399,7 @@ async function parseSpreadsheet(file) {
   if (headerIdx < 0) return { headers: [], rows: [] };
   const pad = (n) => String(n).padStart(2, "0");
   const clean = (v) => (v instanceof Date)
-    ? `${pad(v.getUTCDate())}.${pad(v.getUTCMonth() + 1)}.${v.getUTCFullYear()}`
+    ? `${pad(v.getDate())}.${pad(v.getMonth() + 1)}.${v.getFullYear()}`
     : v;
   const headers = aoa[headerIdx].map((h, i) => String(h).trim() || `Sütun ${i + 1}`);
   const rows = aoa.slice(headerIdx + 1)
@@ -3559,7 +3562,7 @@ async function viewKasaImport(c) {
 
   const pad2 = (n) => String(n).padStart(2, "0");
   const kdate = (v) => {
-    if (v instanceof Date) return `${v.getUTCFullYear()}-${pad2(v.getUTCMonth() + 1)}-${pad2(v.getUTCDate())}`;
+    if (v instanceof Date) return `${v.getFullYear()}-${pad2(v.getMonth() + 1)}-${pad2(v.getDate())}`;
     const m = String(v || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
     if (!m) return "";
     let y = m[3]; if (y.length === 2) y = "20" + y;
@@ -3786,7 +3789,7 @@ async function viewBankaImport(c) {
 
   const pad2 = (n) => String(n).padStart(2, "0");
   const bdate = (v) => {
-    if (v instanceof Date) return `${v.getUTCFullYear()}-${pad2(v.getUTCMonth() + 1)}-${pad2(v.getUTCDate())}`;
+    if (v instanceof Date) return `${v.getFullYear()}-${pad2(v.getMonth() + 1)}-${pad2(v.getDate())}`;
     const m = String(v || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
     if (!m) return "";
     let y = m[3]; if (y.length === 2) y = "20" + y;
@@ -4071,7 +4074,7 @@ async function viewCariGecmisImport(c) {
 
   const pad2 = (n) => String(n).padStart(2, "0");
   const cdate = (v) => {
-    if (v instanceof Date) return `${v.getUTCFullYear()}-${pad2(v.getUTCMonth() + 1)}-${pad2(v.getUTCDate())}`;
+    if (v instanceof Date) return `${v.getFullYear()}-${pad2(v.getMonth() + 1)}-${pad2(v.getDate())}`;
     const m = String(v || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
     if (!m) return "";
     let y = m[3]; if (y.length === 2) y = "20" + y;
@@ -7339,10 +7342,12 @@ async function viewGuncelleme(c) {
 // ---------------------------------------------------------------------------
 function excelDateToISO(v) {
   if (!v) return "";
-  if (v instanceof Date) return v.toISOString().slice(0, 10);
-  if (typeof v === "number") { // Excel seri tarih
-    const d = new Date(Math.round((v - 25569) * 86400 * 1000));
-    return isNaN(d) ? "" : d.toISOString().slice(0, 10);
+  const p2 = (n) => String(n).padStart(2, "0");
+  // Yerel bileşenlerle oku — UTC/toISOString saat dilimi kaymasına (gün geri) yol açıyordu
+  if (v instanceof Date) return `${v.getFullYear()}-${p2(v.getMonth() + 1)}-${p2(v.getDate())}`;
+  if (typeof v === "number") { // Excel seri tarih (UTC gün ortası → gün kaymaz)
+    const d = new Date(Math.round((v - 25569) * 86400 * 1000) + 43200000);
+    return isNaN(d.getTime()) ? "" : `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}`;
   }
   const s = String(v).trim();
   const m = s.match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{2,4})/);
