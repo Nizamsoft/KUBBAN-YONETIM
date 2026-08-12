@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.151";
+const APP_VERSION = "2026.152";
 const CHANGELOG = [
+  { version: "2026.152", date: "2026-08-12", items: [
+    "Banka Aktarımı: içe aktarılacak satırlara YALNIZ bakiye çıpası karar veriyor; eski denemelerden kalan dekont yüzünden yanlışlıkla atlanan (ör. 3 Para Transferi) satırlar artık geliyor. Ekstra dekont güvenlik filtresi kaldırıldı (bakiye çıpası yeniden yüklemede de yeterli — bakiye ilerledikçe çıpa ilerler)",
+  ]},
   { version: "2026.151", date: "2026-08-12", items: [
     "🏦 Banka Aktarımı artık 'kaldığımız yeri' BAKİYE ile buluyor: dosyadaki yürüyen Bakiye'si programın güncel bakiyesine eşit satır = son işlenen hareket; YALNIZ ondan sonrası işlenir. Eski POS'lar (çekildiği güne işlenmiş, dosyada sonradan yatan) artık mükerrer olmaz. Bakiye dosyada bulunamazsa aktarım iptal edilir ('kaldığımız yer bulunamadı'). Garanti + T.Finans (banka/bloke bakiyesi)",
     "İşlenen satırların Dekont No / Referans No'su saklanır → sonraki yüklemelerde ek güvenlik (aynı dekont bir daha işlenmez)",
@@ -6098,9 +6101,9 @@ async function viewBanka(c) {
         Programın güncel Garanti bakiyesi <b>${fmtTRY(progBal)}</b>, dosyadaki <b>Bakiye</b> sütununda hiçbir satırla eşleşmedi. Kayıtlar eksik/farklı olabilir; doğru ekstreyi yükleyin.</div>`;
       return;
     }
-    // Kaldığımız yerden SONRASI + (sonraki yeniden yüklemeler için) dekont güvenliği
-    const doneDk = bkDoneDekontSet(entries);
-    const keep = (r) => r.seq > anchorSeq && !(r.dekont && doneDk.has(r.dekont));
+    // Kaldığımız yerden SONRASI (yalnız bakiye çıpası karar verir — yeniden yüklemede
+    // bakiye ilerlediği için çıpa da ilerler; ekstra dekont filtresi YOK).
+    const keep = (r) => r.seq > anchorSeq;
     const skipped = (pos.length + other.length) - (pos.filter(keep).length + other.filter(keep).length);
     pos = pos.filter(keep);
     other = other.filter(keep);
@@ -6361,8 +6364,7 @@ async function viewBanka(c) {
             $("#bk-back", b).onclick = chooseBank;
             return;
           }
-          const done = bkDoneDekontSet(entries);
-          const keep = (r) => (anchorSeq < 0 || r.seq > anchorSeq) && !(r.ref && done.has(r.ref));
+          const keep = (r) => anchorSeq < 0 || r.seq > anchorSeq;
           const before = allRows.length;
           parsed.alma = parsed.alma.filter(keep);
           parsed.cozum = parsed.cozum.filter(keep);
