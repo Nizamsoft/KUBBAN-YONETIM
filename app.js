@@ -295,19 +295,24 @@ let currentUser = null;      // { uid, email, displayName, role }
 const isAdmin = () => currentUser && currentUser.role === "admin";
 
 // Aktarım sonrası cari inceleme turu
-let reviewQueue = null;       // { ids: [...], index: 0 }
+let reviewQueue = null;       // { stops: [{accountId, faturaNo?}], index, tok, after? }
 let reviewKeyHandler = null;  // Enter dinleyicisi
 let ledgerFitHandler = null;  // defter yükseklik kilidi (resize dinleyicisi)
+// Adıma git — hash'e rev=index eklenir ki aynı hesap arka arkaya gelse bile yeniden çizilsin
+function gotoReviewStop() {
+  const s = reviewQueue.stops[reviewQueue.index];
+  location.hash = `#/hesap-detay?id=${s.accountId}&rev=${reviewQueue.index}`;
+}
 function advanceReview() {
   if (!reviewQueue) return;
   reviewQueue.index++;
-  if (reviewQueue.index >= reviewQueue.ids.length) {
+  if (reviewQueue.index >= reviewQueue.stops.length) {
     const after = reviewQueue.after;
     reviewQueue = null;
-    toast("Tüm hesaplar incelendi. ✔", "ok");
+    toast("Tüm kayıtlar incelendi. ✔", "ok");
     if (after) after(); else location.hash = "#/hesaplar";
   } else {
-    location.hash = "#/hesap-detay?id=" + reviewQueue.ids[reviewQueue.index];
+    gotoReviewStop();
   }
 }
 function finishReview() {   // "Bitir": incelemeyi bırak, varsa son adıma (bloke kontrolü) geç
@@ -537,8 +542,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.142";
+const APP_VERSION = "2026.143";
 const CHANGELOG = [
+  { version: "2026.143", date: "2026-08-12", items: [
+    "📋 Tüm Kayıtlar: her satırda işlem saati (kayıt zamanı); kutuları işaretleyip 'Seçilenleri Sil' (Shift+tık ile aralık) — belirli kayıtları tek tek silebilirsin",
+    "🧾 Fatura Aktarımı incelemesi artık FATURA BAŞINA ayrı adım: 8 fatura → 8 adım. Her adımda o fatura vurgulanır ve '↪️ Taşı / Düzelt' ile yanlış eşleşeni oracıkta doğru hesaba taşırsın",
+    "Bir hesaba girince defter EN ALTTAN (son işlemler) başlar — sadece incelemede değil, her açılışta",
+  ]},
   { version: "2026.142", date: "2026-08-12", items: [
     "📋 Tüm Kayıtlar (Hesaplar → 📋 Tüm Kayıtlar, yönetici): tüm hareketler tek listede — kaynak/tarih/metin filtresi, CSV indir (incelemek için paylaş) ve kaynağa/filtreye göre TOPLU SİL (yanlış aktarımı tek tıkla geri al). Satıra dokun → düzenle / taşı / sil",
     "↪️ Hareket düzenlemede 'Başka Hesaba Taşı': yanlış eşleşen kaydı doğru hesaba taşır; o adın yanlış hesaptaki takma adını temizleyip doğru hesaba ekler (bir daha yanlış eşleşmez)",
@@ -4414,11 +4424,14 @@ async function viewTumKayitlar(c) {
     if (parseNum(e.cikan)) p.push(`<span style="color:var(--danger)">−${fmtTRY(parseNum(e.cikan))}</span>`);
     return p.join(" · ") || "—";
   };
+  // İşlem saati (kayıt zamanı) — createdAt ISO'dan HH:MM
+  const fmtT = (iso) => { const d = iso ? new Date(iso) : null; return (d && !isNaN(d.getTime())) ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : ""; };
+  const selected = new Set();
 
   c.innerHTML = `
     <div class="card">
       <div class="card-head"><h3>📋 Tüm Kayıtlar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
-      <div class="pv-fhint">Tüm hareketler tek listede. Filtreleyip <b>CSV indir</b> (incelemek için paylaş) veya <b>kaynağa göre toplu sil</b> (yanlış aktarımı geri al). Bir satıra dokunarak düzenle / başka hesaba taşı / sil.</div>
+      <div class="pv-fhint">Tüm hareketler tek listede (işlem saatiyle). Filtreleyip <b>CSV indir</b> (incelemek için paylaş), <b>kaynağa göre toplu sil</b> ya da kutuları işaretleyip <b>seçilenleri sil</b> (Shift+tık ile aralık seç). Satıra dokun → düzenle / taşı / sil.</div>
       <div class="tbl-tools" style="margin-top:10px">
         <input class="tbl-search tk-q" type="search" placeholder="🔍 Ara — hesap, şahıs, açıklama, fatura no…" autocomplete="off" />
         <select class="tk-src" style="min-width:150px">
@@ -4435,6 +4448,7 @@ async function viewTumKayitlar(c) {
         <div class="tk-count" style="font-weight:700"></div>
         <div class="grow"></div>
         <button class="btn btn-sm tk-csv">⬇️ CSV indir</button>
+        <button class="btn btn-sm btn-danger tk-del-sel" style="display:none">🗑️ Seçilenleri Sil (<span class="tk-seln">0</span>)</button>
         <button class="btn btn-sm btn-danger tk-del">🗑️ Filtrelenenleri Sil</button>
         <div class="pager pager-mini">
           <button class="btn btn-sm" data-pg="prev" aria-label="Önceki">‹</button>
@@ -4444,7 +4458,8 @@ async function viewTumKayitlar(c) {
       </div>
       <div class="table-wrap" style="overflow-x:auto"><table class="data">
         <thead><tr>
-          <th>Kaynak</th><th>Hesap</th><th>Tarih</th><th>Şahıs / İşlem</th><th>Açıklama</th>
+          <th style="width:32px"><input type="checkbox" class="tk-all" title="Görünenleri seç" /></th>
+          <th>Kaynak</th><th>Hesap</th><th>Tarih</th><th>Saat</th><th>Şahıs / İşlem</th><th>Açıklama</th>
           <th class="num">Tutar</th><th>Fatura No</th><th></th>
         </tr></thead>
         <tbody class="tk-body"></tbody>
@@ -4461,15 +4476,17 @@ async function viewTumKayitlar(c) {
     page = Math.max(0, Math.min(tp() - 1, page));
     const slice = view.slice(page * PAGE, page * PAGE + PAGE);
     bodyEl.innerHTML = slice.length ? slice.map((r) => `<tr data-id="${r.e.id}" style="cursor:pointer">
+        <td><input type="checkbox" class="tk-ck" data-id="${r.e.id}" ${selected.has(r.e.id) ? "checked" : ""} /></td>
         <td><span class="tag ${r.src ? "" : "warn"}" style="font-size:10px">${esc(r.srcL)}</span></td>
         <td>${esc(r.code)} ${esc(r.name)}</td>
         <td>${r.e.date ? fmtDate(r.e.date) : "—"}</td>
+        <td style="white-space:nowrap;color:var(--ink-soft)">${fmtT(r.e.createdAt)}</td>
         <td>${esc(r.e.sahis || r.e.islemAdi || "")}</td>
         <td class="tdwrap">${esc(r.e.aciklama || "")}${r.e.rapor ? ` · <span style="color:var(--ink-faint)">${esc(r.e.rapor)}</span>` : ""}</td>
         <td class="num">${amtTxt(r.e)}</td>
         <td>${esc(r.e.faturaNo || "")}</td>
         <td style="text-align:right"><button class="btn btn-sm" data-edit="${r.e.id}">Düzenle</button></td>
-      </tr>`).join("") : `<tr><td colspan="8"><div class="empty" style="padding:20px">Kayıt yok.</div></td></tr>`;
+      </tr>`).join("") : `<tr><td colspan="10"><div class="empty" style="padding:20px">Kayıt yok.</div></td></tr>`;
     countEl.textContent = `${view.length.toLocaleString("tr-TR")} kayıt${view.length !== all.length ? ` (toplam ${all.length.toLocaleString("tr-TR")})` : ""}`;
     $$(".pg-info", c).forEach((el) => el.textContent = `${page + 1}/${tp()}`);
     $$("[data-pg]", c).forEach((b) => b.disabled = b.dataset.pg === "prev" ? page === 0 : page === tp() - 1);
@@ -4479,7 +4496,26 @@ async function viewTumKayitlar(c) {
       else toast("Bu kaydın hesabı bulunamadı (taşı/düzenle için hesap gerekir).", "err");
     };
     $$("[data-edit]", c).forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); openEdit(b.dataset.edit); });
-    $$("tr[data-id]", bodyEl).forEach((tr) => tr.onclick = () => openEdit(tr.dataset.id));
+    $$("tr[data-id]", bodyEl).forEach((tr) => tr.onclick = (ev) => { if (ev.target.closest(".tk-ck")) return; openEdit(tr.dataset.id); });
+    // Seçim kutuları — Shift+tık ile aralık seç
+    const cks = $$(".tk-ck", bodyEl);
+    cks.forEach((ck, i) => ck.onclick = (ev) => {
+      ev.stopPropagation();
+      if (ev.shiftKey && render._last >= 0) {
+        const a = Math.min(render._last, i), b = Math.max(render._last, i);
+        for (let k = a; k <= b; k++) { cks[k].checked = ck.checked; if (ck.checked) selected.add(cks[k].dataset.id); else selected.delete(cks[k].dataset.id); }
+      } else { if (ck.checked) selected.add(ck.dataset.id); else selected.delete(ck.dataset.id); }
+      render._last = i; refreshSel();
+    });
+    refreshSel();
+  }
+  function refreshSel() {
+    const n = selected.size;
+    const btn = $(".tk-del-sel", c), lbl = $(".tk-seln", c), allCk = $(".tk-all", c);
+    if (lbl) lbl.textContent = n.toLocaleString("tr-TR");
+    if (btn) btn.style.display = n ? "" : "none";
+    const cks = $$(".tk-ck", bodyEl);
+    if (allCk) allCk.checked = cks.length > 0 && cks.every((x) => x.checked);
   }
   function applyFilter() {
     const q = normTr(qEl.value.trim()), s = srcEl.value, f = fromEl.value, t = toEl.value;
@@ -4534,6 +4570,33 @@ async function viewTumKayitlar(c) {
     });
   };
 
+  // Görünenleri (filtrelenen tüm sayfaları) toplu seç/kaldır
+  $(".tk-all", c).onclick = (ev) => {
+    const on = ev.target.checked;
+    view.forEach((r) => { if (on) selected.add(r.e.id); else selected.delete(r.e.id); });
+    render();
+  };
+
+  // Seçilenleri sil
+  $(".tk-del-sel", c).onclick = () => {
+    if (!selected.size) return;
+    confirmDialog(`${selected.size.toLocaleString("tr-TR")} SEÇİLİ kayıt silinecek. Geri alınamaz. Emin misin?`, async () => {
+      const pb = progressBar("Siliniyor…");
+      try {
+        const ids = [...selected];
+        for (let i = 0; i < ids.length; i += 400) {
+          const bt = writeBatch(db);
+          ids.slice(i, i + 400).forEach((id) => bt.delete(doc(db, "accountEntries", id)));
+          await bt.commit();
+          pb.set(Math.round(((i + 400) / ids.length) * 100), `${Math.min(i + 400, ids.length)} / ${ids.length}`);
+        }
+        await logAction("Silme", "Tüm Kayıtlar", `${ids.length} seçili kayıt`);
+        pb.done(() => { toast(`${ids.length.toLocaleString("tr-TR")} kayıt silindi.`, "ok"); route(); });
+      } catch (e) { pb.done(() => toast("Hata: " + e.message, "err")); }
+    });
+  };
+
+  render._last = -1;
   render();
 }
 
@@ -4596,12 +4659,20 @@ async function viewAccountLedger(c) {
       </div>
     </button>`;
 
-  // Aktarım sonrası inceleme turu bandı (bu hesap sıradaysa)
-  const inReview = reviewQueue && reviewQueue.ids[reviewQueue.index] === acc.id;
+  // Aktarım sonrası inceleme turu bandı (bu hesap/fatura sıradaysa)
+  const stop = reviewQueue ? reviewQueue.stops[reviewQueue.index] : null;
+  const inReview = stop && stop.accountId === acc.id;
+  // Fatura başına inceleme: bu adımın faturasını (kaydını) bul → odakla + hızlı "Taşı"
+  const focusE = (inReview && stop.faturaNo)
+    ? (list.find((e) => String(e.faturaNo || "") === String(stop.faturaNo) && (!reviewQueue.tok || e.impTok === reviewQueue.tok))
+        || list.find((e) => String(e.faturaNo || "") === String(stop.faturaNo)))
+    : null;
   const reviewBar = inReview ? `
     <div class="notice info" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-      <span><b>${esc(acc.name || "")}</b> cari hesabına bakıldı. Bir sonrakine bakılsın mı?
-        <span style="color:var(--ink-faint)">(${reviewQueue.index + 1}/${reviewQueue.ids.length})</span></span>
+      ${focusE
+        ? `<span>Fatura <b>${reviewQueue.index + 1}/${reviewQueue.stops.length}</b> · <b>${esc(focusE.faturaNo || "")}</b> · ${esc(focusE.sahis || acc.name || "")} · ${fmtTRY(parseNum(focusE.borc) || parseNum(focusE.alacak))} — <b>${esc(acc.code || "")} ${esc(acc.name || "")}</b> hesabında. Doğru mu?</span>
+           <button class="btn btn-sm" id="rev-move">↪️ Taşı / Düzelt</button>`
+        : `<span><b>${esc(acc.name || "")}</b> hesabına bakıldı. Bir sonrakine bakılsın mı? <span style="color:var(--ink-faint)">(${reviewQueue.index + 1}/${reviewQueue.stops.length})</span></span>`}
       <div class="grow"></div>
       <button class="btn btn-sm" id="rev-finish">Bitir</button>
       <button class="btn btn-primary btn-sm" id="rev-next">Sonraki ↵</button>
@@ -4786,18 +4857,25 @@ async function viewAccountLedger(c) {
   ledgerFitHandler = fitLedger;
   window.addEventListener("resize", fitLedger);
 
-  // İnceleme/aktarım sonrası: defter EN ALTA (son işlemler) kaydırılmış açılır
-  if (hlTok) requestAnimationFrame(() => {
+  // Her hesap açılışında defter EN ALTA (son işlemler) kaydırılmış başlar.
+  // İnceleme adımında o faturaya odaklanılır (varsa onu görünür yap + vurgula).
+  requestAnimationFrame(() => {
+    if (focusE) {
+      const el = $(`[data-edit="${focusE.id}"]`, c)?.closest("tr, .tx-card");
+      if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.style.outline = "2px solid var(--gold)"; el.style.outlineOffset = "-2px"; return; }
+    }
     const tw = $(".ledger-table", c);
     if (tw && getComputedStyle(tw).display !== "none") { tw.scrollTop = tw.scrollHeight; return; }
     const cards = $$(".tx-card", c); const last = cards[cards.length - 1];
     if (last) last.scrollIntoView({ block: "end", behavior: "smooth" });
   });
 
-  // İnceleme turu: Sonraki / Bitir + Enter kısayolu
+  // İnceleme turu: Sonraki / Bitir / Taşı + Enter kısayolu
   if (inReview) {
     $("#rev-next").onclick = advanceReview;
     $("#rev-finish").onclick = finishReview;
+    const rm = $("#rev-move", c);
+    if (rm && focusE) rm.onclick = () => entryModal(acc, focusE, {});
     reviewKeyHandler = (e) => {
       if (e.key !== "Enter") return;
       if ($("#modal-root").children.length) return;               // pencere açıksa karışma
@@ -5428,7 +5506,13 @@ async function viewCariHareket(c) {
           body.innerHTML = `<div class="inv-sum">${sumHtml}<div class="inv-note">${docs.length} ${faturaTuru} işlendi · ${affected.length} cari${sDup ? ` · ${sDup} zaten vardı` : ""}</div></div>`;
           const m = openModal({ title: "✅ İşlem Özeti", body, footer: [
             mkBtn("Kapat", "", () => m.close()),
-            mkBtn("Carileri İncele →", "btn-primary", () => { m.close(); reviewQueue = { ids: affected, index: 0, tok: impTok }; location.hash = "#/hesap-detay?id=" + affected[0]; }),
+            mkBtn("Faturaları İncele →", "btn-primary", () => {
+              m.close();
+              // Her fatura ayrı adım — 8 fatura → 8 adım (yanlış eşleşeni oracıkta taşırsın)
+              const stops = docs.map((d) => ({ accountId: d.accountId, faturaNo: d.faturaNo }));
+              reviewQueue = { stops, index: 0, tok: impTok };
+              gotoReviewStop();
+            }),
           ]});
         });
       } catch (e) { toast("Hata: " + e.message, "err"); sendBtn.disabled = false; }
@@ -5611,8 +5695,8 @@ async function viewBanka(c) {
   }
   function afterBankImport(affected, tok, ctrl) {
     if (affected && affected.length) {
-      reviewQueue = { ids: affected, index: 0, tok, after: () => showBloke(ctrl) };
-      location.hash = "#/hesap-detay?id=" + affected[0];
+      reviewQueue = { stops: affected.map((id) => ({ accountId: id })), index: 0, tok, after: () => showBloke(ctrl) };
+      gotoReviewStop();
     } else {
       showBloke(ctrl);
     }
