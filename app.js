@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.134";
+} from "./supabase-backend.js?v=2026.135";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.134";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.135";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.134";
+const APP_VERSION = "2026.135";
 const CHANGELOG = [
+  { version: "2026.135", date: "2026-08-11", items: [
+    "Cari Geçmişi: eşleşmeyen şahıslar artık ATLANMIYOR — 'Eşleşmeyenleri otomatik cari aç' ile (seçtiğin grup altında, açılış 0) yeni cari oluşturulup hareketleri ekleniyor. Böylece hareketi olup programda olmayan cari kalmıyor",
+  ]},
   { version: "2026.134", date: "2026-08-11", items: [
     "Cari Geçmişi: eşleşme havuzu artık TÜM alt hesapları kapsıyor (108 bloke, 336, 128 dahil) — sadece 120/320 değil; böylece bloke/tedarikçi şahısları da eşleşir",
   ]},
@@ -3888,7 +3891,7 @@ async function viewCariGecmisImport(c) {
 
     const get = (r, i) => (i >= 0 ? String(r[i] ?? "").trim() : "");
     const byAcc = new Map();       // accountId → { acc, rows:[] }
-    const unmatched = new Map();   // normTr(ad) → { name, count }
+    const unmatched = new Map();   // normTr(ad) → { name, rows:[] }  (programda olmayan cariler)
     let total = 0;
     aoa.slice(hi + 1).forEach((r) => {
       if (!r || !r.some((x) => String(x).trim() !== "")) return;
@@ -3906,8 +3909,8 @@ async function viewCariGecmisImport(c) {
       };
       if (!acc) {
         const k = normTr(sahis);
-        const u = unmatched.get(k) || { name: sahis, count: 0 };
-        u.count++; unmatched.set(k, u);
+        const u = unmatched.get(k) || { name: sahis, rows: [] };
+        u.rows.push(row); unmatched.set(k, u);
         return;
       }
       if (!byAcc.has(acc.id)) byAcc.set(acc.id, { acc, rows: [] });
@@ -3915,20 +3918,29 @@ async function viewCariGecmisImport(c) {
     });
 
     const matchedRows = [...byAcc.values()].reduce((s, x) => s + x.rows.length, 0);
-    const unmatchedRows = [...unmatched.values()].reduce((s, x) => s + x.count, 0);
-    if (!matchedRows) return toast("Hiçbir satır mevcut cari hesaplarla eşleşmedi (Şahıs adları tutmuyor).", "err");
+    const unmatchedRows = [...unmatched.values()].reduce((s, x) => s + x.rows.length, 0);
+    if (!matchedRows && !unmatchedRows) return toast("Hiçbir hareket okunamadı (Şahıs/Borç/Alacak sütunları boş).", "err");
 
     // Önizleme için ilk 60 eşleşen satır (dosya sırasında)
     const preview = [];
     for (const { acc, rows } of byAcc.values()) for (const r of rows) { preview.push({ acc, r }); if (preview.length >= 60) break; }
 
     const editor = $("#cg-editor");
-    const unmatchedList = [...unmatched.values()].sort((a, b) => b.count - a.count);
+    const unmatchedList = [...unmatched.values()].sort((a, b) => b.rows.length - a.rows.length);
+    const mainAccts = accounts.filter((a) => !a.parentId && a.code)
+      .sort((x, y) => String(x.code).localeCompare(String(y.code), "tr"));
+    const defGroup = mainAccts.find((a) => String(a.code) === "320")
+      || mainAccts.find((a) => isCari(a.type)) || mainAccts[0];
     editor.innerHTML = `
       <div class="card">
         <div class="pv-head"><div class="pv-title">${total.toLocaleString("tr-TR")} hareket okundu</div>
           <div class="pv-sub">${byAcc.size.toLocaleString("tr-TR")} cari hesaba eşleşti · ${matchedRows.toLocaleString("tr-TR")} hareket aktarılacak</div></div>
-        ${unmatchedRows ? `<div class="notice warn" style="margin-bottom:10px">⚠️ <b>${unmatchedList.length}</b> şahıs eşleşmedi (${unmatchedRows.toLocaleString("tr-TR")} satır atlanacak): ${esc(unmatchedList.slice(0, 8).map((u) => u.name + " (" + u.count + ")").join(", "))}${unmatchedList.length > 8 ? "…" : ""}</div>` : `<div class="notice info" style="margin-bottom:10px">✅ Tüm şahıslar mevcut cari hesaplarla eşleşti.</div>`}
+        ${unmatchedRows ? `<div class="notice warn" style="margin-bottom:10px">⚠️ <b>${unmatchedList.length}</b> şahıs programda yok (${unmatchedRows.toLocaleString("tr-TR")} satır): ${esc(unmatchedList.slice(0, 8).map((u) => u.name + " (" + u.rows.length + ")").join(", "))}${unmatchedList.length > 8 ? "…" : ""}
+          <div style="margin-top:9px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="cg-autocreate" checked style="width:16px;height:16px;accent-color:var(--gold)"> <b>Eşleşmeyenleri otomatik cari aç</b> (hiç satır atlanmasın)</label>
+            <span style="color:var(--ink-soft)">Grup:</span>
+            <select id="cg-autogroup">${mainAccts.map((a) => `<option value="${a.id}" ${a === defGroup ? "selected" : ""}>${esc(a.code)} ${esc(a.name)}</option>`).join("")}</select>
+          </div></div>` : `<div class="notice info" style="margin-bottom:10px">✅ Tüm şahıslar mevcut hesaplarla eşleşti.</div>`}
         <div class="table-wrap"><table class="data">
           <thead><tr>
             <th>Cari Hesap</th><th>Cari No</th><th>Tarih</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
@@ -3944,24 +3956,63 @@ async function viewCariGecmisImport(c) {
             <td>${esc(r.faturaTuru)}</td><td>${esc(r.faturaNo)}</td>
           </tr>`).join("")}</tbody>
         </table></div>
-        ${matchedRows > 60 ? `<div class="pv-fhint">İlk 60 satır gösteriliyor; eşleşen ${matchedRows.toLocaleString("tr-TR")} satır aktarılacak.</div>` : ""}
+        ${matchedRows > 60 ? `<div class="pv-fhint">İlk 60 satır gösteriliyor; hepsi aktarılacak.</div>` : ""}
       </div>
       <div class="pv-cta"><div class="grow"></div>
-        <button class="btn btn-primary" id="cg-save">✓ ${matchedRows.toLocaleString("tr-TR")} Hareketi İçe Aktar</button></div>`;
+        <button class="btn btn-primary" id="cg-save">✓ Hareketleri İçe Aktar</button></div>`;
 
-    $("#cg-save", editor).onclick = () => {
+    const autoOn = () => !!$("#cg-autocreate", editor)?.checked;
+    const saveBtn = $("#cg-save", editor);
+    const refreshBtn = () => {
+      const n = matchedRows + (autoOn() ? unmatchedRows : 0);
+      saveBtn.textContent = `✓ ${n.toLocaleString("tr-TR")} Hareketi İçe Aktar`;
+    };
+    refreshBtn();
+    const acEl = $("#cg-autocreate", editor);
+    if (acEl) acEl.addEventListener("change", refreshBtn);
+
+    saveBtn.onclick = () => {
+      const autocreate = autoOn();
+      const groupId = $("#cg-autogroup", editor)?.value || null;
+      const willRows = matchedRows + (autocreate ? unmatchedRows : 0);
+      const grp = mainAccts.find((a) => a.id === groupId);
       confirmDialog(
-        `${matchedRows.toLocaleString("tr-TR")} hareket, ${byAcc.size.toLocaleString("tr-TR")} cari hesaba aktarılacak (açılış 0).` +
-        (unmatchedRows ? ` ${unmatchedRows.toLocaleString("tr-TR")} eşleşmeyen satır atlanacak.` : "") +
+        `${willRows.toLocaleString("tr-TR")} hareket aktarılacak (açılış 0).` +
+        (unmatchedRows
+          ? (autocreate
+              ? ` ${unmatchedList.length} yeni cari otomatik açılacak (${grp ? esc(grp.code + " " + grp.name) : "grup"} altında).`
+              : ` ${unmatchedRows.toLocaleString("tr-TR")} eşleşmeyen satır ATLANACAK.`)
+          : "") +
         (priorCount ? ` Önceki ${priorCount.toLocaleString("tr-TR")} cari geçmişi silinecek.` : "") +
         ` Devam edilsin mi?`,
-        () => doImport(byAcc));
+        () => doImport(byAcc, unmatched, autocreate, groupId));
     };
   }
 
-  async function doImport(byAcc) {
+  async function doImport(byAcc, unmatched, autocreate, groupId) {
     const pb = progressBar("Cari geçmişi aktarılıyor…");
     try {
+      // 0) Eşleşmeyen şahıslar için otomatik cari aç (programda olmayan cari kalmasın)
+      let createdAccts = 0;
+      if (autocreate && unmatched && unmatched.size) {
+        const parent = accounts.find((a) => a.id === groupId && !a.parentId)
+          || accounts.find((a) => String(a.code) === "320" && !a.parentId);
+        if (parent) {
+          pb.set(2, `${unmatched.size} yeni cari açılıyor…`);
+          let cnt = accounts.filter((a) => a.parentCode === parent.code)
+            .reduce((m, a) => { const n = parseInt(String(a.code || "").split(".")[1], 10); return isNaN(n) ? m : Math.max(m, n); }, 0);
+          for (const u of unmatched.values()) {
+            cnt++;
+            const code = `${parent.code}.${String(cnt).padStart(2, "0")}`;
+            const payload = { code, name: titleCase(u.name), type: parent.type, parentId: parent.id, parentCode: parent.code, vkn: "", extNo: "", openingBalance: 0, createdAt: serverTimestamp() };
+            const ref = await addDoc(C.accounts(), payload);
+            const acc = { id: ref.id, ...payload };
+            accounts.push(acc);
+            byAcc.set(acc.id, { acc, rows: u.rows });
+            createdAccts++;
+          }
+        }
+      }
       // 1) Önceki cari-gecmis kayıtlarını sil (hepsi — tam yenileme)
       const stale = priorEntries.filter((e) => e.source === CARI_SRC);
       if (stale.length) {
@@ -3996,9 +4047,9 @@ async function viewCariGecmisImport(c) {
         pb.set(8 + Math.round((done / total) * 90), `${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")}`);
       }
 
-      await logAction("İçe Aktarma", "Cari Geçmişi", `${total} hareket · ${byAcc.size} cari`);
+      await logAction("İçe Aktarma", "Cari Geçmişi", `${total} hareket · ${byAcc.size} cari${createdAccts ? ` · ${createdAccts} yeni cari` : ""}`);
       pb.done(() => {
-        successAnim(`${total.toLocaleString("tr-TR")} cari hareketi aktarıldı`, () => {
+        successAnim(`${total.toLocaleString("tr-TR")} hareket aktarıldı${createdAccts ? ` · ${createdAccts} yeni cari açıldı` : ""}`, () => {
           location.hash = "#/hesaplar";
         });
       });
