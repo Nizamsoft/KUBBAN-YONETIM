@@ -552,8 +552,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.164";
+const APP_VERSION = "2026.165";
 const CHANGELOG = [
+  { version: "2026.165", date: "2026-08-12", items: [
+    "⚡ Hesaplar ekranı çok daha hızlı açılıyor: 3600+ hesabın tamamını baştan çizmek yerine yalnız ana başlıklar çizilir; bir grubun alt hesapları ancak o grubu AÇINCA (bir kez) üretilir. Düzenle/alt ekle, arama ve düzenleme modu aynen çalışır",
+  ]},
   { version: "2026.164", date: "2026-08-12", items: [
     "⚡ Akıcılık: giriş sonrası ağır veriler (hesaplar, hareketler, gün sonu…) arka planda önceden yüklenir → sonraki ekran geçişleri anında açılır",
     "⚡ Tüm Kayıtlar artık açılırken donmadan gelir (100k+ kaydın arama dizini tembel kurulur; yalnız arayınca hesaplanır)",
@@ -3577,8 +3580,9 @@ async function viewHesaplar(c) {
       </span>
     </div>`;
   };
-  const renderMain = (a) =>
-    rowHtml(a, false) + (kids.get(a.id) || []).map((s) => rowHtml(s, true)).join("");
+  // Alt hesaplar TEMBEL: yalnız ana satır basılır; grup açılınca alt satırlar üretilir
+  // (3600+ satırı baştan DOM'a basmak yerine → ilk çizim çok hızlı).
+  const renderMain = (a) => rowHtml(a, false);
 
   const subCount = accounts.length - roots.length;
   c.innerHTML = `
@@ -3616,7 +3620,30 @@ async function viewHesaplar(c) {
       <div class="acc-list">${roots.map(renderMain).join("")}</div>
     </div>`;
 
+  // Bir alt satırın olaylarını bağla (tıkla → defter; ✎ → düzenle)
+  const bindSubRow = (row) => {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      location.hash = "#/hesap-detay?id=" + row.dataset.id;
+    });
+    const eb = row.querySelector("[data-edit]");
+    if (eb) eb.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const a = byId.get(eb.dataset.edit);
+      accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [] });
+    });
+  };
+  // Grup ilk açıldığında alt satırları üret (bir kez)
+  const injectSubs = (id) => {
+    const main = $(`.acc-row.parent[data-id="${id}"]`, c);
+    if (!main || main.dataset.injected === "1") return;
+    const html = (kids.get(id) || []).map((s) => rowHtml(s, true)).join("");
+    if (html) main.insertAdjacentHTML("afterend", html);
+    main.dataset.injected = "1";
+    $$(`.acc-row.sub[data-parent="${id}"]`, c).forEach(bindSubRow);
+  };
   const setOpen = (id, open) => {
+    if (open) injectSubs(id);
     $$(`.acc-row.sub[data-parent="${id}"]`, c).forEach((r) => r.style.display = open ? "flex" : "none");
     const main = $(`.acc-row.parent[data-id="${id}"]`, c);
     if (main) {
@@ -3633,7 +3660,7 @@ async function viewHesaplar(c) {
       setOpen(row.dataset.id, row.dataset.open !== "1");
     });
   });
-  $$(".acc-row.leaf, .acc-row.sub", c).forEach((row) => {
+  $$(".acc-row.leaf", c).forEach((row) => {
     row.addEventListener("click", (e) => {
       if (e.target.closest("button")) return;
       location.hash = "#/hesap-detay?id=" + row.dataset.id;
