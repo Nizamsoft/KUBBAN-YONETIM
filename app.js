@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.135";
+} from "./supabase-backend.js?v=2026.136";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.135";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.136";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.135";
+const APP_VERSION = "2026.136";
 const CHANGELOG = [
+  { version: "2026.136", date: "2026-08-11", items: [
+    "Toplu Cari: Hesap Türü BOŞ cariler artık atlanmıyor — '321 Tanımlanmamış Cariler' altında (açılış 0) açılıyor; grup seçilebilir, sonra değiştirilebilir",
+    "Toplu Cari: 3600+ hesap toplu (writeBatch) yazılıyor — çok daha hızlı",
+    "Doğrulama (veri kaybı kontrolü): içe aktarma sonrası yazılan kayıt sayısı ve tüm cari isimleri DB'den doğrulanıyor — eksik varsa uyarı; hem Toplu Cari hem Cari Geçmişi",
+  ]},
   { version: "2026.135", date: "2026-08-11", items: [
     "Cari Geçmişi: eşleşmeyen şahıslar artık ATLANMIYOR — 'Eşleşmeyenleri otomatik cari aç' ile (seçtiğin grup altında, açılış 0) yeni cari oluşturulup hareketleri ekleniyor. Böylece hareketi olup programda olmayan cari kalmıyor",
   ]},
@@ -3232,6 +3237,7 @@ const FATURA_TURU = ["", "Satış Faturası", "Alış Faturası", "İade Faturas
 // Dosya bakiyesi tek biçimli: (+) = Alacak, (−) = Borç → açılış = −bakiye (tüm türler).
 const CI_TUR = {
   "320": { code: "320", name: "Tedarikçiler", type: "tedarikci", sign: -1 },
+  "321": { code: "321", name: "Tanımlanmamış Cariler", type: "tedarikci", sign: -1 },
   "335": { code: "335", name: "Personele Borçlar", type: "tedarikci", sign: -1 },
   "336": { code: "336", name: "Diğer Çeşitli Borçlar", type: "tedarikci", sign: -1 },
   "120": { code: "120", name: "Alıcılar (Müşteriler)", type: "musteri", sign: -1 },
@@ -3264,7 +3270,7 @@ async function viewCariImport(c) {
     <div class="card">
       <div class="card-head"><h3>📥 Toplu Cari İçe Aktar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
       <div class="pv-fhint">Excel/CSV yükle — sütunlar: <b>Cari No · Cari Adı · Hesap Türü</b> (Bakiye alınmaz).<br>
-        <b>Tüm hesap kodları</b> (108 dahil) oluşturulur; yalnızca <b>Hesap Türü boş olan</b> satırlar atlanır. Açılış bakiyesi <b>0</b> — bakiye, hesap hareketlerinden hesaplanır.</div>
+        <b>Tüm cariler</b> oluşturulur (108 dahil); <b>Hesap Türü boş olanlar</b> da seçtiğin grup altında açılır (varsayılan 320). Açılış bakiyesi <b>0</b> — bakiye, hesap hareketlerinden hesaplanır.</div>
       <div id="ci-drop" style="margin-top:12px"></div>
     </div>
     <div id="ci-editor"></div>`;
@@ -3287,19 +3293,19 @@ async function viewCariImport(c) {
     };
     if (!col.ad) return toast("'Cari Adı' sütunu bulunamadı.", "err");
 
-    const items = [], skipped = [];
+    const items = [], blank = [];
     rows.forEach((r) => {
       const ad = String(r[col.ad] ?? "").trim();
+      if (!ad) return;
       const turRaw = String(r[col.tur] ?? "").trim();
       const tur = (turRaw.match(/\d{3}/) || [])[0] || turRaw;
       const cfg = ciCfg(tur);
       const no = String(r[col.no] ?? "").trim();
       const bakiye = ciParseBal(r[col.bakiye]);
-      if (!ad) return;
-      if (!cfg) { skipped.push({ ad, tur: turRaw }); return; }
+      if (!cfg) { blank.push({ no, ad, bakiye }); return; }   // Hesap Türü boş → ayrı kova
       items.push({ no, ad, bakiye, tur, cfg });
     });
-    if (!items.length) return toast("İşlenecek cari bulunamadı — 'Hesap Türü' (hesap kodu) sütunu dolu olmalı.", "err");
+    if (!items.length && !blank.length) return toast("İşlenecek cari bulunamadı — 'Cari Adı' sütunu dolu olmalı.", "err");
 
     // Mevcut eşleştirme: aynı ana kod altında extNo ya da ada göre
     const findExisting = (it) => {
@@ -3315,12 +3321,20 @@ async function viewCariImport(c) {
     const byTur = {};
     items.forEach((it) => { byTur[it.tur] = (byTur[it.tur] || 0) + 1; });
     const turOzet = Object.entries(byTur).map(([t, n]) => `${t}: ${n}`).join(" · ");
+    const GROUPS = [["321", "321 Tanımlanmamış Cariler"], ["320", "320 Tedarikçiler"], ["120", "120 Müşteriler"],
+      ["336", "336 Diğer Borçlar"], ["335", "335 Personele Borçlar"], ["128", "128 Şüpheli Alacaklar"], ["108", "108 Bloke"]];
 
     const editor = $("#ci-editor");
     editor.innerHTML = `
       <div class="card">
-        <div class="pv-head"><div class="pv-title">${items.length} cari okundu</div>
-          <div class="pv-sub">${yeni} yeni · ${guncelle} mevcut · ${turOzet}${skipped.length ? ` · ${skipped.length} atlandı` : ""}</div></div>
+        <div class="pv-head"><div class="pv-title">${(items.length + blank.length).toLocaleString("tr-TR")} cari okundu</div>
+          <div class="pv-sub">${yeni} yeni · ${guncelle} mevcut · ${turOzet}${blank.length ? ` · ${blank.length} kodsuz` : ""}</div></div>
+        ${blank.length ? `<div class="notice warn" style="margin-bottom:10px">⚠️ <b>${blank.length.toLocaleString("tr-TR")}</b> carinin Hesap Türü boş (ör. ${esc(blank.slice(0, 4).map((b) => b.ad).join(", "))}…).
+          <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="ci-inclblank" checked style="width:16px;height:16px;accent-color:var(--gold)"> <b>Kodsuzları da aç</b> (hepsi oluşsun)</label>
+            <span style="color:var(--ink-soft)">Grup:</span>
+            <select id="ci-blankgrp">${GROUPS.map(([c, l]) => `<option value="${c}" ${c === "321" ? "selected" : ""}>${l}</option>`).join("")}</select>
+          </div></div>` : ""}
         <div class="table-wrap"><table class="data">
           <thead><tr><th>Cari No</th><th>Cari Adı</th><th>Tür</th><th class="num">Bakiye (alınmaz)</th><th>Durum</th></tr></thead>
           <tbody>${items.slice(0, 300).map((it) => `<tr>
@@ -3331,19 +3345,33 @@ async function viewCariImport(c) {
             <td>${it.exist ? '<span style="color:var(--gold-dark)">Var</span>' : "Yeni"}</td>
           </tr>`).join("")}</tbody>
         </table></div>
-        ${items.length > 300 ? `<div class="pv-fhint">İlk 300 satır gösteriliyor; hepsi (${items.length}) işlenecek.</div>` : ""}
+        ${items.length > 300 ? `<div class="pv-fhint">İlk 300 (kodlu) satır gösteriliyor; hepsi işlenecek.</div>` : ""}
         <div class="pv-fhint">Açılış bakiyesi <b>0</b> olarak eklenir — güncel bakiye, hesap hareketleri yüklenince otomatik hesaplanır.</div>
-        ${skipped.length ? `<div class="notice warn" style="margin-top:10px">⚠️ ${skipped.length} satır atlandı (Hesap Türü / hesap kodu boş): ${esc(skipped.slice(0, 6).map((s) => s.ad + (s.tur ? " [" + s.tur + "]" : "")).join(", "))}${skipped.length > 6 ? "…" : ""}</div>` : ""}
       </div>
-      <div class="pv-cta"><div class="grow"></div><button class="btn btn-primary" id="ci-save">✓ ${items.length} Cariyi İçe Aktar</button></div>`;
+      <div class="pv-cta"><div class="grow"></div><button class="btn btn-primary" id="ci-save">✓ İçe Aktar</button></div>`;
 
-    $("#ci-save", editor).onclick = () => apply(items, editor);
+    const inclBlank = () => !!$("#ci-inclblank", editor)?.checked;
+    const totalToSave = () => items.length + (blank.length && inclBlank() ? blank.length : 0);
+    const saveBtn = $("#ci-save", editor);
+    const refresh = () => { saveBtn.textContent = `✓ ${totalToSave().toLocaleString("tr-TR")} Cariyi İçe Aktar`; };
+    refresh();
+    $("#ci-inclblank", editor)?.addEventListener("change", refresh);
+
+    saveBtn.onclick = () => {
+      const finalItems = items.slice();
+      if (blank.length && inclBlank()) {
+        const gc = $("#ci-blankgrp", editor)?.value || "321";
+        const bcfg = ciCfg(gc) || CI_TUR["321"];
+        blank.forEach((b) => { b.cfg = bcfg; b.tur = gc; b.exist = findExisting(b); b.opening = 0; finalItems.push(b); });
+      }
+      apply(finalItems, editor);
+    };
   }
 
   async function apply(items, editor) {
     const btn = $("#ci-save", editor); btn.disabled = true;
     try {
-      // Ana grupları hazırla (yoksa oluştur: 336 gibi)
+      // Ana grupları hazırla (yoksa oluştur: 321/336 gibi)
       const ensureParent = async (cfg) => {
         let p = accounts.find((a) => String(a.code) === cfg.code && !a.parentId);
         if (p) return p;
@@ -3352,6 +3380,9 @@ async function viewCariImport(c) {
         accounts.push(p);
         return p;
       };
+      const parentByCode = {};
+      for (const it of items) if (!parentByCode[it.cfg.code]) parentByCode[it.cfg.code] = await ensureParent(it.cfg);
+
       // Ana kod başına yerel sayaç (kod çakışmasın)
       const counter = {};
       const nextCode = (parentCode) => {
@@ -3362,30 +3393,53 @@ async function viewCariImport(c) {
         return `${parentCode}.${String(counter[parentCode]).padStart(2, "0")}`;
       };
 
-      let created = 0, updated = 0, done = 0;
-      const total = items.length;
+      // Yeni hesap payload'ları + mevcutlarda yalnızca extNo güncelle
+      const newDocs = [], updates = [];
+      let created = 0, updated = 0;
       for (const it of items) {
-        const parent = await ensureParent(it.cfg);
         if (it.exist) {
-          // Bakiyeye dokunma; yalnızca dış cari no'yu güncelle (varsa)
-          if (it.no && String(it.exist.extNo || "") !== it.no)
-            await updateDoc(doc(db, "accounts", it.exist.id), { extNo: it.no });
+          if (it.no && String(it.exist.extNo || "") !== it.no) updates.push({ id: it.exist.id, extNo: it.no });
           updated++;
         } else {
-          const code = nextCode(it.cfg.code);
-          const payload = { code, name: titleCase(it.ad), type: it.cfg.type, parentId: parent.id, parentCode: it.cfg.code, vkn: "", extNo: it.no || "", openingBalance: 0, createdAt: serverTimestamp() };
-          const ref = await addDoc(C.accounts(), payload);
-          accounts.push({ id: ref.id, ...payload });
+          const parent = parentByCode[it.cfg.code];
+          newDocs.push({ code: nextCode(it.cfg.code), name: titleCase(it.ad), type: it.cfg.type, parentId: parent.id, parentCode: it.cfg.code, vkn: "", extNo: it.no || "", openingBalance: 0, createdAt: serverTimestamp() });
           created++;
         }
-        done++;
-        if (done % 10 === 0 || done === total) btn.textContent = `İşleniyor… ${done}/${total}`;
       }
-      await logAction("İçe Aktarma", "Cari", `Toplu: ${created} yeni, ${updated} mevcut`);
-      toast(`${created} yeni cari eklendi (${updated} zaten vardı).`, "ok");
-      successAnim(`${created + updated} cari işlendi`);
-      editor.innerHTML = `<div class="notice info">✔ İçe aktarıldı: <b>${created}</b> yeni cari, <b>${updated}</b> zaten mevcut.
-        <a href="#/hesaplar">← Hesaplara dön</a></div>`;
+
+      // Toplu yaz (writeBatch, 400'lük parçalar) — 3600+ hesap için hızlı
+      for (let i = 0; i < newDocs.length; i += 400) {
+        const b = writeBatch(db);
+        newDocs.slice(i, i + 400).forEach((d) => b.set(doc(C.accounts()), d));
+        await b.commit();
+        btn.textContent = `İşleniyor… ${Math.min(i + 400, newDocs.length).toLocaleString("tr-TR")}/${newDocs.length.toLocaleString("tr-TR")}`;
+      }
+      for (let i = 0; i < updates.length; i += 400) {
+        const b = writeBatch(db);
+        updates.slice(i, i + 400).forEach((u) => b.update(doc(db, "accounts", u.id), { extNo: u.extNo }));
+        await b.commit();
+      }
+
+      // ── DOĞRULAMA: veritabanına gerçekten yazıldı mı? (veri kaybı kontrolü) ──
+      const after = await fetchAll(C.accounts).catch(() => []);
+      const afterNames = new Set(after.map((a) => normTr(a.name)));
+      const missing = items.filter((it) => !afterNames.has(normTr(it.ad)));
+      const leafCount = after.filter((a) => a.parentId).length;
+
+      await logAction("İçe Aktarma", "Cari", `Toplu: ${created} yeni, ${updated} mevcut${missing.length ? ` · ⚠️ ${missing.length} eksik` : ""}`);
+      const okAll = missing.length === 0;
+      successAnim(`${created.toLocaleString("tr-TR")} yeni cari açıldı`);
+      editor.innerHTML = `
+        <div class="notice ${okAll ? "info" : "warn"}">
+          ${okAll ? "✔" : "⚠️"} İçe aktarıldı: <b>${created.toLocaleString("tr-TR")}</b> yeni cari, <b>${updated.toLocaleString("tr-TR")}</b> zaten mevcut.
+          <div style="margin-top:6px;font-size:13px">
+            🔎 <b>Doğrulama:</b> ${items.length.toLocaleString("tr-TR")} cari işlendi ·
+            veritabanında ${leafCount.toLocaleString("tr-TR")} alt hesap ·
+            ${okAll ? "<b style='color:var(--ok)'>tüm isimler yazıldı, veri kaybı yok ✅</b>"
+                    : `<b style='color:var(--danger)'>${missing.length} isim yazılamadı: ${esc(missing.slice(0, 5).map((m) => m.ad).join(", "))}…</b> — tekrar deneyin`}
+          </div>
+          <a href="#/hesaplar">← Hesaplara dön</a>
+        </div>`;
     } catch (e) { toast("Hata: " + e.message, "err"); btn.disabled = false; }
   }
 }
@@ -3929,7 +3983,8 @@ async function viewCariGecmisImport(c) {
     const unmatchedList = [...unmatched.values()].sort((a, b) => b.rows.length - a.rows.length);
     const mainAccts = accounts.filter((a) => !a.parentId && a.code)
       .sort((x, y) => String(x.code).localeCompare(String(y.code), "tr"));
-    const defGroup = mainAccts.find((a) => String(a.code) === "320")
+    const defGroup = mainAccts.find((a) => String(a.code) === "321")
+      || mainAccts.find((a) => String(a.code) === "320")
       || mainAccts.find((a) => isCari(a.type)) || mainAccts[0];
     editor.innerHTML = `
       <div class="card">
@@ -3985,11 +4040,11 @@ async function viewCariGecmisImport(c) {
           : "") +
         (priorCount ? ` Önceki ${priorCount.toLocaleString("tr-TR")} cari geçmişi silinecek.` : "") +
         ` Devam edilsin mi?`,
-        () => doImport(byAcc, unmatched, autocreate, groupId));
+        () => doImport(byAcc, unmatched, autocreate, groupId, total));
     };
   }
 
-  async function doImport(byAcc, unmatched, autocreate, groupId) {
+  async function doImport(byAcc, unmatched, autocreate, groupId, readTotal) {
     const pb = progressBar("Cari geçmişi aktarılıyor…");
     try {
       // 0) Eşleşmeyen şahıslar için otomatik cari aç (programda olmayan cari kalmasın)
@@ -4047,11 +4102,18 @@ async function viewCariGecmisImport(c) {
         pb.set(8 + Math.round((done / total) * 90), `${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")}`);
       }
 
-      await logAction("İçe Aktarma", "Cari Geçmişi", `${total} hareket · ${byAcc.size} cari${createdAccts ? ` · ${createdAccts} yeni cari` : ""}`);
+      // ── DOĞRULAMA: DB'ye yazılan hareket sayısı = aktarılması gereken; veri kaybı yok ──
+      const check = await fetchAll(C.accountEntries).catch(() => []);
+      const wrote = check.filter((e) => e.source === CARI_SRC).length;
+      const lost = Math.max(0, (readTotal || total) - total);   // dosyada olup aktarılmayan satır
+      const ok = wrote === total && lost === 0;
+
+      await logAction("İçe Aktarma", "Cari Geçmişi", `${total} hareket · ${byAcc.size} cari${createdAccts ? ` · ${createdAccts} yeni cari` : ""}${ok ? "" : " · ⚠️ doğrulama"}`);
       pb.done(() => {
-        successAnim(`${total.toLocaleString("tr-TR")} hareket aktarıldı${createdAccts ? ` · ${createdAccts} yeni cari açıldı` : ""}`, () => {
-          location.hash = "#/hesaplar";
-        });
+        if (!ok) toast(`⚠️ Doğrulama: okunan ${(readTotal || total).toLocaleString("tr-TR")}, yazılan ${wrote.toLocaleString("tr-TR")}${lost ? `, ${lost.toLocaleString("tr-TR")} atlandı` : ""}. Kontrol edin.`, "err");
+        successAnim(
+          (ok ? "✅ " : "⚠️ ") + `${total.toLocaleString("tr-TR")} hareket · ${byAcc.size.toLocaleString("tr-TR")} cari${createdAccts ? ` · ${createdAccts} yeni cari` : ""}` + (ok ? " · veri kaybı yok" : ""),
+          () => { location.hash = "#/hesaplar"; });
       });
     } catch (e) {
       pb.done(() => toast("Hata: " + e.message, "err"));
