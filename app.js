@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.152";
+const APP_VERSION = "2026.153";
 const CHANGELOG = [
+  { version: "2026.153", date: "2026-08-12", items: [
+    "🏦 Banka Aktarımı çıpası dosya SIRALAMASINI (yön) algılıyor: T.Finans ekstresi en-yeni-üstte, Garanti en-eski-üstte. Önceden hep 'dosyada sonraki' alındığından T.Finans'ta ters tarafı (eski satırlar) işleniyordu (ör. 67.834,78 yerine olması gereken 64.624,20). Artık İşlem Tarih+Saat / Dekont No ile yön bulunup kaldığımız yerin DOĞRU (yeni) tarafı işleniyor",
+  ]},
   { version: "2026.152", date: "2026-08-12", items: [
     "Banka Aktarımı: içe aktarılacak satırlara YALNIZ bakiye çıpası karar veriyor; eski denemelerden kalan dekont yüzünden yanlışlıkla atlanan (ör. 3 Para Transferi) satırlar artık geliyor. Ekstra dekont güvenlik filtresi kaldırıldı (bakiye çıpası yeniden yüklemede de yeterli — bakiye ilerledikçe çıpa ilerler)",
   ]},
@@ -6092,18 +6095,23 @@ async function viewBanka(c) {
     const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
     const progBal = round2((Number(bankAcc.openingBalance) || 0)
       + entries.filter((e) => e.accountId === bankAcc.id).reduce((s, e) => s + (parseNum(e.giren) - parseNum(e.cikan)), 0));
-    let anchorSeq = -1;
-    for (const r of [...pos, ...other]) {
-      if (r.bakiye != null && Math.abs(round2(r.bakiye) - progBal) < 0.005 && r.seq > anchorSeq) anchorSeq = r.seq;
+    // Dosya sırası: en eski üstte mi (asc) en yeni üstte mi (desc)? Dekont No (posting
+    // zaman damgası) kronolojiktir. asc → çıpadan SONRASI (seq>), desc → ÖNCESİ (seq<).
+    const allRaw = [...pos, ...other].sort((a, b) => a.seq - b.seq);
+    const asc = String(allRaw[0]?.dekont || "") <= String(allRaw[allRaw.length - 1]?.dekont || "");
+    let anchorSeq = asc ? -1 : Infinity, found = false;
+    for (const r of allRaw) {
+      if (r.bakiye != null && Math.abs(round2(r.bakiye) - progBal) < 0.005) {
+        found = true; anchorSeq = asc ? Math.max(anchorSeq, r.seq) : Math.min(anchorSeq, r.seq);
+      }
     }
-    if (anchorSeq < 0) {
+    if (!found) {
       editor.innerHTML = `<div class="notice warn">⛔ <b>Aktarım iptal edildi — kaldığımız yer bulunamadı.</b><br>
         Programın güncel Garanti bakiyesi <b>${fmtTRY(progBal)}</b>, dosyadaki <b>Bakiye</b> sütununda hiçbir satırla eşleşmedi. Kayıtlar eksik/farklı olabilir; doğru ekstreyi yükleyin.</div>`;
       return;
     }
-    // Kaldığımız yerden SONRASI (yalnız bakiye çıpası karar verir — yeniden yüklemede
-    // bakiye ilerlediği için çıpa da ilerler; ekstra dekont filtresi YOK).
-    const keep = (r) => r.seq > anchorSeq;
+    // Kaldığımız yerden yeni tarafı (yön'e göre). Yalnız bakiye çıpası karar verir.
+    const keep = asc ? (r) => r.seq > anchorSeq : (r) => r.seq < anchorSeq;
     const skipped = (pos.length + other.length) - (pos.filter(keep).length + other.filter(keep).length);
     pos = pos.filter(keep);
     other = other.filter(keep);
@@ -6350,13 +6358,18 @@ async function viewBanka(c) {
           const balOf = (acc) => round2((Number(acc.openingBalance) || 0)
             + entries.filter((e) => e.accountId === acc.id).reduce((s, e) => s + (parseNum(e.giren) - parseNum(e.cikan) + parseNum(e.borc) - parseNum(e.alacak)), 0));
           const targets = [balOf(bankAcc), balOf(blokeAcc)];
-          const allRows = [...parsed.alma, ...parsed.cozum, ...parsed.other];
+          const allRows = [...parsed.alma, ...parsed.cozum, ...parsed.other].sort((a, b) => a.seq - b.seq);
           const hasBakiye = allRows.some((r) => r.bakiye != null);
-          let anchorSeq = -1;
+          // Dosya sırası yön tespiti: İşlem Tarih+Saat kronolojik. asc → seq>çıpa, desc → seq<çıpa.
+          const key = (r) => (r?.date || "") + " " + (r?.time || "");
+          const asc = key(allRows[0]) <= key(allRows[allRows.length - 1]);
+          let anchorSeq = asc ? -1 : Infinity, found = false;
           if (hasBakiye) for (const r of allRows) {
-            if (r.bakiye != null && targets.some((t) => Math.abs(round2(r.bakiye) - t) < 0.005) && r.seq > anchorSeq) anchorSeq = r.seq;
+            if (r.bakiye != null && targets.some((t) => Math.abs(round2(r.bakiye) - t) < 0.005)) {
+              found = true; anchorSeq = asc ? Math.max(anchorSeq, r.seq) : Math.min(anchorSeq, r.seq);
+            }
           }
-          if (hasBakiye && anchorSeq < 0) {
+          if (hasBakiye && !found) {
             const b = $("#bk-body");
             b.innerHTML = `<div class="ch-bar"><span class="ch-title">🔵 T. Finans</span><div class="grow"></div><button class="btn btn-sm" id="bk-back">← Banka</button></div>
               <div class="notice warn" style="margin-top:10px">⛔ <b>Aktarım iptal edildi — kaldığımız yer bulunamadı.</b><br>
@@ -6364,7 +6377,7 @@ async function viewBanka(c) {
             $("#bk-back", b).onclick = chooseBank;
             return;
           }
-          const keep = (r) => anchorSeq < 0 || r.seq > anchorSeq;
+          const keep = (r) => !hasBakiye ? true : (asc ? r.seq > anchorSeq : r.seq < anchorSeq);
           const before = allRows.length;
           parsed.alma = parsed.alma.filter(keep);
           parsed.cozum = parsed.cozum.filter(keep);
