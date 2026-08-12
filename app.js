@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.136";
+} from "./supabase-backend.js?v=2026.137";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.136";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.137";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.136";
+const APP_VERSION = "2026.137";
 const CHANGELOG = [
+  { version: "2026.137", date: "2026-08-11", items: [
+    "Cari Geçmişi: '⬇️ Eşleşmeyenleri indir (CSV)' — her eşleşmeyen şahsın satır sayısı + en yakın mevcut hesap + benzerlik % ile; neden bulunamadığı görünür",
+    "Cari Geçmişi: noktalama/boşluk farkı olan isimler için ikinci tur eşleşme (yalnız TEKil ve kesin olanlar) — ör. 'Av. Uğur Ayaz' ↔ 'Av.Uğur Ayaz'",
+  ]},
   { version: "2026.136", date: "2026-08-11", items: [
     "Toplu Cari: Hesap Türü BOŞ cariler artık atlanmıyor — '321 Tanımlanmamış Cariler' altında (açılış 0) açılıyor; grup seçilebilir, sonra değiştirilebilir",
     "Toplu Cari: 3600+ hesap toplu (writeBatch) yazılıyor — çok daha hızlı",
@@ -3885,11 +3889,19 @@ async function viewCariGecmisImport(c) {
   const accounts = await fetchAll(C.accounts).catch(() => []);
   // Havuz: TÜM alt hesaplar (120/320/336/128/108 bloke… her tür) — ana başlıklar hariç
   const cariAccounts = accounts.filter((a) => a.parentId);
-  const nameMap = new Map();          // normTr(ad) → hesap (ilk eşleşen)
+  const nameMap = new Map();          // normTr(ad) → hesap (tam eşleşme)
   const extMap = new Map();           // cari no (extNo) → hesap
+  // Gevşek anahtar: noktalama/boşluk farkını yok sayar (ör. "Av. Uğur"→"av ugur")
+  const looseKey = (s) => normTr(s).replace(/[^0-9a-z]+/g, " ").replace(/\s+/g, " ").trim();
+  const looseMap = new Map();         // looseKey → hesap (yalnız TEKil olanlar güvenli)
+  const looseAmbig = new Set();       // birden çok hesaba denk gelen anahtarlar (kullanılmaz)
   cariAccounts.forEach((a) => {
     const k = normTr(a.name); if (k && !nameMap.has(k)) nameMap.set(k, a);
     const e = String(a.extNo || "").trim(); if (e && !extMap.has(e)) extMap.set(e, a);
+    const lk = looseKey(a.name); if (!lk) return;
+    const cur = looseMap.get(lk);
+    if (cur && cur.id !== a.id) looseAmbig.add(lk);
+    else if (!cur) looseMap.set(lk, a);
   });
   const priorEntries = await fetchAll(C.accountEntries).catch(() => []);
   const priorCount = priorEntries.filter((e) => e.source === CARI_SRC).length;
@@ -3956,7 +3968,8 @@ async function viewCariGecmisImport(c) {
       const date = cdate(r[col.date]);
       if (!date && !borc && !alacak) return;
       total++;
-      const acc = nameMap.get(normTr(sahis));
+      let acc = nameMap.get(normTr(sahis));
+      if (!acc) { const lk = looseKey(sahis); if (lk && !looseAmbig.has(lk)) acc = looseMap.get(lk) || null; }
       const row = {
         cariNo: get(r, col.cariNo), date, sahis, aciklama: get(r, col.aciklama), rapor: get(r, col.rapor),
         borc, alacak, faturaTuru: get(r, col.fatura), faturaNo: get(r, col.faturaNo),
@@ -3995,6 +4008,7 @@ async function viewCariGecmisImport(c) {
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="cg-autocreate" checked style="width:16px;height:16px;accent-color:var(--gold)"> <b>Eşleşmeyenleri otomatik cari aç</b> (hiç satır atlanmasın)</label>
             <span style="color:var(--ink-soft)">Grup:</span>
             <select id="cg-autogroup">${mainAccts.map((a) => `<option value="${a.id}" ${a === defGroup ? "selected" : ""}>${esc(a.code)} ${esc(a.name)}</option>`).join("")}</select>
+            <button class="btn btn-sm" id="cg-dlunmatched" type="button">⬇️ Eşleşmeyenleri indir (CSV)</button>
           </div></div>` : `<div class="notice info" style="margin-bottom:10px">✅ Tüm şahıslar mevcut hesaplarla eşleşti.</div>`}
         <div class="table-wrap"><table class="data">
           <thead><tr>
@@ -4015,6 +4029,39 @@ async function viewCariGecmisImport(c) {
       </div>
       <div class="pv-cta"><div class="grow"></div>
         <button class="btn btn-primary" id="cg-save">✓ Hareketleri İçe Aktar</button></div>`;
+
+    // Eşleşmeyenleri CSV indir — her şahsın en yakın mevcut hesabı + benzerlik %
+    const dlBtn = $("#cg-dlunmatched", editor);
+    if (dlBtn) dlBtn.onclick = () => {
+      const lb = loadingBar("Analiz ediliyor…");
+      try {
+        const tok = (s) => new Set(normTr(s).split(/[^0-9a-z]+/).filter(Boolean));
+        const accToks = cariAccounts.map((a) => ({ a, t: tok(a.name) }));
+        const best = (name) => {
+          const st = tok(name); let ba = null, bs = 0;
+          for (const { a, t } of accToks) {
+            let inter = 0; st.forEach((x) => { if (t.has(x)) inter++; });
+            const uni = st.size + t.size - inter;
+            const sc = uni ? inter / uni : 0;
+            if (sc > bs) { bs = sc; ba = a; }
+          }
+          return { ba, bs };
+        };
+        const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+        const lines = [["Sahis", "SatirSayisi", "Normalize", "EnYakinKod", "EnYakinHesapAdi", "Benzerlik%"].map(q).join(";")];
+        unmatchedList.forEach((u) => {
+          const { ba, bs } = best(u.name);
+          lines.push([u.name, u.rows.length, normTr(u.name), ba ? ba.code : "", ba ? ba.name : "", Math.round(bs * 100)].map(q).join(";"));
+        });
+        const csv = "﻿" + lines.join("\r\n");
+        const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url; a.download = `eslesmeyen-cariler-${todayISO()}.csv`; a.click();
+        URL.revokeObjectURL(url);
+        lb.finish(() => toast(`${unmatchedList.length} eşleşmeyen şahıs indirildi.`, "ok"));
+      } catch (e) { lb.finish(); toast("İndirilemedi: " + e.message, "err"); }
+    };
 
     const autoOn = () => !!$("#cg-autocreate", editor)?.checked;
     const saveBtn = $("#cg-save", editor);
