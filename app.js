@@ -542,8 +542,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.156";
+const APP_VERSION = "2026.157";
 const CHANGELOG = [
+  { version: "2026.157", date: "2026-08-12", items: [
+    "⚖️ Yeni: Bakiye Karşılaştır (Hesaplar ekranında). Eski muhasebe programından aldığın bakiye listesini (Excel/CSV) yükle; hesaplar ADA (ünvana) göre eşleştirilip program bakiyeleriyle karşılaştırılır. Farklar büyükten küçüğe listelenir, aynı ad birden çok geçerse toplanır",
+    "Borç/Alacak yönü otomatik hizalanır (dosyanın işaret düzenini program hangi yönle en çok tutuyorsa o seçilir). 'Yalnız farklılar' filtresi, ad/kod arama, 'yalnız dosyada / yalnız programda' durum etiketleri ve Farkları CSV indir",
+    "📥 Program Bakiyelerini İndir (CSV): tüm hesapların Kod · Ad · VKN · Tür · Bakiye · B/A çıktısı",
+  ]},
   { version: "2026.156", date: "2026-08-12", items: [
     "📅 Gün Sonu → Blokeye Aktarımlar valör girişi hesap türüne göre ayrıldı: BANKALARDA (Garanti, T.Finans) yalnız '+N gün' kutusu görünür (tarih otomatik hesaplanır); YEMEK KARTLARINDA (Edenred, Multinet, Pluxee, Metropol, Set, Yemek Sepeti, Getir, Trendyol) yalnız takvim/tarih kutusu görünür",
     "🧠 Bankalarda valör günü hatırlanıyor: bir satıra girdiğin gün sayısı (ör. Garanti KK 23 gün) o hesap için saklanır ve bir sonraki gün sonunda varsayılan olarak gelir",
@@ -1245,6 +1250,7 @@ const ROUTES = {
   "banka-import":     { title: "Banka Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewBankaImport, admin: true, back: "#/hesaplar" },
   "cari-gecmis-import": { title: "Cari Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewCariGecmisImport, admin: true, back: "#/hesaplar" },
   "tum-kayitlar":     { title: "Tüm Kayıtlar", crumb: "Hesaplar", render: viewTumKayitlar, admin: true, back: "#/hesaplar" },
+  "bakiye-karsilastir": { title: "Bakiye Karşılaştır", crumb: "Hesaplar", render: viewBakiyeKarsilastir, admin: true, back: "#/hesaplar" },
   "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger, back: "#/hesaplar" },
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
@@ -2983,6 +2989,224 @@ async function seedDefaultChart() {
   return added;
 }
 
+// ---------------------------------------------------------------------------
+//  Bakiye Karşılaştır — eski program bakiye listesi ↔ program bakiyeleri (ada göre)
+// ---------------------------------------------------------------------------
+async function viewBakiyeKarsilastir(c) {
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head"><h3>Bakiye Karşılaştır</h3><span class="hint">Eski program bakiyeleri ↔ program bakiyeleri</span></div>
+      <div style="padding:14px 16px">
+        <p style="font-size:13px;color:var(--ink-soft);margin:0 0 12px;line-height:1.5">
+          Eski muhasebe programından aldığın <b>bakiye listesini</b> (Excel/CSV) yükle. Hesaplar
+          <b>ada (ünvana) göre</b> eşleştirilip program bakiyeleriyle karşılaştırılır; farklar
+          büyükten küçüğe listelenir. Borç/Alacak yönü <b>otomatik</b> hizalanır.
+        </p>
+        <div id="bk-drop"></div>
+        <div class="toolbar" style="margin-top:12px">
+          <button class="btn btn-sm" id="bk-dl-prog">📥 Program Bakiyelerini İndir (CSV)</button>
+        </div>
+      </div>
+    </div>
+    <div id="bk-result"></div>`;
+
+  const [accounts, cari, bank, entries] = await Promise.all([
+    fetchAll(C.accounts),
+    fetchAll(C.currentMovements).catch(() => []),
+    fetchAll(C.bankTransactions).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  const balances = computeBalances(accounts, cari, bank, entries);
+
+  // Program tarafı: ada göre topla (aynı adlı birden çok hesap toplanır)
+  const progByName = new Map();
+  accounts.forEach((a) => {
+    const nm = String(a.name || "").trim();
+    if (!nm) return;
+    const key = normTr(nm);
+    const cur = (balances.get(a.id) || {}).current || 0;
+    let o = progByName.get(key);
+    if (!o) { o = { name: nm, codes: [], current: 0, count: 0 }; progByName.set(key, o); }
+    if (a.code) o.codes.push(String(a.code));
+    o.current += cur; o.count++;
+  });
+
+  // Program bakiye kelimesi: borç(+) / alacak(−) yönlü, B/A etiketli
+  const baTag = (v) => {
+    const z = Math.round(v * 100) / 100;
+    if (z > 0) return `<span style="color:var(--ok,#137333)">${fmtTRY(z)} <b>B</b></span>`;
+    if (z < 0) return `<span style="color:var(--danger,#b3261e)">${fmtTRY(-z)} <b>A</b></span>`;
+    return `<span style="color:var(--ink-faint)">${fmtTRY(0)}</span>`;
+  };
+  const baCsv = (v) => { const z = Math.round(v * 100) / 100; return [Math.abs(z), z > 0 ? "Borç" : z < 0 ? "Alacak" : ""]; };
+
+  // Program bakiyelerini CSV indir
+  $("#bk-dl-prog", c).onclick = () => {
+    const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const lines = [["Hesap Kodu", "Ad", "VKN", "Tür", "Bakiye", "B/A"].map(q).join(";")];
+    accounts.slice().sort((a, b) => String(a.code || "").localeCompare(String(b.code || ""), "tr"))
+      .forEach((a) => {
+        const cur = (balances.get(a.id) || {}).current || 0;
+        const [abs, ba] = baCsv(cur);
+        lines.push([a.code || "", a.name || "", a.vkn || "", a.type || "", String(abs).replace(".", ","), ba].map(q).join(";"));
+      });
+    const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `program-bakiyeleri-${todayISO()}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast(`${accounts.length.toLocaleString("tr-TR")} hesap indirildi.`, "ok");
+  };
+
+  const drop = fileDrop(onFile, ".xlsx,.xls,.csv");
+  $("#bk-drop", c).appendChild(drop);
+
+  async function onFile(file) {
+    const res = $("#bk-result", c);
+    res.innerHTML = `<div class="card"><div class="empty" style="padding:26px"><div class="spinner" style="margin:0 auto"></div><p>Dosya okunuyor…</p></div></div>`;
+    let parsed;
+    try { parsed = await parseSpreadsheet(file); }
+    catch (e) { res.innerHTML = ""; return toast("Dosya okunamadı: " + e.message, "err"); }
+    const { headers, rows } = parsed;
+    const adCol = guessCol(headers, ["cari adi", "cari ad", "unvan", "ünvan", "musteri adi", "hesap adi", "adi"]);
+    const bakCol = guessCol(headers, ["bakiye"]);
+    if (!adCol || !bakCol) {
+      res.innerHTML = "";
+      return toast(`Sütun bulunamadı (Ad: ${adCol || "yok"}, Bakiye: ${bakCol || "yok"}). Başlıklar: ${headers.join(", ")}`, "err");
+    }
+
+    // Dosya tarafı: ada göre topla
+    const fileByName = new Map();
+    rows.forEach((r) => {
+      const nm = String(r[adCol] || "").trim();
+      if (!nm) return;
+      const key = normTr(nm);
+      const bak = parseNum(r[bakCol]);
+      let o = fileByName.get(key);
+      if (!o) { o = { name: nm, bakiye: 0, count: 0 }; fileByName.set(key, o); }
+      o.bakiye += bak; o.count++;
+    });
+
+    // İşaret yönünü otomatik seç: program.current ≈ s·dosya.bakiye en çok hangi s'de tutuyor
+    const common = [...fileByName.keys()].filter((k) => progByName.has(k));
+    const eps = 0.5;
+    const matchCount = (s) => common.reduce((n, k) =>
+      n + (Math.abs((progByName.get(k).current) - s * fileByName.get(k).bakiye) < eps ? 1 : 0), 0);
+    const mPlus = matchCount(1), mMinus = matchCount(-1);
+    const sign = mMinus > mPlus ? -1 : (mPlus > mMinus ? 1 : -1); // eşitlikte -1 (dosya (+)=alacak varsayımı)
+
+    // Karşılaştırma satırları
+    const union = new Set([...progByName.keys(), ...fileByName.keys()]);
+    const list = [];
+    union.forEach((k) => {
+      const p = progByName.get(k) || null;
+      const f = fileByName.get(k) || null;
+      const prog = p ? p.current : null;
+      const eski = f ? sign * f.bakiye : null;   // program yönüne çevrilmiş
+      const fark = (prog != null && eski != null) ? prog - eski : (prog != null ? prog : -(-eski));
+      const status = (p && f) ? "both" : (p ? "prog" : "file");
+      list.push({
+        key, name: (p && p.name) || (f && f.name) || k,
+        codes: p ? p.codes.join(", ") : "",
+        prog, eski, fark, status,
+        dupWarn: (p && p.count > 1) || (f && f.count > 1),
+      });
+    });
+
+    // Özet
+    const bothList = list.filter((r) => r.status === "both");
+    const diffList = bothList.filter((r) => Math.abs(r.fark) >= eps);
+    const onlyFile = list.filter((r) => r.status === "file" && Math.abs(r.eski) >= eps);
+    const onlyProg = list.filter((r) => r.status === "prog" && Math.abs(r.prog) >= eps);
+    const totalDiff = diffList.reduce((s, r) => s + Math.abs(r.fark), 0);
+
+    // Sıralama: farkı büyükten küçüğe; sonra eşleşen 0-farklar; sonra yalnız-tek-taraf
+    const rank = (r) => r.status === "both" ? 0 : (r.status === "file" ? 1 : 2);
+    list.sort((a, b) => (rank(a) - rank(b)) || (Math.abs(b.fark) - Math.abs(a.fark)) || String(a.name).localeCompare(String(b.name), "tr"));
+
+    let onlyDiff = true, query = "";
+    const row = (r) => {
+      const tag = r.status === "file" ? `<span class="bk-badge file">yalnız dosyada</span>`
+        : r.status === "prog" ? `<span class="bk-badge prog">yalnız programda</span>`
+        : (Math.abs(r.fark) >= eps ? `<span class="bk-badge diff">FARK</span>` : `<span class="bk-badge ok">✓</span>`);
+      return `<tr class="${Math.abs(r.fark) >= eps || r.status !== "both" ? "bk-hit" : ""}">
+        <td><div class="bk-nm">${esc(r.name)}${r.dupWarn ? ` <span class="bk-badge warn" title="Bu ad birden çok kez geçiyor, toplandı">×${r.status === "file" ? (fileByName.get(r.key).count) : (progByName.get(r.key)?.count || 1)}</span>` : ""}</div>
+          ${r.codes ? `<div class="bk-code">${esc(r.codes)}</div>` : ""}</td>
+        <td class="num">${r.prog != null ? baTag(r.prog) : "—"}</td>
+        <td class="num">${r.eski != null ? baTag(r.eski) : "—"}</td>
+        <td class="num">${(r.status === "both") ? (Math.abs(r.fark) >= eps ? `<b>${baTag(r.fark)}</b>` : baTag(0)) : "—"}</td>
+        <td>${tag}</td>
+      </tr>`;
+    };
+    const draw = () => {
+      const nq = normTr(query);
+      const view = list.filter((r) => {
+        if (onlyDiff && !(r.status === "both" && Math.abs(r.fark) >= eps) && !(r.status === "file" && Math.abs(r.eski) >= eps) && !(r.status === "prog" && Math.abs(r.prog) >= eps)) return false;
+        if (nq && !normTr(r.name).includes(nq) && !normTr(r.codes).includes(nq)) return false;
+        return true;
+      });
+      const tb = $("#bk-tbody", res);
+      if (tb) tb.innerHTML = view.map(row).join("") || `<tr><td colspan="5" style="text-align:center;color:var(--ink-faint);padding:20px">Kayıt yok.</td></tr>`;
+      const cnt = $("#bk-count", res);
+      if (cnt) cnt.textContent = `${view.length.toLocaleString("tr-TR")} satır gösteriliyor`;
+    };
+
+    res.innerHTML = `
+      <div class="card" style="margin-top:14px">
+        <div class="bk-summary">
+          <div class="bk-stat"><span>Eşleşen hesap</span><b>${bothList.length.toLocaleString("tr-TR")}</b></div>
+          <div class="bk-stat ${diffList.length ? "bad" : "good"}"><span>Farklı</span><b>${diffList.length.toLocaleString("tr-TR")}</b></div>
+          <div class="bk-stat"><span>Toplam fark</span><b>${fmtTRY(totalDiff)}</b></div>
+          <div class="bk-stat"><span>Yalnız dosyada</span><b>${onlyFile.length.toLocaleString("tr-TR")}</b></div>
+          <div class="bk-stat"><span>Yalnız programda</span><b>${onlyProg.length.toLocaleString("tr-TR")}</b></div>
+        </div>
+        <div style="font-size:11.5px;color:var(--ink-faint);padding:0 14px 4px">
+          İşaret yönü otomatik seçildi: dosya bakiyesi <b>${sign < 0 ? "ters" : "aynı"}</b> yönle hizalandı
+          (eşleşme: aynı yön ${mPlus}, ters yön ${mMinus}). <b>B</b>=Borç bakiye, <b>A</b>=Alacak bakiye.
+        </div>
+        <div class="toolbar" style="padding:8px 14px;gap:10px;flex-wrap:wrap">
+          <input id="bk-q" type="search" placeholder="🔍 Ad / kod ara" style="flex:1;min-width:160px;padding:8px 10px;border:1px solid var(--line);border-radius:8px" />
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer">
+            <input type="checkbox" id="bk-onlydiff" checked style="width:17px;height:17px" /> Yalnız farklılar
+          </label>
+          <button class="btn btn-sm" id="bk-csv">📥 Farkları CSV indir</button>
+          <span id="bk-count" style="font-size:12px;color:var(--ink-faint);align-self:center"></span>
+        </div>
+        <div style="overflow-x:auto">
+          <table class="bk-table">
+            <thead><tr><th>Hesap</th><th class="num">Program</th><th class="num">Eski (dosya)</th><th class="num">Fark</th><th>Durum</th></tr></thead>
+            <tbody id="bk-tbody"></tbody>
+          </table>
+        </div>
+      </div>`;
+
+    $("#bk-onlydiff", res).onchange = (e) => { onlyDiff = e.target.checked; draw(); };
+    $("#bk-q", res).addEventListener("input", (e) => { query = e.target.value; draw(); });
+    $("#bk-csv", res).onclick = () => {
+      const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+      const head = ["Hesap Adı", "Hesap Kodu", "Program Bakiye", "Program B/A", "Eski Bakiye", "Eski B/A", "Fark", "Fark B/A", "Durum"];
+      const lines = [head.map(q).join(";")];
+      const nq = normTr(query);
+      list.filter((r) => {
+        if (onlyDiff && !(r.status === "both" && Math.abs(r.fark) >= eps) && !(r.status === "file" && Math.abs(r.eski) >= eps) && !(r.status === "prog" && Math.abs(r.prog) >= eps)) return false;
+        if (nq && !normTr(r.name).includes(nq) && !normTr(r.codes).includes(nq)) return false;
+        return true;
+      }).forEach((r) => {
+        const [pAbs, pBa] = r.prog != null ? baCsv(r.prog) : ["", ""];
+        const [eAbs, eBa] = r.eski != null ? baCsv(r.eski) : ["", ""];
+        const [fAbs, fBa] = r.status === "both" ? baCsv(r.fark) : ["", ""];
+        const durum = r.status === "file" ? "yalnız dosyada" : r.status === "prog" ? "yalnız programda" : (Math.abs(r.fark) >= eps ? "FARK" : "uyumlu");
+        lines.push([r.name, r.codes, String(pAbs).replace(".", ","), pBa, String(eAbs).replace(".", ","), eBa, String(fAbs).replace(".", ","), fBa, durum].map(q).join(";"));
+      });
+      const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url; a.download = `bakiye-fark-${todayISO()}.csv`; a.click();
+      URL.revokeObjectURL(url);
+      toast("Fark listesi indirildi.", "ok");
+    };
+    draw();
+  }
+}
+
 async function viewHesaplar(c) {
   const [accounts, cari, bank, entries] = await Promise.all([
     fetchAll(C.accounts),
@@ -3086,6 +3310,7 @@ async function viewHesaplar(c) {
       <button class="btn btn-sm" id="acc-banka" style="display:none">🏦 Banka Geçmişi</button>
       <button class="btn btn-sm" id="acc-carigec" style="display:none">🧾 Cari Geçmişi</button>
       <button class="btn btn-sm" id="acc-allrec" style="display:none">📋 Tüm Kayıtlar</button>
+      <button class="btn btn-sm" id="acc-baldiff" style="display:none">⚖️ Bakiye Karşılaştır</button>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
       <button class="btn btn-sm btn-danger" id="acc-clean" style="display:none">🧹 Grup Temizle</button>
@@ -3214,6 +3439,8 @@ async function viewHesaplar(c) {
   if (cariGecBtn) { if (isAdmin()) cariGecBtn.style.display = ""; cariGecBtn.onclick = () => { location.hash = "#/cari-gecmis-import"; }; }
   const allRecBtn = $("#acc-allrec", c);
   if (allRecBtn) { if (isAdmin()) allRecBtn.style.display = ""; allRecBtn.onclick = () => { location.hash = "#/tum-kayitlar"; }; }
+  const balDiffBtn = $("#acc-baldiff", c);
+  if (balDiffBtn) { if (isAdmin()) balDiffBtn.style.display = ""; balDiffBtn.onclick = () => { location.hash = "#/bakiye-karsilastir"; }; }
   // "Hesapları Düzenle" modu: düzenle/alt ekle ikonları görünür olur
   $("#edit-toggle").onclick = () => {
     const list = $(".acc-list", c);
