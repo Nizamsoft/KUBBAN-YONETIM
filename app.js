@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.149";
+const APP_VERSION = "2026.150";
 const CHANGELOG = [
+  { version: "2026.150", date: "2026-08-12", items: [
+    "🏦 Banka Aktarımı (ham ekstre) artık DEKONT NO ile ilerliyor: her satırın Dekont No'su (T.Finans'ta Referans No) saklanır; ham dosyayı yeniden yüklediğinde dekontu ZATEN İŞLENMİŞ satırlar atlanır — mükerrer olmaz. Tarih kaymasından (POS gece yatıp gün atlaması) tamamen bağımsız. Garanti + T.Finans",
+  ]},
   { version: "2026.149", date: "2026-08-12", items: [
     "🔁 İçe aktarma önizlemesi artık kaybolmuyor: yüklediğin dosya tarayıcı diskine (IndexedDB) kaydedilir. Başka uygulamaya/sekmeye geçip sekme dondurulsa/kapatılsa bile o ekrana dönünce önizleme OTOMATİK geri yüklenir (yeniden dosya seçmene gerek yok). Üstte 'geri yüklendi · At/temizle' şeridi. Aktarım tamamlanınca kayıt silinir. Cari/Banka/Kasa Geçmişi ve Fatura ekranlarında geçerli",
   ]},
@@ -5867,11 +5870,24 @@ function bkGroupPos(pos) {
   pos.forEach((p) => {
     if (!p.tip) return;
     const k = p.dep + "|" + p.cek + "|" + p.tip;
-    if (!g[k]) g[k] = { dep: p.dep, cek: p.cek, tip: p.tip, net: 0, kom: 0, n: 0, ord: p.seq };
+    if (!g[k]) g[k] = { dep: p.dep, cek: p.cek, tip: p.tip, net: 0, kom: 0, n: 0, ord: p.seq, dekontler: [] };
     else g[k].ord = Math.min(g[k].ord, p.seq);
     g[k].net += p.amt; g[k].kom += p.kom; g[k].n++;
+    if (p.dekont) g[k].dekontler.push(p.dekont);
   });
   return Object.values(g).sort((a, b) => a.dep.localeCompare(b.dep) || a.ord - b.ord);
+}
+// Programda daha önce işlenmiş Dekont No'ları topla (e.dekont + e.dekontler[]).
+// Ham ekstre yeniden yüklendiğinde, dekontu zaten işlenmiş satırlar atlanır.
+function bkDoneDekontSet(entries) {
+  const s = new Set();
+  for (const e of entries || []) {
+    if (e.dekont) s.add(String(e.dekont));
+    if (e.ref) s.add(String(e.ref));                     // T.Finans Referans No
+    if (Array.isArray(e.dekontler)) for (const d of e.dekontler) if (d) s.add(String(d));
+    if (Array.isArray(e.refler)) for (const d of e.refler) if (d) s.add(String(d));
+  }
+  return s;
 }
 
 // --- T. Finans yardımcıları -------------------------------------------------
@@ -6057,12 +6073,19 @@ async function viewBanka(c) {
 
   async function buildGaranti(bank, bankAcc, blokeAcc, pos, other) {
     const editor = $("#bk-editor");
-    const groups = bkGroupPos(pos);
-    const belirsiz = pos.filter((p) => !p.tip);
     const [entries, settings] = await Promise.all([
       fetchAll(C.accountEntries).catch(() => []),
       fetchAll(C.settings).catch(() => []),
     ]);
+    // Dekont No ile ilerleme: daha önce işlenmiş (dekontu programda olan) satırları ATLA.
+    const doneDk = bkDoneDekontSet(entries);
+    const bkSkip = pos.filter((p) => p.dekont && doneDk.has(p.dekont)).length
+                 + other.filter((o) => o.dekont && doneDk.has(o.dekont)).length;
+    pos = pos.filter((p) => !(p.dekont && doneDk.has(p.dekont)));
+    other = other.filter((o) => !(o.dekont && doneDk.has(o.dekont)));
+    if (bkSkip) toast(`${bkSkip} satır zaten işlenmiş (Dekont No) — atlandı.`, "ok");
+    const groups = bkGroupPos(pos);
+    const belirsiz = pos.filter((p) => !p.tip);
     // Rapor önerileri: Gider Grupları kalemleri
     const eg = settings.find((s) => s.id === "expenseGroups");
     const egGroups = (eg && Array.isArray(eg.groups)) ? eg.groups : DEFAULT_EXPENSE_GROUPS;
@@ -6293,11 +6316,20 @@ async function viewBanka(c) {
       input.click();
     }
     function loadHesap() {
-      pickTF((aoa) => {
+      pickTF(async (aoa) => {
         try {
-          st.hesap = tfParseHesap(aoa);
+          const parsed = tfParseHesap(aoa);
+          // Referans No ile ilerleme: daha önce işlenmiş satırları atla
+          const entries = await fetchAll(C.accountEntries).catch(() => []);
+          const done = bkDoneDekontSet(entries);
+          const before = parsed.alma.length + parsed.cozum.length + parsed.other.length;
+          parsed.alma = parsed.alma.filter((r) => !(r.ref && done.has(r.ref)));
+          parsed.cozum = parsed.cozum.filter((r) => !(r.ref && done.has(r.ref)));
+          parsed.other = parsed.other.filter((r) => !(r.ref && done.has(r.ref)));
+          const skip = before - (parsed.alma.length + parsed.cozum.length + parsed.other.length);
+          st.hesap = parsed;
           showTFBar(); rebuild();
-          toast(`Hesap: ${st.hesap.alma.length} alma · ${st.hesap.cozum.length} çözüm`, "ok");
+          toast(`Hesap: ${parsed.alma.length} alma · ${parsed.cozum.length} çözüm${skip ? ` · ${skip} zaten işlenmiş atlandı` : ""}`, "ok");
         } catch (e) { toast("Okunamadı: " + e.message, "err"); }
       });
     }
@@ -6706,7 +6738,7 @@ async function viewBanka(c) {
           accountId: blokeAcc.id, accountCode: blokeAcc.code, islemNo: ++gno, cariNo: nextCno(blokeAcc.id),
           date: g.dep, islemAdi: "BLOKE ÇÖZÜM", sahis: "", aciklama: acik, rapor: "",
           borc: 0, alacak: brut, faturaTuru: "", faturaNo: "",
-          source: "banka-pos", posKey, banka: bank.key, createdAt: serverTimestamp(), createdBy: currentUser.email,
+          source: "banka-pos", posKey, banka: bank.key, dekontler: g.dekontler || [], createdAt: serverTimestamp(), createdBy: currentUser.email,
         });
         docs.push({
           accountId: bankAcc.id, accountCode: bankAcc.code, islemNo: ++gno,
