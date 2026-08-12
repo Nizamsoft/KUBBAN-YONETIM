@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.148";
+const APP_VERSION = "2026.149";
 const CHANGELOG = [
+  { version: "2026.149", date: "2026-08-12", items: [
+    "🔁 İçe aktarma önizlemesi artık kaybolmuyor: yüklediğin dosya tarayıcı diskine (IndexedDB) kaydedilir. Başka uygulamaya/sekmeye geçip sekme dondurulsa/kapatılsa bile o ekrana dönünce önizleme OTOMATİK geri yüklenir (yeniden dosya seçmene gerek yok). Üstte 'geri yüklendi · At/temizle' şeridi. Aktarım tamamlanınca kayıt silinir. Cari/Banka/Kasa Geçmişi ve Fatura ekranlarında geçerli",
+  ]},
   { version: "2026.148", date: "2026-08-12", items: [
     "🧹 Grup Temizle büyük gruplarda (ör. 321'de ~2000 alt hesap) artık gerçekten siliyor: silme istekleri Supabase URL sınırını aşıyordu (çok id → hata). Silmeler 150'lik alt-partilere bölündü + ilerleme çubuğu eklendi (kaç/kaç kayıt). Bu düzeltme tüm toplu silmeleri (Tüm Kayıtlar dahil) kapsar",
   ]},
@@ -1685,6 +1688,40 @@ async function parseTableAOA(file) {
   if (/\.csv$/i.test(file.name || "")) return parseDSV(await file.text());
   return parseSheetAOA(file);
 }
+
+// ── Yarım kalan içe aktarma kalıcılığı (IndexedDB) ─────────────────────────
+// Yüklenen dosya diske yazılır; sekme donsa/kapansa bile ekrana dönünce
+// önizleme geri yüklenir. Tamamlanınca / "At" deyince silinir.
+const _pendIDB = (() => {
+  let dbp = null;
+  const open = () => dbp || (dbp = new Promise((res, rej) => {
+    let r; try { r = indexedDB.open("kubban-pending", 1); } catch (e) { return rej(e); }
+    r.onupgradeneeded = () => { try { r.result.createObjectStore("imports"); } catch (_) {} };
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => rej(r.error);
+  }));
+  const run = async (mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction("imports", mode); const s = t.objectStore("imports");
+      const rq = fn(s);
+      t.oncomplete = () => res(rq ? rq.result : undefined);
+      t.onerror = () => rej(t.error); t.onabort = () => rej(t.error);
+    });
+  };
+  return {
+    put: (k, v) => run("readwrite", (s) => s.put(v, k)),
+    get: (k) => run("readonly", (s) => s.get(k)),
+    del: (k) => run("readwrite", (s) => s.delete(k)),
+  };
+})();
+async function savePendingImport(key, file, extra) {
+  try { const buf = await file.arrayBuffer(); await _pendIDB.put(key, { name: file.name || "dosya", buf, savedAt: Date.now(), ...(extra || {}) }); } catch (_) {}
+}
+async function loadPendingImport(key) { try { return await _pendIDB.get(key); } catch (_) { return null; } }
+async function clearPendingImport(key) { try { await _pendIDB.del(key); } catch (_) {} }
+// Kayıtlı dosyayı File gibi davranan nesneye çevir (parseSheetAOA/parseTableAOA için)
+function pendingToFile(pend) { return { name: pend.name || "dosya", arrayBuffer: async () => pend.buf, text: async () => new TextDecoder().decode(pend.buf) }; }
 function gsExtractDate(aoa) {
   for (const r of aoa.slice(0, 8)) for (const c of r) {
     const m = String(c || "").match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
@@ -3587,9 +3624,22 @@ async function viewKasaImport(c) {
     const lb = loadingBar("Dosya okunuyor…");
     try {
       const aoa = await parseSheetAOA(file);
+      savePendingImport("kasa-gecmis", file);
       lb.finish(() => build(aoa));
     } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
   }, ".xlsx,.xls", true));
+
+  (async () => {
+    const pend = await loadPendingImport("kasa-gecmis");
+    if (!pend || !pend.buf) return;
+    try {
+      const aoa = await parseSheetAOA(pendingToFile(pend)); build(aoa);
+      const ed = $("#ka-editor");
+      if (ed) ed.insertAdjacentHTML("afterbegin",
+        `<div class="notice info" style="margin-bottom:10px">🔁 Yarım kalan içe aktarma geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="ka-pend-clear">At / temizle</a></div>`);
+      $("#ka-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("kasa-gecmis"); route(); });
+    } catch (_) {}
+  })();
 
   function build(aoa) {
     // Başlık satırını bul: tarih + (giren/çıkan) + açıklama içeren satır
@@ -3735,6 +3785,7 @@ async function viewKasaImport(c) {
       }
 
       await logAction("İçe Aktarma", "Kasa Geçmişi", `${total} hareket · açılış ${fmtTRY(opening)}`);
+      await clearPendingImport("kasa-gecmis");
       pb.done(() => {
         successAnim(`${total.toLocaleString("tr-TR")} kasa hareketi aktarıldı`, () => {
           location.hash = "#/hesap-detay?id=" + kasa.id;
@@ -3814,9 +3865,22 @@ async function viewBankaImport(c) {
     const lb = loadingBar("Dosya okunuyor…");
     try {
       const aoa = await parseSheetAOA(file);
+      savePendingImport("banka-gecmis", file);
       lb.finish(() => build(aoa));
     } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
   }, ".xlsx,.xls", true));
+
+  (async () => {
+    const pend = await loadPendingImport("banka-gecmis");
+    if (!pend || !pend.buf) return;
+    try {
+      const aoa = await parseSheetAOA(pendingToFile(pend)); build(aoa);
+      const ed = $("#bi-editor");
+      if (ed) ed.insertAdjacentHTML("afterbegin",
+        `<div class="notice info" style="margin-bottom:10px">🔁 Yarım kalan içe aktarma geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="bi-pend-clear">At / temizle</a></div>`);
+      $("#bi-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("banka-gecmis"); route(); });
+    } catch (_) {}
+  })();
 
   function build(aoa) {
     // Başlık satırı: tarih + banka + bakiye içeren satır
@@ -4006,6 +4070,7 @@ async function viewBankaImport(c) {
       }).join(" · ");
 
       await logAction("İçe Aktarma", "Banka Geçmişi", `${total} yeni hareket${totalDup ? ` · ${totalDup} mükerrer atlandı` : ""}`);
+      await clearPendingImport("banka-gecmis");
       pb.done(() => {
         successAnim(`${total.toLocaleString("tr-TR")} yeni hareket eklendi${totalDup ? ` · ${totalDup.toLocaleString("tr-TR")} mükerrer atlandı` : ""}`, () => {
           const body = document.createElement("div");
@@ -4100,9 +4165,24 @@ async function viewCariGecmisImport(c) {
     try {
       const aoa = await parseSheetAOA(file);
       lastAoa = aoa;
+      savePendingImport("cari-gecmis", file);   // sekme kapansa bile önizleme geri gelsin
       lb.finish(() => build(aoa));
     } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
   }, ".xlsx,.xls", true));
+
+  // Yarım kalan içe aktarma varsa (sekme dondu/kapandı) önizlemeyi geri yükle
+  (async () => {
+    const pend = await loadPendingImport("cari-gecmis");
+    if (!pend || !pend.buf) return;
+    try {
+      const aoa = await parseSheetAOA(pendingToFile(pend));
+      lastAoa = aoa; build(aoa);
+      const ed = $("#cg-editor");
+      if (ed) ed.insertAdjacentHTML("afterbegin",
+        `<div class="notice info" id="cg-pend" style="margin-bottom:10px">🔁 Yarım kalan içe aktarma geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="cg-pend-clear">At / temizle</a></div>`);
+      $("#cg-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("cari-gecmis"); route(); });
+    } catch (_) {}
+  })();
 
   // Düzeltme dosyası — yükleyince overrideMap kurulur; hareket dosyası zaten
   // yüklüyse önizleme yeni yönlendirmelerle otomatik yenilenir.
@@ -4456,6 +4536,7 @@ async function viewCariGecmisImport(c) {
       const wrote = check.filter((e) => e.source === CARI_SRC).length;
       const ok = wrote >= total && total >= (readTotal || 0);
       await logAction("İçe Aktarma", "Cari Geçmişi", `Grup modu · ${built.length} cari · ${total} hareket${newGroupDocs.length ? ` · ${newGroupDocs.length} yeni grup` : ""}`);
+      await clearPendingImport("cari-gecmis");
       pb.done(() => {
         if (!ok) toast(`⚠️ Doğrulama: okunan ${(readTotal || total).toLocaleString("tr-TR")}, yazılan ${wrote.toLocaleString("tr-TR")}. Kontrol edin.`, "err");
         successAnim(`${(ok ? "✅ " : "⚠️ ")}${built.length.toLocaleString("tr-TR")} cari · ${total.toLocaleString("tr-TR")} hareket aktarıldı`, () => { location.hash = "#/hesaplar"; });
@@ -4541,6 +4622,7 @@ async function viewCariGecmisImport(c) {
       const ok = wrote === total && lost === 0;
 
       await logAction("İçe Aktarma", "Cari Geçmişi", `${total} hareket · ${byAcc.size} cari${createdAccts ? ` · ${createdAccts} yeni cari` : ""}${ok ? "" : " · ⚠️ doğrulama"}`);
+      await clearPendingImport("cari-gecmis");
       pb.done(() => {
         if (!ok) toast(`⚠️ Doğrulama: okunan ${(readTotal || total).toLocaleString("tr-TR")}, yazılan ${wrote.toLocaleString("tr-TR")}${lost ? `, ${lost.toLocaleString("tr-TR")} atlandı` : ""}. Kontrol edin.`, "err");
         successAnim(
@@ -5247,11 +5329,27 @@ async function viewCariHareket(c) {
       try {
         const { headers, rows } = await parseSpreadsheet(file);
         if (!rows.length) { lb.finish(); return toast("Veri bulunamadı.", "err"); }
+        savePendingImport("fatura", file, { kind });   // sekme kapansa bile geri gelsin
         lb.finish(() => { showEditor(kind); buildPreview(headers, rows, kind); });
       } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
     };
     input.click();
   }
+
+  // Yarım kalan fatura aktarımı varsa (sekme dondu/kapandı) önizlemeyi geri yükle
+  (async () => {
+    const pend = await loadPendingImport("fatura");
+    if (!pend || !pend.buf || !pend.kind) return;
+    try {
+      const { headers, rows } = await parseSpreadsheet(pendingToFile(pend));
+      if (!rows.length) return;
+      showEditor(pend.kind); buildPreview(headers, rows, pend.kind);
+      const bar = $(".ch-bar", c);
+      if (bar) bar.insertAdjacentHTML("afterend",
+        `<div class="notice info" style="margin:10px 0" id="ch-pend">🔁 Yarım kalan fatura aktarımı geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="ch-pend-clear">At / temizle</a></div>`);
+      $("#ch-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("fatura"); route(); });
+    } catch (_) {}
+  })();
 
   function showEditor(kind) {
     const label = kind === "alis" ? "📥 Alış Faturası" : "📤 Satış Faturası";
@@ -5664,6 +5762,7 @@ async function viewCariHareket(c) {
       docs.forEach((d) => d.impTok = impTok);   // incelemede sarı vurgu için
       try {
         await batchAdd(C.accountEntries, docs);
+        await clearPendingImport("fatura");
         await logAction("İçe Aktarma", "Cari Fatura", `${main.code} ${main.name} · ${docs.length} ${faturaTuru}`);
         const affected = [...new Set(docs.map((d) => d.accountId))];
         // ---- İşlem özeti bildirimi ----
