@@ -542,8 +542,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.143";
+const APP_VERSION = "2026.144";
 const CHANGELOG = [
+  { version: "2026.144", date: "2026-08-12", items: [
+    "📋 Tüm Kayıtlar: 'Kayıt Zamanı' sütunu artık tam TARİH + SAAT gösterir (programa kaydedildiği an); CSV'ye de eklendi",
+    "📋 Tüm Kayıtlar: toplu seçip silme — başlıktaki kutu filtrelenen TÜM kayıtları seçer (sayfalar arası), Shift+tık ile aralık; 'Seçilenleri Sil' ile toplu silinir",
+  ]},
   { version: "2026.143", date: "2026-08-12", items: [
     "📋 Tüm Kayıtlar: her satırda işlem saati (kayıt zamanı); kutuları işaretleyip 'Seçilenleri Sil' (Shift+tık ile aralık) — belirli kayıtları tek tek silebilirsin",
     "🧾 Fatura Aktarımı incelemesi artık FATURA BAŞINA ayrı adım: 8 fatura → 8 adım. Her adımda o fatura vurgulanır ve '↪️ Taşı / Düzelt' ile yanlış eşleşeni oracıkta doğru hesaba taşırsın",
@@ -4424,8 +4428,17 @@ async function viewTumKayitlar(c) {
     if (parseNum(e.cikan)) p.push(`<span style="color:var(--danger)">−${fmtTRY(parseNum(e.cikan))}</span>`);
     return p.join(" · ") || "—";
   };
-  // İşlem saati (kayıt zamanı) — createdAt ISO'dan HH:MM
-  const fmtT = (iso) => { const d = iso ? new Date(iso) : null; return (d && !isNaN(d.getTime())) ? `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}` : ""; };
+  // Kayıt zamanı — createdAt'ten tam TARİH + SAAT (gg.aa.yyyy ss:dd)
+  const fmtDT = (v) => {
+    if (!v) return "";
+    let d;
+    if (v instanceof Date) d = v;
+    else if (typeof v === "object" && v.seconds) d = new Date(v.seconds * 1000);
+    else d = new Date(v);
+    if (isNaN(d.getTime())) return "";
+    const p = (n) => String(n).padStart(2, "0");
+    return `${p(d.getDate())}.${p(d.getMonth() + 1)}.${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
   const selected = new Set();
 
   c.innerHTML = `
@@ -4458,8 +4471,8 @@ async function viewTumKayitlar(c) {
       </div>
       <div class="table-wrap" style="overflow-x:auto"><table class="data">
         <thead><tr>
-          <th style="width:32px"><input type="checkbox" class="tk-all" title="Görünenleri seç" /></th>
-          <th>Kaynak</th><th>Hesap</th><th>Tarih</th><th>Saat</th><th>Şahıs / İşlem</th><th>Açıklama</th>
+          <th style="width:32px"><input type="checkbox" class="tk-all" title="Filtrelenen tümünü seç" /></th>
+          <th>Kaynak</th><th>Hesap</th><th>Tarih</th><th>Kayıt Zamanı</th><th>Şahıs / İşlem</th><th>Açıklama</th>
           <th class="num">Tutar</th><th>Fatura No</th><th></th>
         </tr></thead>
         <tbody class="tk-body"></tbody>
@@ -4480,7 +4493,7 @@ async function viewTumKayitlar(c) {
         <td><span class="tag ${r.src ? "" : "warn"}" style="font-size:10px">${esc(r.srcL)}</span></td>
         <td>${esc(r.code)} ${esc(r.name)}</td>
         <td>${r.e.date ? fmtDate(r.e.date) : "—"}</td>
-        <td style="white-space:nowrap;color:var(--ink-soft)">${fmtT(r.e.createdAt)}</td>
+        <td style="white-space:nowrap;color:var(--ink-soft)">${fmtDT(r.e.createdAt || r.e.updatedAt) || "—"}</td>
         <td>${esc(r.e.sahis || r.e.islemAdi || "")}</td>
         <td class="tdwrap">${esc(r.e.aciklama || "")}${r.e.rapor ? ` · <span style="color:var(--ink-faint)">${esc(r.e.rapor)}</span>` : ""}</td>
         <td class="num">${amtTxt(r.e)}</td>
@@ -4540,9 +4553,9 @@ async function viewTumKayitlar(c) {
   // CSV indir (filtrelenen küme)
   $(".tk-csv", c).onclick = () => {
     const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-    const head = ["Kaynak", "HesapKodu", "HesapAdi", "Tarih", "IslemNo", "IslemAdi", "Sahis", "Aciklama", "Rapor", "Borc", "Alacak", "Giren", "Cikan", "FaturaTuru", "FaturaNo"];
+    const head = ["Kaynak", "HesapKodu", "HesapAdi", "Tarih", "KayitZamani", "IslemNo", "IslemAdi", "Sahis", "Aciklama", "Rapor", "Borc", "Alacak", "Giren", "Cikan", "FaturaTuru", "FaturaNo"];
     const lines = [head.map(q).join(";")];
-    view.forEach((r) => { const e = r.e; lines.push([r.srcL, r.code, r.name, e.date || "", e.islemNo ?? "", e.islemAdi || "", e.sahis || "", e.aciklama || "", e.rapor || "", parseNum(e.borc) || "", parseNum(e.alacak) || "", parseNum(e.giren) || "", parseNum(e.cikan) || "", e.faturaTuru || "", e.faturaNo || ""].map(q).join(";")); });
+    view.forEach((r) => { const e = r.e; lines.push([r.srcL, r.code, r.name, e.date || "", fmtDT(e.createdAt || e.updatedAt), e.islemNo ?? "", e.islemAdi || "", e.sahis || "", e.aciklama || "", e.rapor || "", parseNum(e.borc) || "", parseNum(e.alacak) || "", parseNum(e.giren) || "", parseNum(e.cikan) || "", e.faturaTuru || "", e.faturaNo || ""].map(q).join(";")); });
     const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `tum-kayitlar-${todayISO()}.csv`; a.click();
