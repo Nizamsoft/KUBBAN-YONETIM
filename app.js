@@ -537,8 +537,15 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.141";
+const APP_VERSION = "2026.142";
 const CHANGELOG = [
+  { version: "2026.142", date: "2026-08-12", items: [
+    "📋 Tüm Kayıtlar (Hesaplar → 📋 Tüm Kayıtlar, yönetici): tüm hareketler tek listede — kaynak/tarih/metin filtresi, CSV indir (incelemek için paylaş) ve kaynağa/filtreye göre TOPLU SİL (yanlış aktarımı tek tıkla geri al). Satıra dokun → düzenle / taşı / sil",
+    "↪️ Hareket düzenlemede 'Başka Hesaba Taşı': yanlış eşleşen kaydı doğru hesaba taşır; o adın yanlış hesaptaki takma adını temizleyip doğru hesaba ekler (bir daha yanlış eşleşmez)",
+    "Fatura cari eşleştirme sıkılaştırıldı: artık çekirdek kelimelerin TAMAMI birebir eşleşmeli — 'Kaya Kardeşler' ile 'Yılmaz Kardeşler' gibi tek ortak kelimeden yanlış eşleşme olmaz",
+    "Banka Aktarımı (POS/bloke): banka ve bloke hesapları artık ADA göre bulunuyor (kod yedek) — hesap planında kodlar kaymış olsa da Garanti→Garanti Bloke, T.Finans→T.Finans Bloke doğru gelir (yanlış hesap/TYG sorunu giderildi)",
+    "Aktarım incelemesinde defter artık EN ALTA (son işlemler) kaymış açılır — eklenenleri görmek için aşağı kaydırmaya gerek yok",
+  ]},
   { version: "2026.141", date: "2026-08-12", items: [
     "🏦 Banka Geçmişi İçe Aktar artık MÜKERRER yapmıyor: her yükleme öncekini silmek yerine yalnız YENİ hareketleri ekler. Aynı hareket (tarih+giren+çıkan+açıklama) programda varsa atlanır — kısmi/çakışan dosya yüklesen bile tekrar oluşmaz. İşlem No mevcut son numaradan devam eder; açılış bakiyesi yalnız ilk yüklemede istenir",
     "Banka önizlemede her satır 'Yeni' / 'Zaten var' etiketli; üstte kaç yeni/kaç mükerrer; aktarım sonunda özet + banka bazında güncel bakiye",
@@ -1181,6 +1188,7 @@ const ROUTES = {
   "kasa-import":      { title: "Kasa Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewKasaImport, admin: true, back: "#/hesaplar" },
   "banka-import":     { title: "Banka Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewBankaImport, admin: true, back: "#/hesaplar" },
   "cari-gecmis-import": { title: "Cari Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewCariGecmisImport, admin: true, back: "#/hesaplar" },
+  "tum-kayitlar":     { title: "Tüm Kayıtlar", crumb: "Hesaplar", render: viewTumKayitlar, admin: true, back: "#/hesaplar" },
   "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger, back: "#/hesaplar" },
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
@@ -2903,6 +2911,7 @@ async function viewHesaplar(c) {
       <button class="btn btn-sm" id="acc-kasa" style="display:none">📒 Kasa Geçmişi</button>
       <button class="btn btn-sm" id="acc-banka" style="display:none">🏦 Banka Geçmişi</button>
       <button class="btn btn-sm" id="acc-carigec" style="display:none">🧾 Cari Geçmişi</button>
+      <button class="btn btn-sm" id="acc-allrec" style="display:none">📋 Tüm Kayıtlar</button>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
       <button class="btn btn-sm btn-danger" id="acc-clean" style="display:none">🧹 Grup Temizle</button>
@@ -3029,6 +3038,8 @@ async function viewHesaplar(c) {
   if (bankaBtn) { if (isAdmin()) bankaBtn.style.display = ""; bankaBtn.onclick = () => { location.hash = "#/banka-import"; }; }
   const cariGecBtn = $("#acc-carigec", c);
   if (cariGecBtn) { if (isAdmin()) cariGecBtn.style.display = ""; cariGecBtn.onclick = () => { location.hash = "#/cari-gecmis-import"; }; }
+  const allRecBtn = $("#acc-allrec", c);
+  if (allRecBtn) { if (isAdmin()) allRecBtn.style.display = ""; allRecBtn.onclick = () => { location.hash = "#/tum-kayitlar"; }; }
   // "Hesapları Düzenle" modu: düzenle/alt ekle ikonları görünür olur
   $("#edit-toggle").onclick = () => {
     const list = $(".acc-list", c);
@@ -3716,9 +3727,11 @@ async function viewBankaImport(c) {
   }
   const accounts = await fetchAll(C.accounts).catch(() => []);
   const findByCode = (code) => accounts.find((a) => String(a.code) === code);
+  // Banka hesabını ADA göre bul (kod yedek) — plan kodları kaymış olsa da doğru 102 hesabı
+  const findBankAcc = (kw, code) => accounts.find((a) => String(a.code || "").startsWith("102") && normTr(a.name).includes(kw) && !normTr(a.name).includes("bloke")) || findByCode(code);
   const BANKS = [
-    { key: "garanti", label: "Garanti", match: (n) => n.includes("garanti"), acc: findByCode("102.01") },
-    { key: "tfinans", label: "T. Finans", match: (n) => n.includes("finans"), acc: findByCode("102.02") },
+    { key: "garanti", label: "Garanti", match: (n) => n.includes("garanti"), acc: findBankAcc("garanti", "102.01") },
+    { key: "tfinans", label: "T. Finans", match: (n) => n.includes("finans"), acc: findBankAcc("finans", "102.02") },
   ];
   const priorEntries = await fetchAll(C.accountEntries).catch(() => []);
   const priorCount = priorEntries.filter((e) => e.source === BANKA_SRC
@@ -4363,6 +4376,167 @@ async function viewCariGecmisImport(c) {
   }
 }
 
+// ---------------------------------------------------------------------------
+//  TÜM KAYITLAR — tüm hesap hareketleri tek listede; kaynak/tarih/metin filtresi,
+//  CSV indir (incelemek için paylaşılır) ve kaynağa/filtreye göre toplu SİL.
+// ---------------------------------------------------------------------------
+const TK_SRC_LABELS = {
+  "cari-gecmis": "Cari Geçmişi", "banka-gecmis": "Banka Geçmişi", "fatura-import": "Fatura Aktarımı",
+  "banka-pos": "Banka POS", "banka-pos-komisyon": "Banka POS Komisyon", "banka-diger": "Banka Transfer",
+  "banka-tf-alma": "Banka Bloke Alma", "banka-tf-cozum": "Banka Bloke Çözüm",
+  "gunsonu-bloke": "Gün Sonu Bloke", "gunsonu-nakit": "Gün Sonu Nakit", "gunsonu-masraf": "Gün Sonu Masraf",
+  "": "Elle / Diğer",
+};
+async function viewTumKayitlar(c) {
+  if (!isAdmin()) { c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`; return; }
+  const [accounts, entries] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  const accById = new Map(accounts.map((a) => [a.id, a]));
+  const srcLabel = (s) => TK_SRC_LABELS[s || ""] || (s || "Diğer");
+
+  const all = entries.map((e) => {
+    const a = accById.get(e.accountId);
+    return { e, acc: a || null, code: a?.code || "", name: a?.name || "(hesap yok)", src: e.source || "", srcL: srcLabel(e.source) };
+  }).sort((x, y) => (y.e.date || "").localeCompare(x.e.date || "") || (y.e.islemNo || 0) - (x.e.islemNo || 0));
+  all.forEach((r) => { r._hay = normTr([r.code, r.name, r.e.sahis, r.e.islemAdi, r.e.aciklama, r.e.rapor, r.e.faturaNo, r.e.faturaTuru, r.srcL, fmtDate(r.e.date)].filter(Boolean).join(" ")); });
+
+  const srcCounts = {};
+  all.forEach((r) => { srcCounts[r.src] = (srcCounts[r.src] || 0) + 1; });
+  const srcOptions = Object.keys(srcCounts).sort((a, b) => srcCounts[b] - srcCounts[a]);
+
+  const amtTxt = (e) => {
+    const p = [];
+    if (parseNum(e.borc)) p.push(`<span style="color:var(--danger)">B ${fmtTRY(parseNum(e.borc))}</span>`);
+    if (parseNum(e.alacak)) p.push(`<span style="color:var(--ok)">A ${fmtTRY(parseNum(e.alacak))}</span>`);
+    if (parseNum(e.giren)) p.push(`<span style="color:var(--ok)">+${fmtTRY(parseNum(e.giren))}</span>`);
+    if (parseNum(e.cikan)) p.push(`<span style="color:var(--danger)">−${fmtTRY(parseNum(e.cikan))}</span>`);
+    return p.join(" · ") || "—";
+  };
+
+  c.innerHTML = `
+    <div class="card">
+      <div class="card-head"><h3>📋 Tüm Kayıtlar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
+      <div class="pv-fhint">Tüm hareketler tek listede. Filtreleyip <b>CSV indir</b> (incelemek için paylaş) veya <b>kaynağa göre toplu sil</b> (yanlış aktarımı geri al). Bir satıra dokunarak düzenle / başka hesaba taşı / sil.</div>
+      <div class="tbl-tools" style="margin-top:10px">
+        <input class="tbl-search tk-q" type="search" placeholder="🔍 Ara — hesap, şahıs, açıklama, fatura no…" autocomplete="off" />
+        <select class="tk-src" style="min-width:150px">
+          <option value="">Tüm kaynaklar</option>
+          ${srcOptions.map((s) => `<option value="${esc(s)}">${esc(srcLabel(s))} (${srcCounts[s].toLocaleString("tr-TR")})</option>`).join("")}
+        </select>
+        <span class="tbl-lbl">Tarih</span>
+        <input class="tbl-date tk-from" type="date" aria-label="Başlangıç" />
+        <span class="tbl-dsep">—</span>
+        <input class="tbl-date tk-to" type="date" aria-label="Bitiş" />
+        <button class="btn btn-sm tk-clear">Temizle</button>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0">
+        <div class="tk-count" style="font-weight:700"></div>
+        <div class="grow"></div>
+        <button class="btn btn-sm tk-csv">⬇️ CSV indir</button>
+        <button class="btn btn-sm btn-danger tk-del">🗑️ Filtrelenenleri Sil</button>
+        <div class="pager pager-mini">
+          <button class="btn btn-sm" data-pg="prev" aria-label="Önceki">‹</button>
+          <span class="pg-info"></span>
+          <button class="btn btn-sm" data-pg="next" aria-label="Sonraki">›</button>
+        </div>
+      </div>
+      <div class="table-wrap" style="overflow-x:auto"><table class="data">
+        <thead><tr>
+          <th>Kaynak</th><th>Hesap</th><th>Tarih</th><th>Şahıs / İşlem</th><th>Açıklama</th>
+          <th class="num">Tutar</th><th>Fatura No</th><th></th>
+        </tr></thead>
+        <tbody class="tk-body"></tbody>
+      </table></div>
+    </div>`;
+
+  const qEl = $(".tk-q", c), srcEl = $(".tk-src", c), fromEl = $(".tk-from", c), toEl = $(".tk-to", c);
+  const bodyEl = $(".tk-body", c), countEl = $(".tk-count", c);
+  const PAGE = 100;
+  let view = all, page = 0;
+  const tp = () => Math.max(1, Math.ceil(view.length / PAGE));
+
+  function render() {
+    page = Math.max(0, Math.min(tp() - 1, page));
+    const slice = view.slice(page * PAGE, page * PAGE + PAGE);
+    bodyEl.innerHTML = slice.length ? slice.map((r) => `<tr data-id="${r.e.id}" style="cursor:pointer">
+        <td><span class="tag ${r.src ? "" : "warn"}" style="font-size:10px">${esc(r.srcL)}</span></td>
+        <td>${esc(r.code)} ${esc(r.name)}</td>
+        <td>${r.e.date ? fmtDate(r.e.date) : "—"}</td>
+        <td>${esc(r.e.sahis || r.e.islemAdi || "")}</td>
+        <td class="tdwrap">${esc(r.e.aciklama || "")}${r.e.rapor ? ` · <span style="color:var(--ink-faint)">${esc(r.e.rapor)}</span>` : ""}</td>
+        <td class="num">${amtTxt(r.e)}</td>
+        <td>${esc(r.e.faturaNo || "")}</td>
+        <td style="text-align:right"><button class="btn btn-sm" data-edit="${r.e.id}">Düzenle</button></td>
+      </tr>`).join("") : `<tr><td colspan="8"><div class="empty" style="padding:20px">Kayıt yok.</div></td></tr>`;
+    countEl.textContent = `${view.length.toLocaleString("tr-TR")} kayıt${view.length !== all.length ? ` (toplam ${all.length.toLocaleString("tr-TR")})` : ""}`;
+    $$(".pg-info", c).forEach((el) => el.textContent = `${page + 1}/${tp()}`);
+    $$("[data-pg]", c).forEach((b) => b.disabled = b.dataset.pg === "prev" ? page === 0 : page === tp() - 1);
+    const openEdit = (id) => {
+      const r = all.find((x) => x.e.id === id);
+      if (r && r.acc) entryModal(r.acc, r.e, {});
+      else toast("Bu kaydın hesabı bulunamadı (taşı/düzenle için hesap gerekir).", "err");
+    };
+    $$("[data-edit]", c).forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); openEdit(b.dataset.edit); });
+    $$("tr[data-id]", bodyEl).forEach((tr) => tr.onclick = () => openEdit(tr.dataset.id));
+  }
+  function applyFilter() {
+    const q = normTr(qEl.value.trim()), s = srcEl.value, f = fromEl.value, t = toEl.value;
+    view = all.filter((r) => {
+      if (q && !r._hay.includes(q)) return false;
+      if (s && r.src !== s) return false;
+      if (f && (!r.e.date || r.e.date < f)) return false;
+      if (t && (!r.e.date || r.e.date > t)) return false;
+      return true;
+    });
+    page = 0; render();
+  }
+
+  let deb;
+  qEl.addEventListener("input", () => { clearTimeout(deb); deb = setTimeout(applyFilter, 140); });
+  srcEl.addEventListener("change", applyFilter);
+  fromEl.addEventListener("change", applyFilter);
+  toEl.addEventListener("change", applyFilter);
+  $(".tk-clear", c).onclick = () => { qEl.value = ""; srcEl.value = ""; fromEl.value = ""; toEl.value = ""; applyFilter(); };
+  $$("[data-pg]", c).forEach((b) => b.onclick = () => { page += b.dataset.pg === "prev" ? -1 : 1; render(); });
+
+  // CSV indir (filtrelenen küme)
+  $(".tk-csv", c).onclick = () => {
+    const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const head = ["Kaynak", "HesapKodu", "HesapAdi", "Tarih", "IslemNo", "IslemAdi", "Sahis", "Aciklama", "Rapor", "Borc", "Alacak", "Giren", "Cikan", "FaturaTuru", "FaturaNo"];
+    const lines = [head.map(q).join(";")];
+    view.forEach((r) => { const e = r.e; lines.push([r.srcL, r.code, r.name, e.date || "", e.islemNo ?? "", e.islemAdi || "", e.sahis || "", e.aciklama || "", e.rapor || "", parseNum(e.borc) || "", parseNum(e.alacak) || "", parseNum(e.giren) || "", parseNum(e.cikan) || "", e.faturaTuru || "", e.faturaNo || ""].map(q).join(";")); });
+    const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = `tum-kayitlar-${todayISO()}.csv`; a.click();
+    URL.revokeObjectURL(url);
+    toast(`${view.length.toLocaleString("tr-TR")} kayıt indirildi.`, "ok");
+  };
+
+  // Filtrelenenleri sil
+  $(".tk-del", c).onclick = () => {
+    if (!view.length) return toast("Silinecek kayıt yok.", "err");
+    const srcTxt = srcEl.value ? srcLabel(srcEl.value) : "TÜM kaynaklar";
+    confirmDialog(`${view.length.toLocaleString("tr-TR")} kayıt SİLİNECEK (${srcTxt}). Geri alınamaz. Emin misin?`, async () => {
+      const pb = progressBar("Siliniyor…");
+      try {
+        const ids = view.map((r) => r.e.id);
+        for (let i = 0; i < ids.length; i += 400) {
+          const bt = writeBatch(db);
+          ids.slice(i, i + 400).forEach((id) => bt.delete(doc(db, "accountEntries", id)));
+          await bt.commit();
+          pb.set(Math.round(((i + 400) / ids.length) * 100), `${Math.min(i + 400, ids.length)} / ${ids.length}`);
+        }
+        await logAction("Silme", "Tüm Kayıtlar", `${ids.length} kayıt (${srcTxt})`);
+        pb.done(() => { toast(`${ids.length.toLocaleString("tr-TR")} kayıt silindi.`, "ok"); route(); });
+      } catch (e) { pb.done(() => toast("Hata: " + e.message, "err")); }
+    });
+  };
+
+  render();
+}
+
 async function viewAccountLedger(c) {
   const id = hashQuery("id");
   const [accounts, entries] = await Promise.all([
@@ -4506,8 +4680,7 @@ async function viewAccountLedger(c) {
   const PAGE_SIZE = 100;
   const tp = () => Math.max(1, Math.ceil(view.length / PAGE_SIZE));  // toplam sayfa (görünen kümeye göre)
   let view = rows;                                                   // filtreli küme (başta hepsi)
-  const hlIdx = hlTok ? rows.findIndex(({ e }) => isHl(e)) : -1;
-  let page = hlIdx >= 0 ? Math.floor(hlIdx / PAGE_SIZE) : tp() - 1;  // vurgu varsa o sayfa, yoksa en yeni
+  let page = tp() - 1;   // her zaman en yeni (son) sayfa — son işlemler görünür
 
   // Arama + tarih + sayfalama tek satırda; sayfalama ortada no, iki yanında ok
   const toolsHtml = `
@@ -4613,10 +4786,12 @@ async function viewAccountLedger(c) {
   ledgerFitHandler = fitLedger;
   window.addEventListener("resize", fitLedger);
 
-  // Sarı vurgulanan (bu turda eklenen) ilk kayda kaydır
+  // İnceleme/aktarım sonrası: defter EN ALTA (son işlemler) kaydırılmış açılır
   if (hlTok) requestAnimationFrame(() => {
-    const first = $(".tx-hl", c) || $(".hl-row", c);
-    if (first) first.scrollIntoView({ block: "center", behavior: "smooth" });
+    const tw = $(".ledger-table", c);
+    if (tw && getComputedStyle(tw).display !== "none") { tw.scrollTop = tw.scrollHeight; return; }
+    const cards = $$(".tx-card", c); const last = cards[cards.length - 1];
+    if (last) last.scrollIntoView({ block: "end", behavior: "smooth" });
   });
 
   // İnceleme turu: Sonraki / Bitir + Enter kısayolu
@@ -4687,6 +4862,42 @@ function entryModal(acc, entry, opts) {
       }));
     del.style.marginRight = "auto";
     footer.push(del);
+    // ↪️ Başka hesaba taşı — yanlış eşleşen kaydı doğru hesaba aktar (takma ad da düzelir)
+    footer.push(mkBtn("↪️ Taşı", "", async () => {
+      const accs = await fetchAll(C.accounts).catch(() => []);
+      const parentIds = new Set(accs.map((a) => a.parentId).filter(Boolean));
+      const leaf = accs.filter((a) => !parentIds.has(a.id) && a.code);
+      openAccountPicker({
+        accounts: leaf, title: "Taşınacak Hesap", query: "", allowNew: false,
+        onPick: async (res) => {
+          const target = res.acc; if (!target || target.id === acc.id) return;
+          try {
+            const all = await fetchAll(C.accountEntries).catch(() => []);
+            const tcari = isCari(target.type) || String(target.code || "").startsWith("108");
+            const patch = {
+              accountId: target.id, accountCode: target.code || "",
+              islemNo: all.reduce((mx, e) => Math.max(mx, e.islemNo || 0), 0) + 1,
+              updatedAt: serverTimestamp(),
+            };
+            if (tcari) patch.cariNo = all.filter((e) => e.accountId === target.id).reduce((mx, e) => Math.max(mx, e.cariNo || 0), 0) + 1;
+            await updateDoc(doc(db, "accountEntries", entry.id), patch);
+            // Takma ad düzelt: kaynak hesaptan bu adı çıkar, hedefe ekle (bir daha yanlış eşleşmesin)
+            const nm = (entry.sahis || "").trim();
+            if (nm) {
+              const srcAl = (acc.nameAliases || []).filter((al) => normTr(al) !== normTr(nm));
+              if ((acc.nameAliases || []).length !== srcAl.length)
+                await updateDoc(doc(db, "accounts", acc.id), { nameAliases: srcAl }).catch(() => {});
+              const tgtAl = target.nameAliases || [];
+              if (!tgtAl.some((al) => normTr(al) === normTr(nm)) && normTr(target.name) !== normTr(nm)) {
+                tgtAl.push(nm); await updateDoc(doc(db, "accounts", target.id), { nameAliases: tgtAl }).catch(() => {});
+              }
+            }
+            await logAction("Taşıma", "Hesap Hareketi", `${acc.code || ""} → ${target.code || ""} · İşlem No ${entry.islemNo ?? ""}`);
+            m.close(); toast(`Taşındı: ${target.code} ${target.name}`, "ok"); route();
+          } catch (e) { toast("Taşınamadı: " + e.message, "err"); }
+        },
+      });
+    }));
   }
   footer.push(mkBtn("Vazgeç", "", () => m.close()));
   footer.push(mkBtn("Kaydet", "btn-primary", async () => {
@@ -4847,15 +5058,12 @@ async function viewCariHareket(c) {
     const nameMatch = (aName, itAd) => {
       const A = chCore(aName), B = chCore(itAd);
       if (!A || !B) return chNorm(aName) === chNorm(itAd) && !!chNorm(aName);
-      if (A === B) return true;
-      // Kelime örtüşmesi (sıra/orta kelime önemsiz): kısa ismin çekirdek kelimeleri diğerinde varsa eşleş
-      const ta = [...new Set(A.split(" "))], tb = [...new Set(B.split(" "))];
-      const setB = new Set(tb);
-      const inter = ta.filter((w) => setB.has(w)).length;
-      const minLen = Math.min(ta.length, tb.length);
-      if (minLen >= 2 && inter >= minLen) return true;        // kısa ismin tüm kelimeleri diğerinde
-      if (minLen >= 3 && inter >= minLen - 1) return true;    // 3+ kelimede 1 kelime tolerans
-      return false;
+      // Katı eşleşme: çekirdek kelime KÜMELERİ birebir aynı olmalı (sıra önemsiz,
+      // şirket ekleri atılmış). Tek ortak genel kelime ("Kardeşler") artık eşleştirmez.
+      const ta = new Set(A.split(" ")), tb = new Set(B.split(" "));
+      if (ta.size !== tb.size) return false;
+      for (const w of ta) if (!tb.has(w)) return false;
+      return true;
     };
     const allCari = accounts.filter((a) => isCari(a.type) && a.parentId);
     const chParentIds = new Set(accounts.map((a) => a.parentId).filter(Boolean));
@@ -5241,6 +5449,18 @@ const BK_BANKS = [
   { key: "tfinans", label: "T. Finans", emoji: "🔵", bankCode: "102.02", blokeCode: "108.02" },
   { key: "ziraat",  label: "Ziraat",    emoji: "🟡", bankCode: "102.03", blokeCode: null },
 ];
+// Banka + bloke hesaplarını ADA göre bul (kod yedek). Hesap planında 102/108 kodları
+// yeniden atanmış olsa bile (ör. Garanti Bloke 108.09'da) doğru hesabı getirir.
+function bkResolveAccs(allAcc, bank) {
+  const kw = bank.key === "garanti" ? "garanti" : bank.key === "tfinans" ? "finans" : bank.key === "ziraat" ? "ziraat" : "";
+  const nm = (a) => normTr(a.name || "");
+  const bankAcc = (kw && allAcc.find((a) => String(a.code || "").startsWith("102") && nm(a).includes(kw) && !nm(a).includes("bloke")))
+    || allAcc.find((a) => String(a.code) === bank.bankCode) || null;
+  const blokeAcc = !bank.blokeCode ? null
+    : ((kw && allAcc.find((a) => String(a.code || "").startsWith("108") && nm(a).includes(kw) && nm(a).includes("bloke")))
+        || allAcc.find((a) => String(a.code) === bank.blokeCode) || null);
+  return { bankAcc, blokeAcc };
+}
 // gg/aa/yyyy → Date · Date → ISO
 function bkParseDate(s) {
   if (s instanceof Date && !isNaN(s)) return new Date(s.getFullYear(), s.getMonth(), s.getDate());
@@ -5424,8 +5644,7 @@ async function viewBanka(c) {
   }
 
   function renderGaranti(bank) {
-    const bankAcc = allAcc.find((a) => String(a.code) === bank.bankCode);
-    const blokeAcc = allAcc.find((a) => String(a.code) === bank.blokeCode);
+    const { bankAcc, blokeAcc } = bkResolveAccs(allAcc, bank);
     const body = $("#bk-body");
     // Hesap planı eksikse önce uyar (dosya isteme)
     if (!bankAcc || !blokeAcc) {
@@ -5687,8 +5906,7 @@ async function viewBanka(c) {
 
   // ---- T. FİNANS: hesap (bloke) + kart dosyaları eşleştirme ----
   function renderTFinans(bank) {
-    const blokeAcc = allAcc.find((a) => String(a.code) === bank.blokeCode); // 108.02
-    const bankAcc = allAcc.find((a) => String(a.code) === bank.bankCode);   // 102.02
+    const { bankAcc, blokeAcc } = bkResolveAccs(allAcc, bank);   // ada göre (kod yedek)
     const body = $("#bk-body");
     if (!blokeAcc || !bankAcc) {
       body.innerHTML = `<div class="card">
