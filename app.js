@@ -542,8 +542,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.155";
+const APP_VERSION = "2026.156";
 const CHANGELOG = [
+  { version: "2026.156", date: "2026-08-12", items: [
+    "📅 Gün Sonu → Blokeye Aktarımlar valör girişi hesap türüne göre ayrıldı: BANKALARDA (Garanti, T.Finans) yalnız '+N gün' kutusu görünür (tarih otomatik hesaplanır); YEMEK KARTLARINDA (Edenred, Multinet, Pluxee, Metropol, Set, Yemek Sepeti, Getir, Trendyol) yalnız takvim/tarih kutusu görünür",
+    "🧠 Bankalarda valör günü hatırlanıyor: bir satıra girdiğin gün sayısı (ör. Garanti KK 23 gün) o hesap için saklanır ve bir sonraki gün sonunda varsayılan olarak gelir",
+  ]},
   { version: "2026.155", date: "2026-08-12", items: [
     "🧾 Gün Sonu → Cari İşlemler: aynı tarih ve aynı tutarda fatura zaten girilmişse o satır soluk görünür, 'faturalı — aktarılmayacak' etiketi çıkar, toplamdan düşülür ve kaydederken atlanır (mükerrer cari borç oluşmaz). Tutar değişince durum canlı güncellenir",
     "🏦 Gün Sonu → Blokeye Aktarımlar eşleştirmesi artık HESAP ADINA göre (sabit koda göre değil): Garanti KK/DK/YDK bloke hesabına, T.Finans finans bloke hesabına, yemek kartları kendi hesabına doğru düşüyor. Önceden koda göre olduğundan (108.01 sizde Multinet, Garanti Bloke 108.09) Garanti çekimleri yanlış hesaba gidiyordu",
@@ -1932,6 +1936,12 @@ function daysBetweenISO(a, b) {
   if (!pa || !pb) return 0;
   return Math.round((Date.UTC(+pb[1], +pb[2] - 1, +pb[3]) - Date.UTC(+pa[1], +pa[2] - 1, +pa[3])) / 86400000);
 }
+// Bankalarda "son girdiğim gün" hafızası (satır anahtarına göre; ör. 108.09-kredi → 23)
+function gsGunMemGet() { try { return JSON.parse(localStorage.getItem("gs_valor_gun") || "{}") || {}; } catch (_) { return {}; } }
+function gsGunMemSet(key, n) {
+  const m = gsGunMemGet(); m[key] = n;
+  try { localStorage.setItem("gs_valor_gun", JSON.stringify(m)); } catch (_) {}
+}
 
 // Çok adımlı Gün Sonu Aktarım durumu (adımlar arası korunur)
 let gsState = null; // { step, date, kasa:[{yontem,sistem,gerceklesen}], recordId? }
@@ -2168,9 +2178,16 @@ async function viewGunSonuAktarim(c) {
     };
 
     const rowKey = (r) => r.code + "-" + r.tip;
+    const gunMem = gsGunMemGet();
     const blRowHtml = (r) => {
       const key = rowKey(r);
-      const rv = bl.rowValor[key] || bl.valor;
+      // Bankalarda varsayılan = en son girdiğin gün (hafıza); yoksa +1 gün. Yemek kartlarında belli tarih.
+      if (!bl.rowValor[key]) {
+        bl.rowValor[key] = (r.banka && gunMem[key] != null)
+          ? addDaysISO(gsState.date, gunMem[key])
+          : (bl.valor || nextDayISO(gsState.date));
+      }
+      const rv = bl.rowValor[key];
       let amtCell;
       if (r.tip === "kredi") {
         amtCell = `<div class="bl-kredi">
@@ -2189,10 +2206,11 @@ async function viewGunSonuAktarim(c) {
         </div>
         <div class="bl-camt">${amtCell}</div>
         <div class="bl-cvalor" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end">
-          <span style="font-size:11px;color:var(--ink-soft)">+</span>
-          <input type="number" class="bl-valor-gun" data-key="${key}" min="0" step="1" value="${daysBetweenISO(gsState.date, rv)}" title="Gün sonu + N gün" style="width:46px;text-align:center" />
-          <span style="font-size:11px;color:var(--ink-soft)">gün</span>
-          <input type="date" class="bl-valor-row" data-key="${key}" value="${esc(rv)}" title="ya da belli tarih" />
+          ${r.banka
+            ? `<span style="font-size:11px;color:var(--ink-soft)">+</span>
+               <input type="number" class="bl-valor-gun" data-key="${key}" min="0" step="1" value="${daysBetweenISO(gsState.date, rv)}" title="Gün sonu + N gün" style="width:52px;text-align:center" />
+               <span style="font-size:11px;color:var(--ink-soft)">gün</span>`
+            : `<input type="date" class="bl-valor-row" data-key="${key}" value="${esc(rv)}" title="Ödeme (valör) tarihi" />`}
         </div>
       </div>`;
     };
@@ -2258,19 +2276,17 @@ async function viewGunSonuAktarim(c) {
       inp.addEventListener("focus", () => inp.select());
     });
 
-    // Her satır için valör: tarih VEYA "+N gün" (ikisi de senkron)
+    // Valör: yemek kartlarında belli TARİH (takvim)
     $$(".bl-valor-row", body).forEach((inp) => inp.addEventListener("change", () => {
       const key = inp.dataset.key;
       bl.rowValor[key] = inp.value || bl.valor;
-      const g = $(`.bl-valor-gun[data-key="${key}"]`, body);
-      if (g) g.value = daysBetweenISO(gsState.date, bl.rowValor[key]);
     }));
+    // Valör: bankalarda "+N gün" — girilen gün hafızaya yazılır (bir sonraki gün sonunda varsayılan gelir)
     $$(".bl-valor-gun", body).forEach((inp) => inp.addEventListener("input", () => {
       const key = inp.dataset.key;
-      const d = addDaysISO(gsState.date, inp.value);
-      bl.rowValor[key] = d;
-      const dt = $(`.bl-valor-row[data-key="${key}"]`, body);
-      if (dt) dt.value = d;
+      const n = parseInt(inp.value, 10);
+      bl.rowValor[key] = addDaysISO(gsState.date, inp.value);
+      if (!isNaN(n)) gsGunMemSet(key, n);
     }));
 
     // Garanti Kredi/Debit → Yurt Dışı + toplam canlı
