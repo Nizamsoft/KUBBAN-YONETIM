@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.158";
+const APP_VERSION = "2026.159";
 const CHANGELOG = [
+  { version: "2026.159", date: "2026-08-12", items: [
+    "🔧 Bakiye Karşılaştır: dosya yüklerken oluşan 'key is not defined' hatası düzeltildi — karşılaştırma artık çalışıyor",
+  ]},
   { version: "2026.158", date: "2026-08-12", items: [
     "🔧 Bakiye Karşılaştır: dosya yüklerken 'Dosya okunuyor…' ekranında takılma düzeltildi. Hatalar artık ekranda görünür (sessiz donma yok), Excel çözümleyici arka planda önceden yüklenir ve 30 sn zaman aşımı korumalıdır",
   ]},
@@ -3123,7 +3126,7 @@ async function viewBakiyeKarsilastir(c) {
       const fark = (prog != null && eski != null) ? prog - eski : (prog != null ? prog : -(-eski));
       const status = (p && f) ? "both" : (p ? "prog" : "file");
       list.push({
-        key, name: (p && p.name) || (f && f.name) || k,
+        key: k, name: (p && p.name) || (f && f.name) || k,
         codes: p ? p.codes.join(", ") : "",
         prog, eski, fark, status,
         dupWarn: (p && p.count > 1) || (f && f.count > 1),
