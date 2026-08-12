@@ -537,8 +537,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.139";
+const APP_VERSION = "2026.140";
 const CHANGELOG = [
+  { version: "2026.140", date: "2026-08-12", items: [
+    "⚡ Cari Geçmişi İçe Aktar donma düzeltmesi: eşleşen binlerce hesap için tek tek (SELECT+UPSERT) yapılan yavaş güncelleme kaldırıldı — açılış yalnızca 0 DEĞİLSE sıfırlanır. Yeni cariler de tek toplu yazma ile açılır. 27 bin hareket artık takılmadan aktarılır",
+    "Hareketler 800'lük partiler halinde yazılır (yazma tur sayısı ~yarıya iner)",
+  ]},
   { version: "2026.139", date: "2026-08-12", items: [
     "🔧 Cari Geçmişi: 'Düzeltme dosyası' — indirilen eşleşmeyenler CSV'sine eklediğiniz 'yapılacaklar' sütununa göre şahısları elle yönlendirir. KOY → En Yakın Kod'daki hesaba, hesap adı yazılırsa → o hesaba, KOYMA/boş → dokunulmaz (grupta yeni cari açılır)",
     "İndirilen eşleşmeyenler CSV'sinde artık hazır boş bir 'yapılacaklar' sütunu var — doldurup geri yükleyin (döngü tam kapanır)",
@@ -4218,16 +4222,22 @@ async function viewCariGecmisImport(c) {
           pb.set(2, `${unmatched.size} yeni cari açılıyor…`);
           let cnt = accounts.filter((a) => a.parentCode === parent.code)
             .reduce((m, a) => { const n = parseInt(String(a.code || "").split(".")[1], 10); return isNaN(n) ? m : Math.max(m, n); }, 0);
+          // Tek toplu yazma (yüzlerce ardışık addDoc yerine) — 400'lük partiler
+          const newAccs = [];
           for (const u of unmatched.values()) {
             cnt++;
             const code = `${parent.code}.${String(cnt).padStart(2, "0")}`;
+            const ref = doc(C.accounts());
             const payload = { code, name: titleCase(u.name), type: parent.type, parentId: parent.id, parentCode: parent.code, vkn: "", extNo: "", openingBalance: 0, createdAt: serverTimestamp() };
-            const ref = await addDoc(C.accounts(), payload);
             const acc = { id: ref.id, ...payload };
-            accounts.push(acc);
-            byAcc.set(acc.id, { acc, rows: u.rows });
-            createdAccts++;
+            newAccs.push({ ref, payload, acc, rows: u.rows });
           }
+          for (let i = 0; i < newAccs.length; i += 400) {
+            const bt = writeBatch(db);
+            newAccs.slice(i, i + 400).forEach((x) => bt.set(x.ref, x.payload));
+            await bt.commit();
+          }
+          newAccs.forEach((x) => { accounts.push(x.acc); byAcc.set(x.acc.id, { acc: x.acc, rows: x.rows }); createdAccts++; });
         }
       }
       // 1) Önceki cari-gecmis kayıtlarını sil (hepsi — tam yenileme)
@@ -4242,10 +4252,13 @@ async function viewCariGecmisImport(c) {
       }
 
       // 2) Her cari: açılış 0 + hareketler (İşlem No hesap başına 1…N)
+      //    openingBalance yalnızca 0 DEĞİLSE güncellenir — böylece binlerce eşleşen
+      //    hesap için gereksiz (ve çok yavaş) ardışık updateDoc yapılmaz; 0 olmayanlar toplu yazılır.
       const now = new Date().toISOString();
       const docs = [];
+      const toZero = [];
       for (const { acc, rows } of byAcc.values()) {
-        await updateDoc(doc(db, "accounts", acc.id), { openingBalance: 0 });
+        if ((Number(acc.openingBalance) || 0) !== 0) { toZero.push(acc); acc.openingBalance = 0; }
         rows.forEach((r, i) => docs.push({
           accountId: acc.id, accountCode: String(acc.code || ""),
           islemNo: i + 1, cariNo: r.cariNo, date: r.date, sahis: r.sahis,
@@ -4254,13 +4267,17 @@ async function viewCariGecmisImport(c) {
           source: CARI_SRC, createdAt: now,
         }));
       }
+      if (toZero.length) {
+        pb.set(6, `${toZero.length.toLocaleString("tr-TR")} hesap açılış sıfırlanıyor…`);
+        for (const a of toZero) await updateDoc(doc(db, "accounts", a.id), { openingBalance: 0 });
+      }
 
       const total = docs.length;
-      for (let i = 0; i < total; i += 400) {
+      for (let i = 0; i < total; i += 800) {
         const bt = writeBatch(db);
-        docs.slice(i, i + 400).forEach((d) => bt.set(doc(C.accountEntries()), d));
+        docs.slice(i, i + 800).forEach((d) => bt.set(doc(C.accountEntries()), d));
         await bt.commit();
-        const done = Math.min(i + 400, total);
+        const done = Math.min(i + 800, total);
         pb.set(8 + Math.round((done / total) * 90), `${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")}`);
       }
 
