@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.133";
+} from "./supabase-backend.js?v=2026.134";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.133";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.134";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.133";
+const APP_VERSION = "2026.134";
 const CHANGELOG = [
+  { version: "2026.134", date: "2026-08-11", items: [
+    "Cari Geçmişi: eşleşme havuzu artık TÜM alt hesapları kapsıyor (108 bloke, 336, 128 dahil) — sadece 120/320 değil; böylece bloke/tedarikçi şahısları da eşleşir",
+  ]},
   { version: "2026.133", date: "2026-08-11", items: [
     "Toplu Cari: artık TÜM hesap kodları (108 dahil) oluşturuluyor; yalnızca Hesap Türü (hesap kodu) boş satırlar atlanıyor",
     "Toplu Cari: güncel bakiye ALINMIYOR — açılış 0 eklenir, bakiye hesap hareketlerinden otomatik hesaplanır (mevcut hesabın bakiyesine dokunulmaz)",
@@ -3823,17 +3826,22 @@ async function viewCariGecmisImport(c) {
     return;
   }
   const accounts = await fetchAll(C.accounts).catch(() => []);
-  const cariAccounts = accounts.filter((a) => isCari(a.type));
+  // Havuz: TÜM alt hesaplar (120/320/336/128/108 bloke… her tür) — ana başlıklar hariç
+  const cariAccounts = accounts.filter((a) => a.parentId);
   const nameMap = new Map();          // normTr(ad) → hesap (ilk eşleşen)
-  cariAccounts.forEach((a) => { const k = normTr(a.name); if (k && !nameMap.has(k)) nameMap.set(k, a); });
+  const extMap = new Map();           // cari no (extNo) → hesap
+  cariAccounts.forEach((a) => {
+    const k = normTr(a.name); if (k && !nameMap.has(k)) nameMap.set(k, a);
+    const e = String(a.extNo || "").trim(); if (e && !extMap.has(e)) extMap.set(e, a);
+  });
   const priorEntries = await fetchAll(C.accountEntries).catch(() => []);
   const priorCount = priorEntries.filter((e) => e.source === CARI_SRC).length;
 
   c.innerHTML = `
     <div class="card">
       <div class="card-head"><h3>🧾 Cari Geçmişi İçe Aktar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
-      ${!cariAccounts.length ? `<div class="notice warn">⚠️ Kayıtlı cari (120/320) hesap yok. Önce <b>Toplu Cari İçe Aktar</b> ile carileri oluşturun.</div>` : `
-      <div class="pv-fhint">Excel (.xlsx) yükleyin — "Cari Verileri" sayfası. Satırlar <b>ŞAHIS adına göre</b> mevcut cari hesaplara eşleştirilir.
+      ${!cariAccounts.length ? `<div class="notice warn">⚠️ Kayıtlı alt hesap yok. Önce <b>Toplu Cari İçe Aktar</b> ile hesapları oluşturun.</div>` : `
+      <div class="pv-fhint">Excel (.xlsx) yükleyin — "Cari Verileri" sayfası. Satırlar <b>ŞAHIS adına göre</b> mevcut hesaplara eşleştirilir (108 bloke dahil tüm türler).
         İşlem numaraları uygulama tarafından verilir; <b>açılış 0</b> (yalnız hareketler eklenir).<br>
         Mevcut <b>${cariAccounts.length.toLocaleString("tr-TR")}</b> cari hesap var.
         ${priorCount ? `<br>⚠️ Daha önce içe aktarılmış <b>${priorCount.toLocaleString("tr-TR")}</b> cari geçmişi hareketi var — yeni yükleme <b>bunların yerini alır</b>.` : ""}</div>
