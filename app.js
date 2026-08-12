@@ -542,8 +542,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.154";
+const APP_VERSION = "2026.155";
 const CHANGELOG = [
+  { version: "2026.155", date: "2026-08-12", items: [
+    "🧾 Gün Sonu → Cari İşlemler: aynı tarih ve aynı tutarda fatura zaten girilmişse o satır soluk görünür, 'faturalı — aktarılmayacak' etiketi çıkar, toplamdan düşülür ve kaydederken atlanır (mükerrer cari borç oluşmaz). Tutar değişince durum canlı güncellenir",
+    "🏦 Gün Sonu → Blokeye Aktarımlar eşleştirmesi artık HESAP ADINA göre (sabit koda göre değil): Garanti KK/DK/YDK bloke hesabına, T.Finans finans bloke hesabına, yemek kartları kendi hesabına doğru düşüyor. Önceden koda göre olduğundan (108.01 sizde Multinet, Garanti Bloke 108.09) Garanti çekimleri yanlış hesaba gidiyordu",
+    "📅 Valör tarihi artık iki şekilde girilebilir: 'gün sonu + N gün' (bankalar için, ör. +1 gün) veya belli bir tarih (yemek kartları için). İki alan senkron; her bloke satırının valörü ayrı ayarlanır",
+  ]},
   { version: "2026.154", date: "2026-08-12", items: [
     "🔗 Çift-taraflı kayıt bağlama: banka aktarımında bir işlem birden çok hesaba yazınca (POS çözüm 108+102+komisyon, transfer/T.Finans 2 taraf) tüm satırlar artık ortak bir Kayıt No + gizli bağ ile bağlı. Düzenleme penceresinde '🔗 Kayıt No X · N hesaba bağlı' görünür",
     "Bir kaydı SİLİNCE bağlı tüm kayıtlar birlikte silinir (yarım/orphan kalmaz). TARİH değişikliği bağlı hepsine yayılır. TUTAR değişikliği yalnız 2 kayıtlı işlemde karşı tarafa aynen yansır (POS'ta 3 taraf olduğundan yansımaz)",
@@ -1831,38 +1836,46 @@ function gsExtractMasraflar(aoa) {
 }
 
 // Bölüm 3 – Blokeye Aktarım eşleştirmesi (ödeme yöntemi → 108 bloke hesabı)
+// Hesap ADINA göre eşleşir (kod yedek değil, sabit kod YOK) — plan kodları farklı
+// olsa da (ör. Garanti Bloke 108.09'da) doğru hesaba gider. Sıra: kullanıcı tablosu.
 const GS_BLOKE_MAP = [
-  { method: "Garanti Bankası", code: "108.01", garanti: true },
-  { method: "T.Finans Banka",  code: "108.02" },
-  { method: "Yemek Sepeti",    code: "108.03" },
-  { method: "Getir Yemek",     code: "108.04" },
-  { method: "Trendyol",        code: "108.05" },
-  { method: "Ticket",          code: "108.06" }, // Edenred
-  { method: "Multinet",        code: "108.07" }, // Multinet
-  { method: "Sodexho",         code: "108.08" }, // Pluxee
-  { method: "Metropol Card",   code: "108.09" }, // Metropol
-  { method: "Set Kurumsal",    code: "108.10" }, // Set Kurumsal
+  { method: "Garanti Bankası", kw: ["garanti"],           garanti: true, banka: true },
+  { method: "T.Finans Banka",  kw: ["finans"],            banka: true },
+  { method: "Ticket",          kw: ["edenred", "ticket"] },
+  { method: "Multinet",        kw: ["multinet"] },
+  { method: "Sodexho",         kw: ["pluxee", "sodexho"] },
+  { method: "Metropol Card",   kw: ["metropal", "metropol"] },
+  { method: "Set Kurumsal",    kw: ["set kurumsal", "setcard", "set kart"] },
+  { method: "Yemek Sepeti",    kw: ["yemek sepeti"] },
+  { method: "Getir Yemek",     kw: ["getir"] },
+  { method: "Trendyol",        kw: ["tyg", "trendyol"] },
 ];
 // Kasa "Gerçekleşen" tutarlarından bloke satırlarını üretir.
 //   Garanti → Kredi Kartı (elle) · Debit Kartı (elle) · Yurt Dışı (otomatik)
 //   Diğerleri → tek satır (Gerçekleşen tutar)
-function gsComputeBlokeRows(state, codeToName) {
+function gsComputeBlokeRows(state, blokeAccounts) {
   const bl = state.bloke || {};
   const gerMap = {};
   (state.kasa || []).forEach((r) => {
     gerMap[r.yontem] = (r.gerceklesen === "" || r.gerceklesen == null) ? 0 : parseNum(r.gerceklesen);
   });
+  // 108 bloke hesaplarını ADA göre eşle (sabit kod yok)
+  const blk = (blokeAccounts || []).filter((a) => String(a.code || "").startsWith("108.") && a.parentId);
+  const nm = (a) => normTr(a.name || "");
+  const findAcc = (kw) => blk.find((a) => kw.some((k) => nm(a).includes(k)));
   const out = [];
   for (const m of GS_BLOKE_MAP) {
     const ger = gerMap[m.method] || 0;
-    const name = (codeToName && codeToName[m.code]) || m.method;
+    const acc = findAcc(m.kw);
+    if (!acc) continue;                        // o adla bloke hesabı yoksa satırı atla
+    const code = String(acc.code), name = acc.name;
     if (m.garanti) {
       const kredi = parseNum(bl.garantiKredi), debit = parseNum(bl.garantiDebit);
-      out.push({ code: m.code, name, aciklama: "KK", tip: "kredi", manual: true, borc: kredi, ger });
-      out.push({ code: m.code, name, aciklama: "DK", tip: "debit", manual: true, borc: debit, ger });
-      out.push({ code: m.code, name, aciklama: "YDK", tip: "yurtdisi", manual: false, borc: ger - kredi - debit, ger });
+      out.push({ code, name, aciklama: "KK", tip: "kredi", manual: true, borc: kredi, ger, banka: true });
+      out.push({ code, name, aciklama: "DK", tip: "debit", manual: true, borc: debit, ger, banka: true });
+      out.push({ code, name, aciklama: "YDK", tip: "yurtdisi", manual: false, borc: ger - kredi - debit, ger, banka: true });
     } else {
-      out.push({ code: m.code, name, aciklama: "", tip: "tek", manual: false, borc: ger, ger });
+      out.push({ code, name, aciklama: "", tip: "tek", manual: false, borc: ger, ger, banka: !!m.banka });
     }
   }
   return out;
@@ -1905,6 +1918,19 @@ function nextDayISO(iso) {
   const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
   d.setUTCDate(d.getUTCDate() + 1);
   return d.toISOString().slice(0, 10);
+}
+// ISO tarihe N gün ekle · iki ISO tarih arası gün farkı (valör "+N gün" için)
+function addDaysISO(iso, n) {
+  const m = String(iso || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!m) return iso || todayISO();
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  d.setUTCDate(d.getUTCDate() + (parseInt(n, 10) || 0));
+  return d.toISOString().slice(0, 10);
+}
+function daysBetweenISO(a, b) {
+  const pa = String(a || "").match(/^(\d{4})-(\d{2})-(\d{2})/), pb = String(b || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (!pa || !pb) return 0;
+  return Math.round((Date.UTC(+pb[1], +pb[2] - 1, +pb[3]) - Date.UTC(+pa[1], +pa[2] - 1, +pa[3])) / 86400000);
 }
 
 // Çok adımlı Gün Sonu Aktarım durumu (adımlar arası korunur)
@@ -2113,14 +2139,27 @@ async function viewGunSonuAktarim(c) {
     accounts.forEach((a) => { if (a.code) codeToName[String(a.code)] = a.name; });
     const money = (v) => (v === "" || v == null) ? "" : fmtNum(parseNum(v));
 
+    // Aynı tarih + aynı tutarda fatura zaten girilmişse "faturalı" say (aktarılmaz)
+    const allEntries = await fetchAll(C.accountEntries).catch(() => []);
+    const faturaAmts = new Set(allEntries
+      .filter((e) => e.source === "fatura-import" && e.date === gsState.date)
+      .map((e) => Math.round((parseNum(e.borc) || 0) * 100))
+      .filter(Boolean));
+    gsState._faturaAmts = [...faturaAmts];
+    const isFaturali = (key, r) => key === "cariIslem" && faturaAmts.has(Math.round(parseNum(r.tutar) * 100));
+
     const listCard = (title, hint, key) => {
       const rows = gsState[key];
-      const tot = rows.reduce((s, r) => s + parseNum(r.tutar), 0);
-      const rowsHtml = rows.map((r, i) => `
-        <div class="ci-row">
+      const tot = rows.reduce((s, r) => s + (isFaturali(key, r) ? 0 : parseNum(r.tutar)), 0);
+      const rowsHtml = rows.map((r, i) => {
+        const fat = isFaturali(key, r);
+        return `
+        <div class="ci-row${fat ? " faturali" : ""}" data-row="${key}-${i}">
           <input class="ci-sahis" data-key="${key}" data-i="${i}" value="${esc(r.sahis)}" placeholder="Şahıs / Cari" />
           <div class="ci-amt"><input class="num ci-tutar" data-key="${key}" data-i="${i}" inputmode="decimal" value="${esc(money(r.tutar))}" placeholder="0,00" /><span class="cur">₺</span></div>
-        </div>`).join("");
+          ${fat ? `<div class="ci-fat"><span class="ci-fat-tag">faturalı</span><span class="ci-fat-note">Aynı tarih ve tutarda fatura var — aktarılmayacak</span></div>` : ""}
+        </div>`;
+      }).join("");
       return `<div class="card">
         <div class="card-head"><h3>${esc(title)}</h3><span class="hint">${esc(hint)}</span></div>
         <div class="ci-list">${rowsHtml || `<div class="empty" style="padding:14px"><p>Kayıt yok.</p></div>`}</div>
@@ -2149,12 +2188,17 @@ async function viewGunSonuAktarim(c) {
           <div class="bl-sub">${esc(r.code)}</div>
         </div>
         <div class="bl-camt">${amtCell}</div>
-        <div class="bl-cvalor"><input type="date" class="bl-valor-row" data-key="${key}" value="${esc(rv)}" /></div>
+        <div class="bl-cvalor" style="display:flex;align-items:center;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+          <span style="font-size:11px;color:var(--ink-soft)">+</span>
+          <input type="number" class="bl-valor-gun" data-key="${key}" min="0" step="1" value="${daysBetweenISO(gsState.date, rv)}" title="Gün sonu + N gün" style="width:46px;text-align:center" />
+          <span style="font-size:11px;color:var(--ink-soft)">gün</span>
+          <input type="date" class="bl-valor-row" data-key="${key}" value="${esc(rv)}" title="ya da belli tarih" />
+        </div>
       </div>`;
     };
 
     const blokeCard = () => {
-      const rows = gsComputeBlokeRows(gsState, codeToName);
+      const rows = gsComputeBlokeRows(gsState, accounts);
       const tot = rows.reduce((s, r) => s + parseNum(r.borc), 0);
       return `<div class="card">
         <div class="card-head"><h3>Blokeye Aktarımlar</h3><span class="hint">108 bloke hesaplarına Borç</span></div>
@@ -2182,8 +2226,24 @@ async function viewGunSonuAktarim(c) {
 
     // Cari liste düzenleme
     const refreshTot = (key) => {
-      const tot = gsState[key].reduce((s, r) => s + parseNum(r.tutar), 0);
+      const tot = gsState[key].reduce((s, r) => s + (isFaturali(key, r) ? 0 : parseNum(r.tutar)), 0);
       const el = $(`[data-tot="${key}"]`, body); if (el) el.textContent = fmtTRY(tot);
+    };
+    // Tutar değişince "faturalı" durumunu ve soluk görünümü canlı güncelle
+    const refreshFaturali = (key, i) => {
+      if (key !== "cariIslem") return;
+      const rowEl = $(`.ci-row[data-row="${key}-${i}"]`, body);
+      if (!rowEl) return;
+      const r = gsState[key][i];
+      const fat = isFaturali(key, r);
+      rowEl.classList.toggle("faturali", fat);
+      let tag = $(".ci-fat", rowEl);
+      if (fat && !tag) {
+        tag = document.createElement("div");
+        tag.className = "ci-fat";
+        tag.innerHTML = `<span class="ci-fat-tag">faturalı</span><span class="ci-fat-note">Aynı tarih ve tutarda fatura var — aktarılmayacak</span>`;
+        rowEl.appendChild(tag);
+      } else if (!fat && tag) { tag.remove(); }
     };
     $$(".ci-sahis", body).forEach((inp) => inp.addEventListener("input", () => {
       gsState[inp.dataset.key][+inp.dataset.i].sahis = inp.value;
@@ -2191,15 +2251,26 @@ async function viewGunSonuAktarim(c) {
     $$(".ci-tutar", body).forEach((inp) => {
       inp.addEventListener("input", () => {
         gsState[inp.dataset.key][+inp.dataset.i].tutar = parseNum(inp.value);
+        refreshFaturali(inp.dataset.key, +inp.dataset.i);
         refreshTot(inp.dataset.key);
       });
       inp.addEventListener("blur", () => { const n = parseNum(inp.value); inp.value = n ? fmtNum(n) : ""; });
       inp.addEventListener("focus", () => inp.select());
     });
 
-    // Her satır için ayrı valör tarihi
+    // Her satır için valör: tarih VEYA "+N gün" (ikisi de senkron)
     $$(".bl-valor-row", body).forEach((inp) => inp.addEventListener("change", () => {
-      bl.rowValor[inp.dataset.key] = inp.value || bl.valor;
+      const key = inp.dataset.key;
+      bl.rowValor[key] = inp.value || bl.valor;
+      const g = $(`.bl-valor-gun[data-key="${key}"]`, body);
+      if (g) g.value = daysBetweenISO(gsState.date, bl.rowValor[key]);
+    }));
+    $$(".bl-valor-gun", body).forEach((inp) => inp.addEventListener("input", () => {
+      const key = inp.dataset.key;
+      const d = addDaysISO(gsState.date, inp.value);
+      bl.rowValor[key] = d;
+      const dt = $(`.bl-valor-row[data-key="${key}"]`, body);
+      if (dt) dt.value = d;
     }));
 
     // Garanti Kredi/Debit → Yurt Dışı + toplam canlı
@@ -2210,7 +2281,7 @@ async function viewGunSonuAktarim(c) {
         else if (inp.dataset.tip === "komisyon") bl.garantiKomisyon = v;
         else if (inp.dataset.tip === "debit") bl.garantiDebit = v;
       });
-      const rows = gsComputeBlokeRows(gsState, codeToName);
+      const rows = gsComputeBlokeRows(gsState, accounts);
       const yd = rows.find((r) => r.tip === "yurtdisi");
       const ydEl = $('.bl-val[data-tip="yurtdisi"]', body);
       if (ydEl && yd) { ydEl.textContent = fmtNum(yd.borc); ydEl.style.color = yd.borc < 0 ? "var(--danger)" : ""; }
@@ -2325,8 +2396,14 @@ async function viewGunSonuAktarim(c) {
     const preEntries = await fetchAll(C.accountEntries).catch(() => []);
     const musteri = accounts.filter((a) => a.type === "musteri");
     const byName = new Map(musteri.map((a) => [normTr(a.name), a]));
+    // Aynı tarih + aynı tutarda fatura zaten girilmişse o cari işlem "faturalı" sayılır ve aktarılmaz
+    const faturaAmts = new Set(preEntries
+      .filter((e) => e.source === "fatura-import" && e.date === date)
+      .map((e) => Math.round((parseNum(e.borc) || 0) * 100))
+      .filter(Boolean));
     const cariItems = [
-      ...cariIslem.map((r) => ({ name: r.sahis, tutar: r.tutar, side: "borc" })),
+      ...cariIslem.filter((r) => !faturaAmts.has(Math.round(r.tutar * 100)))
+        .map((r) => ({ name: r.sahis, tutar: r.tutar, side: "borc" })),
       ...cariTahsilat.map((r) => ({ name: r.sahis, tutar: r.tutar, side: "alacak" })),
     ].filter((it) => it.name && it.tutar);
     const missing = [], mset = new Set();
@@ -2448,7 +2525,7 @@ async function viewGunSonuAktarim(c) {
       ? "Garanti " + r.aciklama
       : String(r.name || "").replace(/\s*Bloke Hesab[ıi]\s*$/i, "").trim();
 
-    const blokeRows = gsComputeBlokeRows(gsState, codeToName).filter((r) => parseNum(r.borc));
+    const blokeRows = gsComputeBlokeRows(gsState, accounts).filter((r) => parseNum(r.borc));
     let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
     const cnoMap = new Map();
     const docs = blokeRows.map((r) => {
