@@ -537,8 +537,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.138";
+const APP_VERSION = "2026.139";
 const CHANGELOG = [
+  { version: "2026.139", date: "2026-08-12", items: [
+    "🔧 Cari Geçmişi: 'Düzeltme dosyası' — indirilen eşleşmeyenler CSV'sine eklediğiniz 'yapılacaklar' sütununa göre şahısları elle yönlendirir. KOY → En Yakın Kod'daki hesaba, hesap adı yazılırsa → o hesaba, KOYMA/boş → dokunulmaz (grupta yeni cari açılır)",
+    "İndirilen eşleşmeyenler CSV'sinde artık hazır boş bir 'yapılacaklar' sütunu var — doldurup geri yükleyin (döngü tam kapanır)",
+    "CSV okuyucu (parseDSV): ';' ayraçlı, tırnaklı, BOM'lu dosyaları güvenle okur",
+  ]},
   { version: "2026.138", date: "2026-08-12", items: [
     "🔴 Kritik eşleşme düzeltmesi: hesap adlarındaki görünmez 'U+0307' (İ.toLowerCase() → i+nokta) yüzünden binlerce cari eşleşmiyordu. normTr artık birleşen aksanları siliyor — mevcut kayıtlar bile yeniden yüklemeden eşleşir (2264 → 32 eşleşmeyen)",
     "titleCase de temizlendi — yeni içe aktarımlarda hesap adları görünmez nokta içermez",
@@ -1610,6 +1615,32 @@ async function parseSheetAOA(file) {
   const buf = await file.arrayBuffer();
   const wb = XLSX.read(buf, { type: "array", cellDates: true });
   return XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: true });
+}
+// Ayraçla ayrılmış metni (CSV) AOA'ya çevirir — tırnaklı alanları, gömülü ayraç/satırsonunu ve
+// BOM'u işler. Ayraç ilk dolu satırdan sezilir (';' baskınsa ';', değilse ',').
+function parseDSV(text) {
+  text = String(text || "");
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const firstLine = text.split(/\r?\n/).find((l) => l.trim() !== "") || "";
+  const delim = firstLine.split(";").length >= firstLine.split(",").length ? ";" : ",";
+  const rows = []; let cur = [], field = "", inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (inQ) {
+      if (ch === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else inQ = false; }
+      else field += ch;
+    } else if (ch === '"') inQ = true;
+    else if (ch === delim) { cur.push(field); field = ""; }
+    else if (ch === "\n") { cur.push(field); rows.push(cur); cur = []; field = ""; }
+    else if (ch !== "\r") field += ch;
+  }
+  if (field !== "" || cur.length) { cur.push(field); rows.push(cur); }
+  return rows;
+}
+// Düzeltme/eşleştirme dosyası: .csv ise parseDSV, aksi halde Excel okuyucu.
+async function parseTableAOA(file) {
+  if (/\.csv$/i.test(file.name || "")) return parseDSV(await file.text());
+  return parseSheetAOA(file);
 }
 function gsExtractDate(aoa) {
   for (const r of aoa.slice(0, 8)) for (const c of r) {
@@ -3901,14 +3932,21 @@ async function viewCariGecmisImport(c) {
   const looseKey = (s) => normTr(s).replace(/[^0-9a-z]+/g, " ").replace(/\s+/g, " ").trim();
   const looseMap = new Map();         // looseKey → hesap (yalnız TEKil olanlar güvenli)
   const looseAmbig = new Set();       // birden çok hesaba denk gelen anahtarlar (kullanılmaz)
+  const codeMap = new Map();          // hesap kodu (ör. "108.02") → hesap
   cariAccounts.forEach((a) => {
     const k = normTr(a.name); if (k && !nameMap.has(k)) nameMap.set(k, a);
     const e = String(a.extNo || "").trim(); if (e && !extMap.has(e)) extMap.set(e, a);
+    const cc = String(a.code || "").trim(); if (cc && !codeMap.has(cc)) codeMap.set(cc, a);
     const lk = looseKey(a.name); if (!lk) return;
     const cur = looseMap.get(lk);
     if (cur && cur.id !== a.id) looseAmbig.add(lk);
     else if (!cur) looseMap.set(lk, a);
   });
+  // Elle düzeltme (opsiyonel): normTr(Şahıs) → yönlendirilecek hesap. "Eşleşmeyenler" CSV'sine
+  // eklenen "yapılacaklar" sütunundan kurulur (KOY→En Yakın Kod, ad→o hesap, KOYMA/boş→dokunma).
+  const overrideMap = new Map();
+  let overrideStats = null;   // { applied, unresolved:[] } | { err }
+  let lastAoa = null;         // yüklenen hareket dosyası — düzeltme sonrası yeniden eşleştirmek için
   const priorEntries = await fetchAll(C.accountEntries).catch(() => []);
   const priorCount = priorEntries.filter((e) => e.source === CARI_SRC).length;
 
@@ -3920,7 +3958,16 @@ async function viewCariGecmisImport(c) {
         İşlem numaraları uygulama tarafından verilir; <b>açılış 0</b> (yalnız hareketler eklenir).<br>
         Mevcut <b>${cariAccounts.length.toLocaleString("tr-TR")}</b> cari hesap var.
         ${priorCount ? `<br>⚠️ Daha önce içe aktarılmış <b>${priorCount.toLocaleString("tr-TR")}</b> cari geçmişi hareketi var — yeni yükleme <b>bunların yerini alır</b>.` : ""}</div>
-      <div id="cg-drop" style="margin-top:12px"></div>`}
+      <div id="cg-drop" style="margin-top:12px"></div>
+      <details style="margin-top:10px">
+        <summary style="cursor:pointer;color:var(--ink-soft);font-weight:600">🔧 Düzeltme dosyası (opsiyonel) — eşleşmeyenleri elle yönlendir</summary>
+        <div class="pv-fhint" style="margin-top:6px">İndirdiğiniz <b>eşleşmeyenler</b> CSV'sine bir <b>yapılacaklar</b> sütunu ekleyip yükleyin:
+          <br>• <b>KOY</b> (ör. "EN YAKIN … KOY") → o şahsın hareketleri <b>En Yakın Kod</b>'daki hesaba yazılır
+          <br>• Bir <b>hesap adı</b> yazarsanız → tam o adlı hesaba yazılır
+          <br>• <b>KOYMA</b> / boş → dokunulmaz (aşağıdaki grupta yeni cari açılır)</div>
+        <div id="cg-corr-drop" style="margin-top:8px"></div>
+        <div id="cg-corr-status" style="margin-top:6px"></div>
+      </details>`}
     </div>
     <div id="cg-editor"></div>`;
   if (!cariAccounts.length) return;
@@ -3938,9 +3985,67 @@ async function viewCariGecmisImport(c) {
     const lb = loadingBar("Dosya okunuyor…");
     try {
       const aoa = await parseSheetAOA(file);
+      lastAoa = aoa;
       lb.finish(() => build(aoa));
     } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
   }, ".xlsx,.xls", true));
+
+  // Düzeltme dosyası — yükleyince overrideMap kurulur; hareket dosyası zaten
+  // yüklüyse önizleme yeni yönlendirmelerle otomatik yenilenir.
+  $("#cg-corr-drop")?.appendChild(fileDrop(async (file) => {
+    const lb = loadingBar("Düzeltme okunuyor…");
+    try {
+      const aoa = await parseTableAOA(file);
+      applyCorrections(aoa);
+      lb.finish(() => { if (lastAoa) build(lastAoa); });
+    } catch (e) { lb.finish(); toast("Düzeltme okunamadı: " + e.message, "err"); }
+  }, ".csv,.xlsx,.xls", true));
+
+  function renderCorrStatus() {
+    const el = $("#cg-corr-status"); if (!el) return;
+    if (!overrideStats) { el.innerHTML = ""; return; }
+    if (overrideStats.err) { el.innerHTML = `<div class="notice warn">⚠️ ${esc(overrideStats.err)}</div>`; return; }
+    const { applied, unresolved } = overrideStats;
+    const cls = unresolved.length ? "warn" : "info";
+    el.innerHTML = `<div class="notice ${cls}">✓ <b>${applied}</b> yönlendirme hazır` +
+      (unresolved.length
+        ? ` · <b>${unresolved.length}</b> hedef bulunamadı (bu şahıslar gruba açılır): ${esc(unresolved.slice(0, 6).map((u) => u.sahis).join(", "))}${unresolved.length > 6 ? "…" : ""}`
+        : "") + `</div>`;
+  }
+
+  // "yapılacaklar" sütununu okuyup overrideMap'i kurar.
+  function applyCorrections(aoa) {
+    overrideMap.clear(); overrideStats = null;
+    let hi = (aoa || []).findIndex((r) => (r || []).map(normTr).join("|").includes("sahis"));
+    if (hi < 0) { overrideStats = { err: "‘Sahis’ sütunu bulunamadı." }; return renderCorrStatus(); }
+    const H = (aoa[hi] || []).map((h) => normTr(h));
+    const ic = {
+      sahis: H.findIndex((h) => h.includes("sahis")),
+      kod:   H.findIndex((h) => h.includes("yakinkod") || h === "kod"),
+      todo:  H.findIndex((h) => h.includes("yapilacak")),
+    };
+    if (ic.sahis < 0 || ic.todo < 0) { overrideStats = { err: "‘Sahis’ ve ‘yapılacaklar’ sütunları gerekli." }; return renderCorrStatus(); }
+    let applied = 0; const unresolved = [];
+    aoa.slice(hi + 1).forEach((r) => {
+      const sahis = String(r[ic.sahis] ?? "").trim();
+      const todo = String(r[ic.todo] ?? "").trim();
+      if (!sahis || !todo) return;
+      const nt = normTr(todo);
+      if (nt.includes("koyma")) return;                 // dokunma → grupta yeni cari açılır
+      let acc = null;
+      if (nt.includes("koy")) {                          // En Yakın Kod'daki hesaba bağla
+        const kod = ic.kod >= 0 ? String(r[ic.kod] ?? "").trim() : "";
+        acc = kod ? codeMap.get(kod) || null : null;
+      } else {                                           // belirli hesap adı
+        acc = nameMap.get(nt) || null;
+        if (!acc) { const lk = looseKey(todo); if (lk && !looseAmbig.has(lk)) acc = looseMap.get(lk) || null; }
+      }
+      if (acc) { overrideMap.set(normTr(sahis), acc); applied++; }
+      else unresolved.push({ sahis, todo });
+    });
+    overrideStats = { applied, unresolved };
+    renderCorrStatus();
+  }
 
   function build(aoa) {
     let hi = aoa.findIndex((r) => {
@@ -3964,6 +4069,7 @@ async function viewCariGecmisImport(c) {
     const get = (r, i) => (i >= 0 ? String(r[i] ?? "").trim() : "");
     const byAcc = new Map();       // accountId → { acc, rows:[] }
     const unmatched = new Map();   // normTr(ad) → { name, rows:[] }  (programda olmayan cariler)
+    const ovHit = new Set();       // düzeltme ile yönlendirilen şahıslar (özet için)
     let total = 0;
     aoa.slice(hi + 1).forEach((r) => {
       if (!r || !r.some((x) => String(x).trim() !== "")) return;
@@ -3974,7 +4080,10 @@ async function viewCariGecmisImport(c) {
       const date = cdate(r[col.date]);
       if (!date && !borc && !alacak) return;
       total++;
-      let acc = nameMap.get(normTr(sahis));
+      const nk = normTr(sahis);
+      let acc = overrideMap.get(nk);                 // elle düzeltme her şeyden önce gelir
+      if (acc) ovHit.add(nk);
+      else acc = nameMap.get(nk);
       if (!acc) { const lk = looseKey(sahis); if (lk && !looseAmbig.has(lk)) acc = looseMap.get(lk) || null; }
       const row = {
         cariNo: get(r, col.cariNo), date, sahis, aciklama: get(r, col.aciklama), rapor: get(r, col.rapor),
@@ -4008,7 +4117,7 @@ async function viewCariGecmisImport(c) {
     editor.innerHTML = `
       <div class="card">
         <div class="pv-head"><div class="pv-title">${total.toLocaleString("tr-TR")} hareket okundu</div>
-          <div class="pv-sub">${byAcc.size.toLocaleString("tr-TR")} cari hesaba eşleşti · ${matchedRows.toLocaleString("tr-TR")} hareket aktarılacak</div></div>
+          <div class="pv-sub">${byAcc.size.toLocaleString("tr-TR")} cari hesaba eşleşti · ${matchedRows.toLocaleString("tr-TR")} hareket aktarılacak${ovHit.size ? ` · 🔧 ${ovHit.size} şahıs düzeltmeyle yönlendirildi` : ""}</div></div>
         ${unmatchedRows ? `<div class="notice warn" style="margin-bottom:10px">⚠️ <b>${unmatchedList.length}</b> şahıs programda yok (${unmatchedRows.toLocaleString("tr-TR")} satır): ${esc(unmatchedList.slice(0, 8).map((u) => u.name + " (" + u.rows.length + ")").join(", "))}${unmatchedList.length > 8 ? "…" : ""}
           <div style="margin-top:9px;display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <label style="display:flex;gap:6px;align-items:center;cursor:pointer"><input type="checkbox" id="cg-autocreate" checked style="width:16px;height:16px;accent-color:var(--gold)"> <b>Eşleşmeyenleri otomatik cari aç</b> (hiç satır atlanmasın)</label>
@@ -4054,10 +4163,10 @@ async function viewCariGecmisImport(c) {
           return { ba, bs };
         };
         const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
-        const lines = [["Sahis", "SatirSayisi", "Normalize", "EnYakinKod", "EnYakinHesapAdi", "Benzerlik%"].map(q).join(";")];
+        const lines = [["Sahis", "SatirSayisi", "Normalize", "EnYakinKod", "EnYakinHesapAdi", "Benzerlik%", "yapılacaklar"].map(q).join(";")];
         unmatchedList.forEach((u) => {
           const { ba, bs } = best(u.name);
-          lines.push([u.name, u.rows.length, normTr(u.name), ba ? ba.code : "", ba ? ba.name : "", Math.round(bs * 100)].map(q).join(";"));
+          lines.push([u.name, u.rows.length, normTr(u.name), ba ? ba.code : "", ba ? ba.name : "", Math.round(bs * 100), ""].map(q).join(";"));
         });
         const csv = "﻿" + lines.join("\r\n");
         const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
