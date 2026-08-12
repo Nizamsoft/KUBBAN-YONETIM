@@ -542,10 +542,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.150";
+const APP_VERSION = "2026.151";
 const CHANGELOG = [
+  { version: "2026.151", date: "2026-08-12", items: [
+    "🏦 Banka Aktarımı artık 'kaldığımız yeri' BAKİYE ile buluyor: dosyadaki yürüyen Bakiye'si programın güncel bakiyesine eşit satır = son işlenen hareket; YALNIZ ondan sonrası işlenir. Eski POS'lar (çekildiği güne işlenmiş, dosyada sonradan yatan) artık mükerrer olmaz. Bakiye dosyada bulunamazsa aktarım iptal edilir ('kaldığımız yer bulunamadı'). Garanti + T.Finans (banka/bloke bakiyesi)",
+    "İşlenen satırların Dekont No / Referans No'su saklanır → sonraki yüklemelerde ek güvenlik (aynı dekont bir daha işlenmez)",
+  ]},
   { version: "2026.150", date: "2026-08-12", items: [
-    "🏦 Banka Aktarımı (ham ekstre) artık DEKONT NO ile ilerliyor: her satırın Dekont No'su (T.Finans'ta Referans No) saklanır; ham dosyayı yeniden yüklediğinde dekontu ZATEN İŞLENMİŞ satırlar atlanır — mükerrer olmaz. Tarih kaymasından (POS gece yatıp gün atlaması) tamamen bağımsız. Garanti + T.Finans",
+    "🏦 Banka Aktarımı: Dekont No altyapısı (bir sonraki sürümde bakiye çıpası ile birleştirildi)",
   ]},
   { version: "2026.149", date: "2026-08-12", items: [
     "🔁 İçe aktarma önizlemesi artık kaybolmuyor: yüklediğin dosya tarayıcı diskine (IndexedDB) kaydedilir. Başka uygulamaya/sekmeye geçip sekme dondurulsa/kapatılsa bile o ekrana dönünce önizleme OTOMATİK geri yüklenir (yeniden dosya seçmene gerek yok). Üstte 'geri yüklendi · At/temizle' şeridi. Aktarım tamamlanınca kayıt silinir. Cari/Banka/Kasa Geçmişi ve Fatura ekranlarında geçerli",
@@ -5845,20 +5849,21 @@ function bkClassifyGaranti(aoa) {
   if (hi < 0) throw new Error("Başlık satırı (Tarih/Açıklama/Tutar) bulunamadı.");
   const H = aoa[hi].map((x) => String(x).trim());
   const idx = (ks) => { for (const k of ks) { const i = H.findIndex((h) => low(h).includes(k)); if (i >= 0) return i; } return -1; };
-  const ci = { tarih: idx(["tarih"]), acik: idx(["açıklama", "aciklama"]), etiket: idx(["etiket"]), tutar: idx(["tutar"]), dekont: idx(["dekont"]) };
+  const ci = { tarih: idx(["tarih"]), acik: idx(["açıklama", "aciklama"]), etiket: idx(["etiket"]), tutar: idx(["tutar"]), bakiye: idx(["bakiye"]), dekont: idx(["dekont"]) };
   const rows = aoa.slice(hi + 1).filter((r) => bkParseDate(r[ci.tarih]));
   const pos = [], other = [];
   rows.forEach((r, seq) => {
     const dep = bkParseDate(r[ci.tarih]), desc = String(r[ci.acik] || ""), amt = parseNum(r[ci.tutar]), dekont = String(r[ci.dekont] || "");
+    const bakiye = ci.bakiye >= 0 ? parseNum(r[ci.bakiye]) : null;
     const m = desc.match(/^(PK\d+)\s+(\S+)\s+(\d{2})\/(\d{2})\s+K:\s*([\d.,]+)/);
     if (m) {
       let cek = new Date(dep.getFullYear(), +m[3] - 1, +m[4]);
       if (cek > dep) cek = new Date(dep.getFullYear() - 1, +m[3] - 1, +m[4]);
       const diff = Math.round((dep - cek) / 86400000);
       const tip = diff === 23 ? "KK" : diff === 16 ? "DK" : diff === 1 ? "YDK" : null;
-      pos.push({ seq, dep: bkISO(dep), cek: bkISO(cek), diff, tip, kart: m[2], kom: parseNum(m[5]), amt, dekont, desc });
+      pos.push({ seq, dep: bkISO(dep), cek: bkISO(cek), diff, tip, kart: m[2], kom: parseNum(m[5]), amt, dekont, bakiye, desc });
     } else {
-      other.push({ seq, dep: bkISO(dep), etiket: String(r[ci.etiket] || ""), amt, dekont, desc });
+      other.push({ seq, dep: bkISO(dep), etiket: String(r[ci.etiket] || ""), amt, dekont, bakiye, desc });
     }
   });
   return { pos, other };
@@ -5917,13 +5922,14 @@ function tfParseHesap(aoa) {
   if (hi < 0) throw new Error("Hesap başlığı (Tarih/Açıklama/Tutar) bulunamadı.");
   const H = aoa[hi].map((x) => String(x).trim());
   const idx = (ks) => { for (const k of ks) { const i = H.findIndex((h) => low(h).includes(k)); if (i >= 0) return i; } return -1; };
-  const ci = { tarih: idx(["işlem tarih", "tarih"]), ref: idx(["referans"]), acik: idx(["açıklama", "aciklama"]), tutar: idx(["tutar"]) };
+  const ci = { tarih: idx(["işlem tarih", "tarih"]), ref: idx(["referans"]), acik: idx(["açıklama", "aciklama"]), tutar: idx(["tutar"]), bakiye: idx(["bakiye"]) };
   const alma = [], cozum = [], other = [];
   aoa.slice(hi + 1).forEach((r, seq) => {
     const dt = tfDateTime(r[ci.tarih]); if (!dt) return;
     const acik = String(r[ci.acik] || ""), amt = parseNum(r[ci.tutar]), ref = String(r[ci.ref] || "").trim();
+    const bakiye = ci.bakiye >= 0 ? parseNum(r[ci.bakiye]) : null;
     const la = acik.toLocaleLowerCase("tr");
-    const rec = { seq, date: dt.date, time: dt.time, amt, ref, acik };
+    const rec = { seq, date: dt.date, time: dt.time, amt, ref, bakiye, acik };
     if (la.includes("blokeye alma")) alma.push(rec);
     else if (la.includes("bloke çözüm") || la.includes("bloke cozum")) cozum.push(rec);
     else other.push(rec);
@@ -6077,13 +6083,28 @@ async function viewBanka(c) {
       fetchAll(C.accountEntries).catch(() => []),
       fetchAll(C.settings).catch(() => []),
     ]);
-    // Dekont No ile ilerleme: daha önce işlenmiş (dekontu programda olan) satırları ATLA.
+    // ── Kaldığımız yeri BAKİYE ile bul: dosyadaki yürüyen Bakiye'si programın güncel
+    // bakiyesine EŞİT satır = son işlenen hareket. Yalnız ONDAN SONRASI işlenir.
+    // (Tarih/dekont değil bakiye; çünkü eski POS'lar çekildiği güne işlenmiş, dekontları yok.)
+    const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+    const progBal = round2((Number(bankAcc.openingBalance) || 0)
+      + entries.filter((e) => e.accountId === bankAcc.id).reduce((s, e) => s + (parseNum(e.giren) - parseNum(e.cikan)), 0));
+    let anchorSeq = -1;
+    for (const r of [...pos, ...other]) {
+      if (r.bakiye != null && Math.abs(round2(r.bakiye) - progBal) < 0.005 && r.seq > anchorSeq) anchorSeq = r.seq;
+    }
+    if (anchorSeq < 0) {
+      editor.innerHTML = `<div class="notice warn">⛔ <b>Aktarım iptal edildi — kaldığımız yer bulunamadı.</b><br>
+        Programın güncel Garanti bakiyesi <b>${fmtTRY(progBal)}</b>, dosyadaki <b>Bakiye</b> sütununda hiçbir satırla eşleşmedi. Kayıtlar eksik/farklı olabilir; doğru ekstreyi yükleyin.</div>`;
+      return;
+    }
+    // Kaldığımız yerden SONRASI + (sonraki yeniden yüklemeler için) dekont güvenliği
     const doneDk = bkDoneDekontSet(entries);
-    const bkSkip = pos.filter((p) => p.dekont && doneDk.has(p.dekont)).length
-                 + other.filter((o) => o.dekont && doneDk.has(o.dekont)).length;
-    pos = pos.filter((p) => !(p.dekont && doneDk.has(p.dekont)));
-    other = other.filter((o) => !(o.dekont && doneDk.has(o.dekont)));
-    if (bkSkip) toast(`${bkSkip} satır zaten işlenmiş (Dekont No) — atlandı.`, "ok");
+    const keep = (r) => r.seq > anchorSeq && !(r.dekont && doneDk.has(r.dekont));
+    const skipped = (pos.length + other.length) - (pos.filter(keep).length + other.filter(keep).length);
+    pos = pos.filter(keep);
+    other = other.filter(keep);
+    toast(`Kaldığımız bakiye bulundu (${fmtTRY(progBal)}). ${skipped} satır atlandı · ${pos.length + other.length} yeni satır.`, "ok");
     const groups = bkGroupPos(pos);
     const belirsiz = pos.filter((p) => !p.tip);
     // Rapor önerileri: Gider Grupları kalemleri
@@ -6319,17 +6340,37 @@ async function viewBanka(c) {
       pickTF(async (aoa) => {
         try {
           const parsed = tfParseHesap(aoa);
-          // Referans No ile ilerleme: daha önce işlenmiş satırları atla
           const entries = await fetchAll(C.accountEntries).catch(() => []);
+          // ── Kaldığımız yeri BAKİYE ile bul (banka 102.02 VEYA bloke 108.02 bakiyesine
+          // eşit satır = son işlenen). Yalnız ONDAN SONRASI. Bulunamazsa iptal.
+          const round2 = (n) => Math.round((Number(n) || 0) * 100) / 100;
+          const balOf = (acc) => round2((Number(acc.openingBalance) || 0)
+            + entries.filter((e) => e.accountId === acc.id).reduce((s, e) => s + (parseNum(e.giren) - parseNum(e.cikan) + parseNum(e.borc) - parseNum(e.alacak)), 0));
+          const targets = [balOf(bankAcc), balOf(blokeAcc)];
+          const allRows = [...parsed.alma, ...parsed.cozum, ...parsed.other];
+          const hasBakiye = allRows.some((r) => r.bakiye != null);
+          let anchorSeq = -1;
+          if (hasBakiye) for (const r of allRows) {
+            if (r.bakiye != null && targets.some((t) => Math.abs(round2(r.bakiye) - t) < 0.005) && r.seq > anchorSeq) anchorSeq = r.seq;
+          }
+          if (hasBakiye && anchorSeq < 0) {
+            const b = $("#bk-body");
+            b.innerHTML = `<div class="ch-bar"><span class="ch-title">🔵 T. Finans</span><div class="grow"></div><button class="btn btn-sm" id="bk-back">← Banka</button></div>
+              <div class="notice warn" style="margin-top:10px">⛔ <b>Aktarım iptal edildi — kaldığımız yer bulunamadı.</b><br>
+              Programın güncel T.Finans bakiyesi (banka ${fmtTRY(targets[0])} / bloke ${fmtTRY(targets[1])}) dosyanın <b>Bakiye</b> sütununda eşleşmedi. Doğru ekstreyi yükleyin.</div>`;
+            $("#bk-back", b).onclick = chooseBank;
+            return;
+          }
           const done = bkDoneDekontSet(entries);
-          const before = parsed.alma.length + parsed.cozum.length + parsed.other.length;
-          parsed.alma = parsed.alma.filter((r) => !(r.ref && done.has(r.ref)));
-          parsed.cozum = parsed.cozum.filter((r) => !(r.ref && done.has(r.ref)));
-          parsed.other = parsed.other.filter((r) => !(r.ref && done.has(r.ref)));
+          const keep = (r) => (anchorSeq < 0 || r.seq > anchorSeq) && !(r.ref && done.has(r.ref));
+          const before = allRows.length;
+          parsed.alma = parsed.alma.filter(keep);
+          parsed.cozum = parsed.cozum.filter(keep);
+          parsed.other = parsed.other.filter(keep);
           const skip = before - (parsed.alma.length + parsed.cozum.length + parsed.other.length);
           st.hesap = parsed;
           showTFBar(); rebuild();
-          toast(`Hesap: ${parsed.alma.length} alma · ${parsed.cozum.length} çözüm${skip ? ` · ${skip} zaten işlenmiş atlandı` : ""}`, "ok");
+          toast(`Hesap: ${parsed.alma.length} alma · ${parsed.cozum.length} çözüm${skip ? ` · ${skip} atlandı (kaldığımız yerden önce)` : ""}`, "ok");
         } catch (e) { toast("Okunamadı: " + e.message, "err"); }
       });
     }
