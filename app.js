@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.146";
+const APP_VERSION = "2026.147";
 const CHANGELOG = [
+  { version: "2026.147", date: "2026-08-12", items: [
+    "🧾 Cari Geçmişi İçe Aktar — GRUP MODU: dosyada 'HESAP KODU' sütunu varsa, her şahıs bu koda göre gruplanır. Grup = nokta öncesi sayı (320.03→320, 108.01→108); 0/#N/A/#REF!/boş → 321. Her şahıs grubun altında sıralı kodla (320.01, 320.02…) yeni açılır, hareketleri açılış 0 ile yazılır. Eksik grup başlıkları (108/335/336/128 dahil) otomatik oluşur. Silme yok (önizleme + onay ile ekler)",
+  ]},
   { version: "2026.146", date: "2026-08-12", items: [
     "🔴 Tarih gün kayması düzeltildi: Excel'deki gerçek tarih hücreleri UTC ile okunuyordu; Türkiye (UTC+3) saat diliminde tarihler BİR GÜN GERİ kayıyordu (10.08 → 09.08). Artık yerel bileşenlerle okunuyor — kasa, banka, cari ve fatura içe aktarımlarında doğru gün. (Not: önceden yanlış aktarılan kayıtlar için ilgili kaynağı silip yeniden yükleyin.)",
   ]},
@@ -4162,9 +4165,12 @@ async function viewCariGecmisImport(c) {
       aciklama: idxIncl("aciklama"), rapor: idxIncl("rapor"),
       borc: idxIncl("borc"), alacak: idxIncl("alacak"),
       fatura: idxExact("fatura"), faturaNo: idxIncl("fatura no"),
+      hesapKodu: idxIncl("hesap kod"),
     };
     if (col.sahis < 0 || (col.borc < 0 && col.alacak < 0))
       return toast("'Şahıs' ve 'Borç/Alacak' sütunları bulunamadı.", "err");
+    // HESAP KODU sütunu varsa → GRUP MODU: her şahıs, HESAP KODU'nun grubuna sıralı açılır.
+    if (col.hesapKodu >= 0) return buildGroupMode(aoa, hi, col);
 
     const get = (r, i) => (i >= 0 ? String(r[i] ?? "").trim() : "");
     const byAcc = new Map();       // accountId → { acc, rows:[] }
@@ -4304,6 +4310,146 @@ async function viewCariGecmisImport(c) {
         ` Devam edilsin mi?`,
         () => doImport(byAcc, unmatched, autocreate, groupId, total));
     };
+  }
+
+  // ── GRUP MODU ──────────────────────────────────────────────────────────
+  // HESAP KODU sütununa göre: grup = nokta öncesi sayı (320.03→320, 108.01→108);
+  // 0 / #N/A / #REF! / boş / geçersiz → 321. Her ŞAHIS o grup altında sıralı
+  // kodla (320.01, 320.02…) açılır; hareketleri açılış 0 ile yazılır.
+  function buildGroupMode(aoa, hi, col) {
+    const get = (r, i) => (i >= 0 ? String(r[i] ?? "").trim() : "");
+    const groupOf = (raw) => { const m = String(raw ?? "").trim().match(/(\d{3})/); return m ? m[1] : "321"; };
+    const bySahis = new Map();   // normTr(ŞAHIS) → { name, groups:Set, rows:[] }
+    let total = 0;
+    aoa.slice(hi + 1).forEach((r) => {
+      if (!r || !r.some((x) => String(x).trim() !== "")) return;
+      const sahis = get(r, col.sahis);
+      if (!sahis) return;
+      const borc = col.borc >= 0 ? parseNum(r[col.borc]) : 0;
+      const alacak = col.alacak >= 0 ? parseNum(r[col.alacak]) : 0;
+      const date = cdate(r[col.date]);
+      if (!date && !borc && !alacak) return;
+      total++;
+      const k = normTr(sahis);
+      let e = bySahis.get(k);
+      if (!e) { e = { name: sahis, groups: new Set(), rows: [] }; bySahis.set(k, e); }
+      e.groups.add(groupOf(r[col.hesapKodu]));
+      e.rows.push({ date, sahis, aciklama: get(r, col.aciklama), rapor: get(r, col.rapor), borc, alacak, faturaTuru: get(r, col.fatura), faturaNo: get(r, col.faturaNo) });
+    });
+    if (!total) return toast("Hiçbir hareket okunamadı (Şahıs/Borç/Alacak boş).", "err");
+    // Şahsın grubu: geçerli (321 olmayan) ilk grup; hepsi 321/hata ise 321
+    const pick = (gs) => { for (const g of gs) if (g !== "321") return g; return "321"; };
+    const list = [...bySahis.values()].map((e) => ({ name: e.name, group: pick(e.groups), rows: e.rows }));
+    const perGroup = {};
+    list.forEach((e) => { perGroup[e.group] = (perGroup[e.group] || 0) + 1; });
+    const grpName = (g) => (ciCfg(g)?.name) || `Hesap (${g})`;
+    const grpSummary = Object.keys(perGroup).sort().map((g) => `${g} ${grpName(g)}: ${perGroup[g].toLocaleString("tr-TR")}`).join(" · ");
+
+    const preview = [];
+    for (const e of list) { for (const r of e.rows) { preview.push({ e, r }); if (preview.length >= 60) break; } if (preview.length >= 60) break; }
+
+    const editor = $("#cg-editor");
+    editor.innerHTML = `
+      <div class="card">
+        <div class="pv-head"><div class="pv-title">${total.toLocaleString("tr-TR")} hareket okundu</div>
+          <div class="pv-sub"><b>${list.length.toLocaleString("tr-TR")} cari</b> açılacak · HESAP KODU'na göre grup</div></div>
+        <div class="notice info" style="margin-bottom:10px">📂 <b>HESAP KODU</b> sütunu algılandı — grup moduna geçildi. Her şahıs, HESAP KODU'nun grubuna (nokta öncesi) <b>sıralı kod</b> ile açılır; <b>0 / #N/A / #REF! / boş → 321</b>. (Silme yok, yalnız ekler.)
+          <div style="margin-top:6px">${esc(grpSummary)}</div></div>
+        <div class="table-wrap"><table class="data">
+          <thead><tr><th>Grup</th><th>Cari (Şahıs)</th><th>Tarih</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th>Fatura No</th></tr></thead>
+          <tbody>${preview.map(({ e, r }) => `<tr>
+            <td>${esc(e.group)} ${esc(grpName(e.group))}</td>
+            <td>${esc(titleCase(e.name))}</td>
+            <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--danger)">—</span>'}</td>
+            <td>${esc(r.aciklama)}</td>
+            <td class="num">${r.borc ? fmtTRY(r.borc) : "—"}</td>
+            <td class="num">${r.alacak ? fmtTRY(r.alacak) : "—"}</td>
+            <td>${esc(r.faturaNo)}</td>
+          </tr>`).join("")}</tbody>
+        </table></div>
+        <div class="pv-fhint">İlk 60 satır gösteriliyor; hepsi (${total.toLocaleString("tr-TR")}) aktarılacak.</div>
+      </div>
+      <div class="pv-cta"><div class="grow"></div>
+        <button class="btn btn-primary" id="cg-save-grp">✓ ${list.length.toLocaleString("tr-TR")} Cari · ${total.toLocaleString("tr-TR")} Hareket</button></div>`;
+    $("#cg-save-grp", editor).onclick = () => confirmDialog(
+      `${list.length.toLocaleString("tr-TR")} cari açılacak ve ${total.toLocaleString("tr-TR")} hareket aktarılacak (açılış 0). ${grpSummary}. Devam edilsin mi?`,
+      () => doImportGroup(list, total));
+  }
+
+  async function doImportGroup(list, readTotal) {
+    const pb = progressBar("Cari geçmişi aktarılıyor…");
+    try {
+      // 1) Kullanılan grupların ana başlıklarını hazırla (yoksa oluştur)
+      const groupsUsed = [...new Set(list.map((e) => e.group))];
+      const groupParent = {};
+      const newGroupDocs = [];
+      for (const g of groupsUsed) {
+        let parent = accounts.find((a) => String(a.code) === g && !a.parentId);
+        if (!parent) {
+          const cfg = ciCfg(g) || { code: g, name: `Hesap (${g})`, type: "diger" };
+          const ref = doc(C.accounts());
+          const payload = { code: cfg.code, name: cfg.name, type: cfg.type, parentId: null, parentCode: "", openingBalance: 0, createdAt: serverTimestamp() };
+          parent = { id: ref.id, ...payload };
+          newGroupDocs.push({ ref, payload }); accounts.push(parent);
+        }
+        groupParent[g] = parent;
+      }
+      if (newGroupDocs.length) {
+        const bt = writeBatch(db);
+        newGroupDocs.forEach((x) => bt.set(x.ref, x.payload));
+        await bt.commit();
+      }
+      // 2) Grup sayaçları — mevcut en yüksek alt koddan devam (çakışma yok)
+      const counters = {};
+      for (const g of groupsUsed) {
+        const p = groupParent[g];
+        counters[g] = accounts.filter((a) => a.parentCode === p.code)
+          .reduce((m, a) => { const n = parseInt(String(a.code || "").split(".")[1], 10); return isNaN(n) ? m : Math.max(m, n); }, 0);
+      }
+      // 3) Her şahıs → hesap (sıralı kod), toplu yazma
+      pb.set(3, `${list.length} cari açılıyor…`);
+      const built = [], accDocs = [];
+      for (const e of list) {
+        const p = groupParent[e.group];
+        counters[e.group]++;
+        const code = `${p.code}.${String(counters[e.group]).padStart(2, "0")}`;
+        const ref = doc(C.accounts());
+        const payload = { code, name: titleCase(e.name), type: p.type, parentId: p.id, parentCode: p.code, vkn: "", extNo: "", openingBalance: 0, createdAt: serverTimestamp() };
+        accDocs.push({ ref, payload });
+        built.push({ acc: { id: ref.id, ...payload }, rows: e.rows });
+      }
+      for (let i = 0; i < accDocs.length; i += 400) {
+        const bt = writeBatch(db);
+        accDocs.slice(i, i + 400).forEach((x) => bt.set(x.ref, x.payload));
+        await bt.commit();
+        pb.set(3 + Math.round((Math.min(i + 400, accDocs.length) / accDocs.length) * 9), `${Math.min(i + 400, accDocs.length)} / ${accDocs.length} cari`);
+      }
+      // 4) Hareketleri yaz (açılış 0, İşlem No hesap başına 1…N) — 800'lük partiler
+      const now = new Date().toISOString();
+      const docs = [];
+      for (const { acc, rows } of built) rows.forEach((r, i) => docs.push({
+        accountId: acc.id, accountCode: String(acc.code || ""),
+        islemNo: i + 1, cariNo: "", date: r.date, sahis: r.sahis,
+        aciklama: r.aciklama, rapor: r.rapor, borc: r.borc || 0, alacak: r.alacak || 0,
+        faturaTuru: r.faturaTuru, faturaNo: r.faturaNo, source: CARI_SRC, createdAt: now,
+      }));
+      const total = docs.length;
+      for (let i = 0; i < total; i += 800) {
+        const bt = writeBatch(db);
+        docs.slice(i, i + 800).forEach((d) => bt.set(doc(C.accountEntries()), d));
+        await bt.commit();
+        pb.set(12 + Math.round((Math.min(i + 800, total) / total) * 86), `${Math.min(i + 800, total).toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")}`);
+      }
+      // 5) Doğrulama
+      const check = await fetchAll(C.accountEntries).catch(() => []);
+      const wrote = check.filter((e) => e.source === CARI_SRC).length;
+      const ok = wrote >= total && total >= (readTotal || 0);
+      await logAction("İçe Aktarma", "Cari Geçmişi", `Grup modu · ${built.length} cari · ${total} hareket${newGroupDocs.length ? ` · ${newGroupDocs.length} yeni grup` : ""}`);
+      pb.done(() => {
+        if (!ok) toast(`⚠️ Doğrulama: okunan ${(readTotal || total).toLocaleString("tr-TR")}, yazılan ${wrote.toLocaleString("tr-TR")}. Kontrol edin.`, "err");
+        successAnim(`${(ok ? "✅ " : "⚠️ ")}${built.length.toLocaleString("tr-TR")} cari · ${total.toLocaleString("tr-TR")} hareket aktarıldı`, () => { location.hash = "#/hesaplar"; });
+      });
+    } catch (e) { pb.done(() => toast("Hata: " + e.message, "err")); }
   }
 
   async function doImport(byAcc, unmatched, autocreate, groupId, readTotal) {
