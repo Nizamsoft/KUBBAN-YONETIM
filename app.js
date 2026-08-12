@@ -542,8 +542,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.162";
+const APP_VERSION = "2026.163";
 const CHANGELOG = [
+  { version: "2026.163", date: "2026-08-12", items: [
+    "🧾 Gün Sonu → Cari İşlemler/Tahsilatlar: her satırda hesap eşleştirme (faturalardaki gibi). Ada göre otomatik bulunur; yanlışsa 'Değiştir', hiç yoksa '⚠️ Eşleştir / Ekle' ile doğru hesabı seç ya da yeni cari aç. Böylece OGS gibi kayıtlar yanlış hesaba düşmez",
+    "📋 Tüm Kayıtlar artık en son EKLENEN kayıttan başlar (kayıt zamanına göre); en son işlediğin en üstte",
+    "🔄 Tüm Kayıtlar / hesap defteri düzenlemesinde hesabı üstte gösterip tek tıkla 'Değiştir' — bankalardaki gibi aranabilir seçici; yanlış hesaba düşen kaydı doğru hesaba taşırsın (takma ad da düzelir)",
+  ]},
   { version: "2026.162", date: "2026-08-12", items: [
     "💾 'Kaldığın yerden devam' tüm programa yayıldı: bir aktarım sırasında hesaba bakmak için başka ekrana geçtiğinde ya da sekmeyi/uygulamayı değiştirip döndüğünde çalışman korunuyor",
     "🧾 Gün Sonu sihirbazı artık yarım kalırsa (sayfa yenilense bile) kaldığın adımdan, girdiğin tüm verilerle geri gelir. İstersen 'Taslağı Temizle' ile sıfırlarsın",
@@ -2208,6 +2213,58 @@ async function viewGunSonuAktarim(c) {
     gsState._faturaAmts = [...faturaAmts];
     const isFaturali = (key, r) => key === "cariIslem" && faturaAmts.has(Math.round(parseNum(r.tutar) * 100));
 
+    // Cari eşleştirme (faturalardaki gibi): ada göre otomatik bul; yoksa Eşleştir/Ekle
+    const parentIds = new Set(accounts.map((a) => a.parentId).filter(Boolean));
+    const allLeaf = accounts.filter((a) => !parentIds.has(a.id) && a.code);
+    const cariLeaf = accounts.filter((a) => a.parentId && isCari(a.type));
+    const byNameCari = (nm) => {
+      const k = normTr(nm || ""); if (!k) return null;
+      return cariLeaf.find((a) => normTr(a.name) === k || (a.nameAliases || []).some((al) => normTr(al) === k)) || null;
+    };
+    const effAcc = (r) => r.acc || byNameCari(r.sahis);   // sabitlenen (elle) öncelikli
+    async function createCariGs(name) {
+      let main = accounts.find((a) => a.type === "musteri" && !a.parentId) || accounts.find((a) => a.type === "musteri");
+      if (!main) {
+        const ref = await addDoc(C.accounts(), { code: "120", name: "Alıcı Hesaplar (Müşteriler)", type: "musteri", parentId: null, parentCode: null, openingBalance: 0, createdAt: serverTimestamp() });
+        main = { id: ref.id, code: "120", name: "Alıcı Hesaplar (Müşteriler)", type: "musteri" }; accounts.push(main);
+      }
+      const siblings = accounts.filter((a) => a.parentId === main.id);
+      const code = nextSubCode(main, siblings);
+      const ref = await addDoc(C.accounts(), { code, name: titleCase(name), type: "musteri", parentId: main.id, parentCode: main.code, openingBalance: 0, createdAt: serverTimestamp() });
+      const acc = { id: ref.id, code, name: titleCase(name), type: "musteri", parentId: main.id };
+      accounts.push(acc); cariLeaf.push(acc);
+      return acc;
+    }
+    const openCariPicker = (key, i) => {
+      const r = gsState[key][i];
+      openAccountPicker({
+        accounts: allLeaf, title: "Cari Eşleştir", query: "", fixedNewName: r.sahis || "", newWord: "cari aç",
+        onPick: async (res) => {
+          if (res.newName) {
+            const acc = await createCariGs(res.newName);
+            r.acc = { id: acc.id, code: acc.code, name: acc.name };
+            if (!r.sahis) r.sahis = acc.name;
+            toast("Cari eklendi: " + acc.name, "ok");
+          } else if (res.acc) {
+            r.acc = { id: res.acc.id, code: res.acc.code, name: res.acc.name };
+            const nm = (r.sahis || "").trim();   // adı hesabın alias'ına ekle → gelecekte otomatik eşleşir
+            if (nm && normTr(res.acc.name) !== normTr(nm)) {
+              const al = res.acc.nameAliases || [];
+              if (!al.some((x) => normTr(x) === normTr(nm))) { al.push(nm); res.acc.nameAliases = al; updateDoc(doc(db, "accounts", res.acc.id), { nameAliases: al }).catch(() => {}); }
+            }
+          }
+          saveGsDraft(); renderCari(body);
+        },
+      });
+    };
+
+    const accCell = (key, i, r) => {
+      const eff = effAcc(r);
+      return `<div class="ci-acc">${eff
+        ? `<span class="ci-acc-chip">${esc((eff.code ? eff.code + " " : "") + eff.name)}</span><button class="ci-acc-btn" data-key="${key}" data-i="${i}">Değiştir</button>`
+        : `<button class="ci-acc-btn warn" data-key="${key}" data-i="${i}">⚠️ Eşleştir / Ekle</button>`}</div>`;
+    };
+
     const listCard = (title, hint, key) => {
       const rows = gsState[key];
       const tot = rows.reduce((s, r) => s + (isFaturali(key, r) ? 0 : parseNum(r.tutar)), 0);
@@ -2217,7 +2274,7 @@ async function viewGunSonuAktarim(c) {
         <div class="ci-row${fat ? " faturali" : ""}" data-row="${key}-${i}">
           <input class="ci-sahis" data-key="${key}" data-i="${i}" value="${esc(r.sahis)}" placeholder="Şahıs / Cari" />
           <div class="ci-amt"><input class="num ci-tutar" data-key="${key}" data-i="${i}" inputmode="decimal" value="${esc(money(r.tutar))}" placeholder="0,00" /><span class="cur">₺</span></div>
-          ${fat ? `<div class="ci-fat"><span class="ci-fat-tag">faturalı</span><span class="ci-fat-note">Aynı tarih ve tutarda fatura var — aktarılmayacak</span></div>` : ""}
+          ${fat ? `<div class="ci-fat"><span class="ci-fat-tag">faturalı</span><span class="ci-fat-note">Aynı tarih ve tutarda fatura var — aktarılmayacak</span></div>` : accCell(key, i, r)}
         </div>`;
       }).join("");
       return `<div class="card">
@@ -2313,9 +2370,24 @@ async function viewGunSonuAktarim(c) {
         rowEl.appendChild(tag);
       } else if (!fat && tag) { tag.remove(); }
     };
-    $$(".ci-sahis", body).forEach((inp) => inp.addEventListener("input", () => {
-      gsState[inp.dataset.key][+inp.dataset.i].sahis = inp.value;
-    }));
+    // Cari hesap hücresini (eşleşme/etiket) tazele
+    const refreshAccCell = (key, i) => {
+      const rowEl = $(`.ci-row[data-row="${key}-${i}"]`, body);
+      if (!rowEl) return;
+      const cell = $(".ci-acc", rowEl);
+      if (cell) cell.outerHTML = accCell(key, i, gsState[key][i]);
+      bindAccBtns();
+    };
+    const bindAccBtns = () => $$(".ci-acc-btn", body).forEach((b) => b.onclick = () => openCariPicker(b.dataset.key, +b.dataset.i));
+    $$(".ci-sahis", body).forEach((inp) => {
+      inp.addEventListener("input", () => { gsState[inp.dataset.key][+inp.dataset.i].sahis = inp.value; });
+      // Ad değişince (odak çıkınca) elle sabitlenmemişse otomatik eşleşmeyi yeniden bul
+      inp.addEventListener("change", () => {
+        const r = gsState[inp.dataset.key][+inp.dataset.i];
+        if (!r.acc) refreshAccCell(inp.dataset.key, +inp.dataset.i);
+      });
+    });
+    bindAccBtns();
     $$(".ci-tutar", body).forEach((inp) => {
       inp.addEventListener("input", () => {
         gsState[inp.dataset.key][+inp.dataset.i].tutar = parseNum(inp.value);
@@ -2427,9 +2499,9 @@ async function viewGunSonuAktarim(c) {
     const ikramNet = parseNum(gsState.ikram) - x;
     const netSatis = parseNum(gsState.brut) - parseNum(gsState.iskonto) - ikramNet;
 
-    // Bölüm 1 & 2 — temizlenmiş cari listeleri
+    // Bölüm 1 & 2 — temizlenmiş cari listeleri (elle eşleştirilen hesap korunur)
     const cleanList = (arr) => (arr || [])
-      .map((r) => ({ sahis: String(r.sahis || "").trim(), tutar: parseNum(r.tutar) }))
+      .map((r) => ({ sahis: String(r.sahis || "").trim(), tutar: parseNum(r.tutar), acc: r.acc || null }))
       .filter((r) => r.sahis || r.tutar);
     const cariIslem = cleanList(gsState.cariIslem);
     const cariTahsilat = cleanList(gsState.cariTahsilat);
@@ -2460,6 +2532,7 @@ async function viewGunSonuAktarim(c) {
     // ---- Cari plan: her şahsı 120 Müşteri hesabına eşle; yoksa oluşturulacak; aynı tarih+tutar uyarısı
     const accounts = await fetchAll(C.accounts).catch(() => []);
     const preEntries = await fetchAll(C.accountEntries).catch(() => []);
+    const accById = new Map(accounts.map((a) => [a.id, a]));
     const musteri = accounts.filter((a) => a.type === "musteri");
     const byName = new Map(musteri.map((a) => [normTr(a.name), a]));
     // Aynı tarih + aynı tutarda fatura zaten girilmişse o cari işlem "faturalı" sayılır ve aktarılmaz
@@ -2469,14 +2542,16 @@ async function viewGunSonuAktarim(c) {
       .filter(Boolean));
     const cariItems = [
       ...cariIslem.filter((r) => !faturaAmts.has(Math.round(r.tutar * 100)))
-        .map((r) => ({ name: r.sahis, tutar: r.tutar, side: "borc" })),
-      ...cariTahsilat.map((r) => ({ name: r.sahis, tutar: r.tutar, side: "alacak" })),
+        .map((r) => ({ name: r.sahis, tutar: r.tutar, side: "borc", accId: r.acc?.id || null })),
+      ...cariTahsilat.map((r) => ({ name: r.sahis, tutar: r.tutar, side: "alacak", accId: r.acc?.id || null })),
     ].filter((it) => it.name && it.tutar);
+    // Elle eşleştirilene (accId) dokunma; yalnız hesabı bulunamayanları oluştur
+    const resolveAcc = (it) => (it.accId && accById.get(it.accId)) || byName.get(normTr(it.name)) || null;
     const missing = [], mset = new Set();
-    cariItems.forEach((it) => { const k = normTr(it.name); if (!byName.has(k) && !mset.has(k)) { mset.add(k); missing.push(it.name); } });
+    cariItems.forEach((it) => { if (resolveAcc(it)) return; const k = normTr(it.name); if (!mset.has(k)) { mset.add(k); missing.push(it.name); } });
     // Aynı tarih+tutar mükerreri işaretle (varsayılan: aktarma)
     cariItems.forEach((it) => {
-      const acc = byName.get(normTr(it.name));
+      const acc = resolveAcc(it);
       it.isDup = !!acc && !!it.tutar && preEntries.some((e) => e.accountId === acc.id && e.date === date && e.gunSonuKey !== date &&
         parseNum(it.side === "borc" ? e.borc : e.alacak) === it.tutar);
     });
@@ -2509,7 +2584,7 @@ async function viewGunSonuAktarim(c) {
         }
         // 3) Bloke (108) + Nakit/Ödemeler (100) + Cari (120) hareketleri (hepsi idempotent)
         await postBlokeEntries(date, blokePayload, masraflar);
-        await postCariEntries(date, items, byName);
+        await postCariEntries(date, items, byName, accById);
         await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
         toast("Gün sonu kaydedildi.", "ok");
         gsState = null; _activeDraftSaver = null; clearGsDraft();
@@ -2545,7 +2620,7 @@ async function viewGunSonuAktarim(c) {
   }
 
   // Cari (borç/alacak) hareketlerini 120 müşteri hesaplarına yazar (idempotent).
-  async function postCariEntries(date, cariItems, byName) {
+  async function postCariEntries(date, cariItems, byName, accById) {
     const fresh = await fetchAll(C.accountEntries).catch(() => []);
     const isStale = (e) => e.source === "gunsonu-cari" && e.gunSonuKey === date;
     for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
@@ -2554,7 +2629,7 @@ async function viewGunSonuAktarim(c) {
     const cnoMap = new Map();
     const docs = [];
     for (const it of cariItems) {
-      const acc = byName.get(normTr(it.name));
+      const acc = (it.accId && accById && accById.get(it.accId)) || byName.get(normTr(it.name));
       if (!acc || !it.tutar) continue;
       if (!cnoMap.has(acc.id))
         cnoMap.set(acc.id, remaining.filter((e) => e.accountId === acc.id).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
@@ -5208,10 +5283,20 @@ async function viewTumKayitlar(c) {
   const accById = new Map(accounts.map((a) => [a.id, a]));
   const srcLabel = (s) => TK_SRC_LABELS[s || ""] || (s || "Diğer");
 
+  // Kayıt zamanı (createdAt) → milisaniye; en son EKLENEN kayıt en üstte
+  const tsOf = (v) => {
+    if (!v) return 0;
+    if (v instanceof Date) return v.getTime();
+    if (typeof v === "object" && v.seconds) return v.seconds * 1000;
+    const t = new Date(v).getTime(); return isNaN(t) ? 0 : t;
+  };
   const all = entries.map((e) => {
     const a = accById.get(e.accountId);
     return { e, acc: a || null, code: a?.code || "", name: a?.name || "(hesap yok)", src: e.source || "", srcL: srcLabel(e.source) };
-  }).sort((x, y) => (y.e.date || "").localeCompare(x.e.date || "") || (y.e.islemNo || 0) - (x.e.islemNo || 0));
+  }).sort((x, y) =>
+    (tsOf(y.e.createdAt || y.e.updatedAt) - tsOf(x.e.createdAt || x.e.updatedAt)) ||
+    (y.e.date || "").localeCompare(x.e.date || "") ||
+    (y.e.islemNo || 0) - (x.e.islemNo || 0));
   all.forEach((r) => { r._hay = normTr([r.code, r.name, r.e.sahis, r.e.islemAdi, r.e.aciklama, r.e.rapor, r.e.faturaNo, r.e.faturaTuru, r.srcL, fmtDate(r.e.date)].filter(Boolean).join(" ")); });
 
   const srcCounts = {};
@@ -5753,6 +5838,50 @@ function entryModal(acc, entry, opts) {
       if (n > 1) bar.innerHTML = `🔗 <b>Kayıt No ${esc(String(entry.kayitNo ?? ""))}</b> · bu işlem <b>${n}</b> hesaba bağlı — silme ve tarih değişikliği hepsine uygulanır.`;
     }).catch(() => {});
   }
+  // Hesabı değiştir/taşı — üstteki bant ve alttaki "Taşı" butonu aynı işlevi çağırır (bankalardaki gibi aranabilir seçici)
+  async function doMoveAccount() {
+    const accs = await fetchAll(C.accounts).catch(() => []);
+    const parentIds = new Set(accs.map((a) => a.parentId).filter(Boolean));
+    const leaf = accs.filter((a) => !parentIds.has(a.id) && a.code);
+    openAccountPicker({
+      accounts: leaf, title: "Hesabı Değiştir", query: "", allowNew: false,
+      onPick: async (res) => {
+        const target = res.acc; if (!target || target.id === acc.id) return;
+        try {
+          const all = await fetchAll(C.accountEntries).catch(() => []);
+          const tcari = isCari(target.type) || String(target.code || "").startsWith("108");
+          const patch = {
+            accountId: target.id, accountCode: target.code || "",
+            islemNo: all.reduce((mx, e) => Math.max(mx, e.islemNo || 0), 0) + 1,
+            updatedAt: serverTimestamp(),
+          };
+          if (tcari) patch.cariNo = all.filter((e) => e.accountId === target.id).reduce((mx, e) => Math.max(mx, e.cariNo || 0), 0) + 1;
+          await updateDoc(doc(db, "accountEntries", entry.id), patch);
+          const nm = (entry.sahis || "").trim();
+          if (nm) {
+            const srcAl = (acc.nameAliases || []).filter((al) => normTr(al) !== normTr(nm));
+            if ((acc.nameAliases || []).length !== srcAl.length)
+              await updateDoc(doc(db, "accounts", acc.id), { nameAliases: srcAl }).catch(() => {});
+            const tgtAl = target.nameAliases || [];
+            if (!tgtAl.some((al) => normTr(al) === normTr(nm)) && normTr(target.name) !== normTr(nm)) {
+              tgtAl.push(nm); await updateDoc(doc(db, "accounts", target.id), { nameAliases: tgtAl }).catch(() => {});
+            }
+          }
+          await logAction("Taşıma", "Hesap Hareketi", `${acc.code || ""} → ${target.code || ""} · İşlem No ${entry.islemNo ?? ""}`);
+          m.close(); toast(`Taşındı: ${target.code} ${target.name}`, "ok"); route();
+        } catch (e) { toast("Taşınamadı: " + e.message, "err"); }
+      },
+    });
+  }
+  // Düzenlemede hesabı üstte göster + tek tıkla değiştir
+  if (!isNew) {
+    const accBar = document.createElement("div");
+    accBar.style.cssText = "margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px";
+    accBar.innerHTML = `<span style="font-size:13px">🏦 Hesap: <b>${esc((acc.code ? acc.code + " " : "") + acc.name)}</b></span><div style="flex:1"></div>`;
+    accBar.appendChild(mkBtn("🔄 Değiştir", "btn-sm", () => doMoveAccount()));
+    body.insertBefore(accBar, body.firstChild);
+  }
+
   const footer = [];
   if (!isNew) {
     const del = mkBtn("🗑️ Sil", "btn-danger", async () => {
@@ -5769,42 +5898,8 @@ function entryModal(acc, entry, opts) {
     });
     del.style.marginRight = "auto";
     footer.push(del);
-    // ↪️ Başka hesaba taşı — yanlış eşleşen kaydı doğru hesaba aktar (takma ad da düzelir)
-    footer.push(mkBtn("↪️ Taşı", "", async () => {
-      const accs = await fetchAll(C.accounts).catch(() => []);
-      const parentIds = new Set(accs.map((a) => a.parentId).filter(Boolean));
-      const leaf = accs.filter((a) => !parentIds.has(a.id) && a.code);
-      openAccountPicker({
-        accounts: leaf, title: "Taşınacak Hesap", query: "", allowNew: false,
-        onPick: async (res) => {
-          const target = res.acc; if (!target || target.id === acc.id) return;
-          try {
-            const all = await fetchAll(C.accountEntries).catch(() => []);
-            const tcari = isCari(target.type) || String(target.code || "").startsWith("108");
-            const patch = {
-              accountId: target.id, accountCode: target.code || "",
-              islemNo: all.reduce((mx, e) => Math.max(mx, e.islemNo || 0), 0) + 1,
-              updatedAt: serverTimestamp(),
-            };
-            if (tcari) patch.cariNo = all.filter((e) => e.accountId === target.id).reduce((mx, e) => Math.max(mx, e.cariNo || 0), 0) + 1;
-            await updateDoc(doc(db, "accountEntries", entry.id), patch);
-            // Takma ad düzelt: kaynak hesaptan bu adı çıkar, hedefe ekle (bir daha yanlış eşleşmesin)
-            const nm = (entry.sahis || "").trim();
-            if (nm) {
-              const srcAl = (acc.nameAliases || []).filter((al) => normTr(al) !== normTr(nm));
-              if ((acc.nameAliases || []).length !== srcAl.length)
-                await updateDoc(doc(db, "accounts", acc.id), { nameAliases: srcAl }).catch(() => {});
-              const tgtAl = target.nameAliases || [];
-              if (!tgtAl.some((al) => normTr(al) === normTr(nm)) && normTr(target.name) !== normTr(nm)) {
-                tgtAl.push(nm); await updateDoc(doc(db, "accounts", target.id), { nameAliases: tgtAl }).catch(() => {});
-              }
-            }
-            await logAction("Taşıma", "Hesap Hareketi", `${acc.code || ""} → ${target.code || ""} · İşlem No ${entry.islemNo ?? ""}`);
-            m.close(); toast(`Taşındı: ${target.code} ${target.name}`, "ok"); route();
-          } catch (e) { toast("Taşınamadı: " + e.message, "err"); }
-        },
-      });
-    }));
+    // ↪️ Başka hesaba taşı — yanlış eşleşen kaydı doğru hesaba aktar (üstteki "Değiştir" ile aynı)
+    footer.push(mkBtn("↪️ Taşı", "", () => doMoveAccount()));
   }
   footer.push(mkBtn("Vazgeç", "", () => m.close()));
   footer.push(mkBtn("Kaydet", "btn-primary", async () => {
