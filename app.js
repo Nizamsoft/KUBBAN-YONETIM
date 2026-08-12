@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.160";
+const APP_VERSION = "2026.161";
 const CHANGELOG = [
+  { version: "2026.161", date: "2026-08-12", items: [
+    "💾 Bakiye Karşılaştır artık kalıcı: Excel'e geçip geri döndüğünde (tarayıcı sekmeyi yenilese bile) yüklediğin dosya ve karşılaştırma otomatik geri gelir — tekrar aktarmana gerek yok. 'At / temizle' ile sıfırlayabilirsin",
+  ]},
   { version: "2026.160", date: "2026-08-12", items: [
     "🔎 Bakiye Karşılaştır → Fark Analizi: fark olan bir satıra tıklayınca, o farkı açıklayabilecek işlemleri tahmini bulur. Önce farkı BİREBİR veren tek işlemi, bulamazsa 2-3 işlemin toplamını arar ve işaretler; hesabın tüm hareketlerini (tarih · açıklama · kaynak · tutar) de listeler",
     "İşlem bulunamazsa 'fark açılış bakiyesinde ya da eksik bir kayıtta olabilir' uyarısı verilir",
@@ -3188,10 +3191,16 @@ async function viewBakiyeKarsilastir(c) {
     toast(`${accounts.length.toLocaleString("tr-TR")} hesap indirildi.`, "ok");
   };
 
-  const drop = fileDrop(onFile, ".xlsx,.xls,.csv");
+  const drop = fileDrop((file) => onFile(file, false), ".xlsx,.xls,.csv");
   $("#bk-drop", c).appendChild(drop);
 
-  async function onFile(file) {
+  // Sekme/uygulama değişip geri dönünce (tarayıcı sayfayı yeniden yükleyebilir) son yüklenen dosyayı geri getir
+  (async () => {
+    const pend = await loadPendingImport("bakiye-karsilastir");
+    if (pend && pend.buf) { try { await onFile(pendingToFile(pend), true); } catch (_) {} }
+  })();
+
+  async function onFile(file, restored) {
     const res = $("#bk-result", c);
     const showErr = (msg) => {
       res.innerHTML = `<div class="card"><div style="margin:14px;padding:12px 14px;border:1px solid var(--danger,#b3261e);background:#fdecea;color:#7a1c14;border-radius:10px;font-size:13px;line-height:1.5">⚠️ ${esc(msg)}</div></div>`;
@@ -3210,6 +3219,7 @@ async function viewBakiyeKarsilastir(c) {
         ? "Dosya çözümlenemedi (zaman aşımı). Excel çözümleyici (SheetJS) yüklenemedi olabilir — internet bağlantısı / reklam engelleyici olabilir. Sayfayı yenileyip tekrar dene."
         : "Dosya okunamadı: " + (e && e.message ? e.message : e));
     }
+    if (!restored) savePendingImport("bakiye-karsilastir", file); // geri dönüşte tekrar yüklemeye gerek kalmasın
     const { headers, rows } = parsed;
     if (!headers || !headers.length) return showErr("Dosyada başlık satırı bulunamadı.");
     const adCol = guessCol(headers, ["cari adi", "cari ad", "unvan", "ünvan", "musteri adi", "hesap adi", "adi"]);
@@ -3298,6 +3308,7 @@ async function viewBakiyeKarsilastir(c) {
 
     res.innerHTML = `
       <div class="card" style="margin-top:14px">
+        ${restored ? `<div class="notice info" style="margin:12px 14px 0">🔁 Son yüklediğin dosya geri yüklendi: <b>${esc(file.name || "dosya")}</b>. <a href="#" id="bk-pend-clear">At / temizle</a></div>` : ""}
         <div class="bk-summary">
           <div class="bk-stat"><span>Eşleşen hesap</span><b>${bothList.length.toLocaleString("tr-TR")}</b></div>
           <div class="bk-stat ${diffList.length ? "bad" : "good"}"><span>Farklı</span><b>${diffList.length.toLocaleString("tr-TR")}</b></div>
@@ -3331,6 +3342,9 @@ async function viewBakiyeKarsilastir(c) {
       const tr = e.target.closest("tr[data-key]"); if (!tr) return;
       openFarkAnaliz(tr.dataset.key);
     };
+    $("#bk-pend-clear", res)?.addEventListener("click", async (e) => {
+      e.preventDefault(); await clearPendingImport("bakiye-karsilastir"); res.innerHTML = ""; toast("Temizlendi.", "ok");
+    });
     $("#bk-csv", res).onclick = () => {
       const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const head = ["Hesap Adı", "Hesap Kodu", "Program Bakiye", "Program B/A", "Eski Bakiye", "Eski B/A", "Fark", "Fark B/A", "Durum"];
