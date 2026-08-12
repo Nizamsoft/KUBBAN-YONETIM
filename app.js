@@ -542,8 +542,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.161";
+const APP_VERSION = "2026.162";
 const CHANGELOG = [
+  { version: "2026.162", date: "2026-08-12", items: [
+    "💾 'Kaldığın yerden devam' tüm programa yayıldı: bir aktarım sırasında hesaba bakmak için başka ekrana geçtiğinde ya da sekmeyi/uygulamayı değiştirip döndüğünde çalışman korunuyor",
+    "🧾 Gün Sonu sihirbazı artık yarım kalırsa (sayfa yenilense bile) kaldığın adımdan, girdiğin tüm verilerle geri gelir. İstersen 'Taslağı Temizle' ile sıfırlarsın",
+    "📥 Toplu Cari içe aktarma da yarım kalırsa önizleme geri yüklenir",
+    "Not: Fatura aktarımında elle yaptığın eşleştirmeler zaten hesaba kalıcı olarak (alias) kaydedildiğinden dosya yeniden yüklenince otomatik geri gelir",
+  ]},
   { version: "2026.161", date: "2026-08-12", items: [
     "💾 Bakiye Karşılaştır artık kalıcı: Excel'e geçip geri döndüğünde (tarayıcı sekmeyi yenilese bile) yüklediğin dosya ve karşılaştırma otomatik geri gelir — tekrar aktarmana gerek yok. 'At / temizle' ile sıfırlayabilirsin",
   ]},
@@ -1335,6 +1341,7 @@ async function route(opts = {}) {
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
   const r = ROUTES[path] || ROUTES["dashboard"];
   closeDrawer(); // mobilde gezinince menüyü kapat
+  runDraftSaver(); _activeDraftSaver = null; // önceki ekranın taslağını kaydet (hesaba bakıp dönünce kaldığın yer)
   if (reviewKeyHandler) { document.removeEventListener("keydown", reviewKeyHandler); reviewKeyHandler = null; }
   if (ledgerFitHandler) { window.removeEventListener("resize", ledgerFitHandler); ledgerFitHandler = null; }
   const navPath = path === "hesap-detay" ? "hesaplar"
@@ -1414,6 +1421,14 @@ function rafThrottle(fn) {
   };
 }
 window.addEventListener("hashchange", () => route());
+
+// ---- Taslak otomatik kaydı ----
+// Aktif ekran (varsa) bir "taslak kaydedici" bırakır; başka ekrana geçince veya sekme
+// gizlenince (Excel'e geçme / sayfa yenilenmesi öncesi) çağrılır → kaldığın yer korunur.
+let _activeDraftSaver = null;
+function runDraftSaver() { if (_activeDraftSaver) { try { _activeDraftSaver(); } catch (_) {} } }
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") runDraftSaver(); });
+window.addEventListener("pagehide", runDraftSaver);
 
 // ---------------------------------------------------------------------------
 //  FIRESTORE OKUMA YARDIMCILARI
@@ -1965,9 +1980,21 @@ function gsGunMemSet(key, n) {
 // Çok adımlı Gün Sonu Aktarım durumu (adımlar arası korunur)
 let gsState = null; // { step, date, kasa:[{yontem,sistem,gerceklesen}], recordId? }
 const GS_STEPS = ["Dosya Yükle", "Kasa Kapanış Kontrolü", "Cari Kayıtlar", "Masraflar"];
+// Gün sonu taslağı (yarım kalan): sekme/uygulama değişip dönünce ya da sayfa yenilenince geri gelir
+async function saveGsDraft() {
+  try {
+    if (gsState && gsState.kasa) await _pendIDB.put("draft-gunsonu", { gs: gsState, savedAt: Date.now() });
+    else await _pendIDB.del("draft-gunsonu");
+  } catch (_) {}
+}
+async function clearGsDraft() { try { await _pendIDB.del("draft-gunsonu"); } catch (_) {} }
 
 async function viewGunSonuAktarim(c) {
+  if (!gsState) {   // Bellekte yoksa (sayfa yenilendi) yarım kalan taslağı geri yükle
+    try { const d = await _pendIDB.get("draft-gunsonu"); if (d && d.gs && d.gs.kasa) gsState = d.gs; } catch (_) {}
+  }
   if (!gsState) gsState = { step: 0, date: todayISO(), kasa: null };
+  _activeDraftSaver = () => saveGsDraft();
 
   const stepper = () => `<div class="stepper">${GS_STEPS.map((s, i) => `
     <div class="step ${i === gsState.step ? "active" : ""} ${i < gsState.step ? "done" : ""}" data-step="${i}">
@@ -1977,13 +2004,17 @@ async function viewGunSonuAktarim(c) {
   function goto(i) {
     if (i < 0 || i >= GS_STEPS.length) return;
     if (i > 0 && !gsState.kasa) return toast("Önce dosyayı yükleyin.", "err");
-    gsState.step = i; render();
+    gsState.step = i; render(); saveGsDraft();
   }
 
   function render() {
-    c.innerHTML = `<div class="gs-topbar"><div class="grow"></div><a class="btn btn-sm" href="#/gunsonu-kayitlar">🕘 Geçmiş Kayıtları Gör</a></div>`
+    c.innerHTML = `<div class="gs-topbar"><div class="grow"></div>${gsState.kasa ? `<button class="btn btn-sm" id="gs-clear-draft">🗑️ Taslağı Temizle</button>` : ""}<a class="btn btn-sm" href="#/gunsonu-kayitlar">🕘 Geçmiş Kayıtları Gör</a></div>`
       + stepper() + `<div id="gs-body"></div>`;
     $$(".step", c).forEach((el) => el.onclick = () => goto(+el.dataset.step));
+    const cd = $("#gs-clear-draft", c);
+    if (cd) cd.onclick = () => confirmDialog("Yarım kalan gün sonu taslağı silinsin mi? Girdiğin veriler kaybolur.", () => {
+      gsState = null; _activeDraftSaver = null; clearGsDraft(); route();
+    });
     const renderers = [renderUpload, renderKasa, renderCari, renderMasraflar];
     (renderers[gsState.step] || renderUpload)($("#gs-body", c));
   }
@@ -2481,7 +2512,7 @@ async function viewGunSonuAktarim(c) {
         await postCariEntries(date, items, byName);
         await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
         toast("Gün sonu kaydedildi.", "ok");
-        gsState = null;
+        gsState = null; _activeDraftSaver = null; clearGsDraft();
         successAnim("Gün sonu kaydedildi", () => { location.hash = "#/gunsonu-kayitlar"; });
         return;
       } catch (e) { toast("Kaydedilemedi: " + e.message, "err"); }
@@ -3917,9 +3948,25 @@ async function viewCariImport(c) {
     try {
       const { headers, rows } = await parseSpreadsheet(file);
       if (!rows.length) { lb.finish(); return toast("Veri bulunamadı.", "err"); }
+      savePendingImport("toplu-cari", file);   // sekme/uygulama değişince geri gelsin
       lb.finish(() => build(headers, rows));
     } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
   }, ".xlsx,.xls,.csv", true));
+
+  // Yarım kalan aktarımı geri yükle (hesaba bakıp dönünce / sayfa yenilenince)
+  (async () => {
+    const pend = await loadPendingImport("toplu-cari");
+    if (!pend || !pend.buf) return;
+    try {
+      const { headers, rows } = await parseSpreadsheet(pendingToFile(pend));
+      if (!rows.length) return;
+      build(headers, rows);
+      const ed = $("#ci-editor", c);
+      if (ed) ed.insertAdjacentHTML("afterbegin",
+        `<div class="notice info" style="margin-bottom:10px">🔁 Yarım kalan içe aktarma geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="ci-pend-clear">At / temizle</a></div>`);
+      $("#ci-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("toplu-cari"); route(); });
+    } catch (_) {}
+  })();
 
   function build(headers, rows) {
     const col = {
@@ -4064,6 +4111,7 @@ async function viewCariImport(c) {
       const leafCount = after.filter((a) => a.parentId).length;
 
       await logAction("İçe Aktarma", "Cari", `Toplu: ${created} yeni, ${updated} mevcut${missing.length ? ` · ⚠️ ${missing.length} eksik` : ""}`);
+      await clearPendingImport("toplu-cari");
       const okAll = missing.length === 0;
       successAnim(`${created.toLocaleString("tr-TR")} yeni cari açıldı`);
       editor.innerHTML = `
