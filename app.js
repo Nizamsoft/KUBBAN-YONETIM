@@ -542,8 +542,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.159";
+const APP_VERSION = "2026.160";
 const CHANGELOG = [
+  { version: "2026.160", date: "2026-08-12", items: [
+    "🔎 Bakiye Karşılaştır → Fark Analizi: fark olan bir satıra tıklayınca, o farkı açıklayabilecek işlemleri tahmini bulur. Önce farkı BİREBİR veren tek işlemi, bulamazsa 2-3 işlemin toplamını arar ve işaretler; hesabın tüm hareketlerini (tarih · açıklama · kaynak · tutar) de listeler",
+    "İşlem bulunamazsa 'fark açılış bakiyesinde ya da eksik bir kayıtta olabilir' uyarısı verilir",
+  ]},
   { version: "2026.159", date: "2026-08-12", items: [
     "🔧 Bakiye Karşılaştır: dosya yüklerken oluşan 'key is not defined' hatası düzeltildi — karşılaştırma artık çalışıyor",
   ]},
@@ -3034,8 +3038,9 @@ async function viewBakiyeKarsilastir(c) {
     const key = normTr(nm);
     const cur = (balances.get(a.id) || {}).current || 0;
     let o = progByName.get(key);
-    if (!o) { o = { name: nm, codes: [], current: 0, count: 0 }; progByName.set(key, o); }
+    if (!o) { o = { name: nm, codes: [], ids: [], current: 0, count: 0 }; progByName.set(key, o); }
     if (a.code) o.codes.push(String(a.code));
+    o.ids.push(a.id);
     o.current += cur; o.count++;
   });
 
@@ -3047,6 +3052,124 @@ async function viewBakiyeKarsilastir(c) {
     return `<span style="color:var(--ink-faint)">${fmtTRY(0)}</span>`;
   };
   const baCsv = (v) => { const z = Math.round(v * 100) / 100; return [Math.abs(z), z > 0 ? "Borç" : z < 0 ? "Alacak" : ""]; };
+  const srcLabelBK = (s) => (typeof TK_SRC_LABELS !== "undefined" && TK_SRC_LABELS[s]) || ({ "gunsonu-cari": "Gün Sonu Cari", "cari-hareket": "Cari Hareket", "banka": "Banka İşlemi" }[s]) || (s || "Elle / Diğer");
+
+  // Bir hesabın (ada göre eşleşen tüm alt hesapların) program hareketlerini topla.
+  // Tutar = program yönü (borç−alacak / giren−çıkan / debit−credit / banka amount) — computeBalances ile birebir.
+  const accItems = (key) => {
+    const o = progByName.get(key); if (!o) return [];
+    const idset = new Set(o.ids), codeset = new Set(o.codes.map(String));
+    const items = [];
+    entries.forEach((e) => {
+      if (!idset.has(e.accountId)) return;
+      const amt = (parseNum(e.giren) - parseNum(e.cikan)) + (parseNum(e.borc) - parseNum(e.alacak));
+      if (Math.abs(amt) < 0.005) return;
+      items.push({ date: e.date || "", amt, label: e.aciklama || e.islemAdi || e.sahis || "", source: e.source || "", faturaNo: e.faturaNo || "" });
+    });
+    cari.forEach((m) => {
+      if (!codeset.has(String(m.code || ""))) return;
+      const amt = parseNum(m.debit) - parseNum(m.credit);
+      if (Math.abs(amt) < 0.005) return;
+      items.push({ date: m.date || "", amt, label: m.description || m.aciklama || "Cari hareket", source: "cari-hareket", faturaNo: "" });
+    });
+    bank.forEach((t) => {
+      if (!idset.has(t.accountId)) return;
+      const amt = parseNum(t.amount);
+      if (Math.abs(amt) < 0.005) return;
+      items.push({ date: t.date || "", amt, label: t.description || t.aciklama || "Banka işlemi", source: "banka", faturaNo: "" });
+    });
+    return items;
+  };
+
+  // Farkı (F) veren işlem alt kümesi ara: önce tek, sonra 2'li, sonra (küçükse) 3'lü. Kuruş cinsinden tam eşleşme.
+  const findCombos = (items, target) => {
+    const cents = items.map((it) => Math.round(it.amt * 100));
+    const T = Math.round(target * 100);
+    const n = cents.length, out = [];
+    for (let i = 0; i < n; i++) if (cents[i] === T) out.push([i]);
+    if (out.length < 6) { // 2'li (two-sum)
+      const seen = new Map();
+      for (let i = 0; i < n; i++) {
+        const need = T - cents[i];
+        if (seen.has(need)) out.push([seen.get(need), i]);
+        if (!seen.has(cents[i])) seen.set(cents[i], i);
+        if (out.length >= 10) break;
+      }
+    }
+    if (out.length < 6 && n <= 60) { // 3'lü (yalnız hesap küçükse — donmasın)
+      outer:
+      for (let i = 0; i < n; i++) {
+        const rem = T - cents[i], seen = new Map();
+        for (let j = i + 1; j < n; j++) {
+          const need = rem - cents[j];
+          if (seen.has(need)) { out.push([seen.get(need), j, i]); if (out.length >= 10) break outer; }
+          if (!seen.has(cents[j])) seen.set(cents[j], j);
+        }
+      }
+    }
+    const uniq = [], sigs = new Set();
+    out.sort((a, b) => a.length - b.length);
+    for (const s of out) {
+      const ss = s.slice().sort((x, y) => x - y), sig = ss.join(",");
+      if (!sigs.has(sig)) { sigs.add(sig); uniq.push(ss); }
+    }
+    return uniq.slice(0, 6);
+  };
+
+  let fileByNameRef = null, signRef = 1;   // onFile bunları doldurur; fark analizi kullanır
+  const openFarkAnaliz = (key) => {
+    const o = progByName.get(key); if (!o) return;
+    const f = fileByNameRef ? fileByNameRef.get(key) : null;
+    const prog = o.current;
+    const eski = f ? signRef * f.bakiye : null;
+    const F = (eski != null) ? prog - eski : prog;
+    const items = accItems(key).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const combos = Math.abs(F) >= 0.5 ? findCombos(items, F) : [];
+    const matchedIdx = new Set(combos.flat());
+
+    const itemRow = (it, i, hi) => `
+      <tr class="${hi ? "bk-hit" : ""}">
+        <td style="white-space:nowrap">${it.date ? esc(fmtDate(it.date)) : "—"}</td>
+        <td>${esc(it.label || "—")}${it.faturaNo ? ` <span class="bk-code">${esc(it.faturaNo)}</span>` : ""}<div class="bk-code">${esc(srcLabelBK(it.source))}</div></td>
+        <td class="num">${baTag(it.amt)}</td>
+      </tr>`;
+
+    let comboHtml = "";
+    if (Math.abs(F) < 0.5) {
+      comboHtml = `<div class="notice ok" style="margin:0 0 12px">✓ Bu hesapta anlamlı fark yok.</div>`;
+    } else if (combos.length) {
+      comboHtml = combos.map((set, ci) => `
+        <div style="border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin-bottom:10px;background:color-mix(in srgb, var(--gold-light) 18%, transparent)">
+          <div style="font-size:12.5px;font-weight:700;margin-bottom:6px">
+            ${set.length === 1 ? "Bu işlem farkı birebir açıklıyor" : `Bu ${set.length} işlemin toplamı farkı veriyor`}
+            <span style="color:var(--ink-faint);font-weight:500"> — fazladan/yanlış girilmiş olabilir</span>
+          </div>
+          <table class="bk-table" style="background:transparent"><tbody>
+            ${set.map((i) => itemRow(items[i], i, true)).join("")}
+          </tbody></table>
+        </div>`).join("");
+    } else {
+      comboHtml = `<div class="notice warn" style="margin:0 0 12px">
+        Farkı açıklayan işlem bulunamadı. Fark <b>açılış bakiyesinde</b> ya da hiç girilmemiş (eksik) bir kayıtta olabilir.
+      </div>`;
+    }
+
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <div class="bk-summary" style="padding:0 0 12px">
+        <div class="bk-stat"><span>Program</span><b>${baTag(prog)}</b></div>
+        <div class="bk-stat"><span>Eski (dosya)</span><b>${eski != null ? baTag(eski) : "—"}</b></div>
+        <div class="bk-stat ${Math.abs(F) >= 0.5 ? "bad" : "good"}"><span>Fark</span><b>${baTag(F)}</b></div>
+      </div>
+      <div style="font-size:12.5px;font-weight:800;margin:2px 0 8px">Tahmini fark kaynağı</div>
+      ${comboHtml}
+      <div style="font-size:12.5px;font-weight:800;margin:14px 0 6px">Hesabın tüm işlemleri (${items.length})</div>
+      <div style="max-height:340px;overflow:auto;border:1px solid var(--line);border-radius:10px">
+        <table class="bk-table"><thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead>
+        <tbody>${items.length ? items.map((it, i) => itemRow(it, i, matchedIdx.has(i))).join("") : `<tr><td colspan="3" style="text-align:center;color:var(--ink-faint);padding:16px">İşlem yok (fark açılışta olabilir).</td></tr>`}</tbody></table>
+      </div>`;
+    const m = openModal({ title: `Fark Analizi — ${o.name}`, body, footer: [mkBtn("Kapat", "btn-primary", () => m.close())] });
+  };
 
   // Program bakiyelerini CSV indir
   $("#bk-dl-prog", c).onclick = () => {
@@ -3114,6 +3237,7 @@ async function viewBakiyeKarsilastir(c) {
       n + (Math.abs((progByName.get(k).current) - s * fileByName.get(k).bakiye) < eps ? 1 : 0), 0);
     const mPlus = matchCount(1), mMinus = matchCount(-1);
     const sign = mMinus > mPlus ? -1 : (mPlus > mMinus ? 1 : -1); // eşitlikte -1 (dosya (+)=alacak varsayımı)
+    fileByNameRef = fileByName; signRef = sign; // fark analizi bunları kullanır
 
     // Karşılaştırma satırları
     const union = new Set([...progByName.keys(), ...fileByName.keys()]);
@@ -3149,8 +3273,9 @@ async function viewBakiyeKarsilastir(c) {
       const tag = r.status === "file" ? `<span class="bk-badge file">yalnız dosyada</span>`
         : r.status === "prog" ? `<span class="bk-badge prog">yalnız programda</span>`
         : (Math.abs(r.fark) >= eps ? `<span class="bk-badge diff">FARK</span>` : `<span class="bk-badge ok">✓</span>`);
-      return `<tr class="${Math.abs(r.fark) >= eps || r.status !== "both" ? "bk-hit" : ""}">
-        <td><div class="bk-nm">${esc(r.name)}${r.dupWarn ? ` <span class="bk-badge warn" title="Bu ad birden çok kez geçiyor, toplandı">×${r.status === "file" ? (fileByName.get(r.key).count) : (progByName.get(r.key)?.count || 1)}</span>` : ""}</div>
+      const clickable = r.status !== "file"; // program tarafı olan satırlar için analiz açılabilir
+      return `<tr class="${Math.abs(r.fark) >= eps || r.status !== "both" ? "bk-hit" : ""}${clickable ? " bk-click" : ""}" ${clickable ? `data-key="${esc(r.key)}"` : ""}>
+        <td><div class="bk-nm">${esc(r.name)}${clickable ? ` <span class="bk-inspect" title="Fark analizi">🔎</span>` : ""}${r.dupWarn ? ` <span class="bk-badge warn" title="Bu ad birden çok kez geçiyor, toplandı">×${r.status === "file" ? (fileByName.get(r.key).count) : (progByName.get(r.key)?.count || 1)}</span>` : ""}</div>
           ${r.codes ? `<div class="bk-code">${esc(r.codes)}</div>` : ""}</td>
         <td class="num">${r.prog != null ? baTag(r.prog) : "—"}</td>
         <td class="num">${r.eski != null ? baTag(r.eski) : "—"}</td>
@@ -3202,6 +3327,10 @@ async function viewBakiyeKarsilastir(c) {
 
     $("#bk-onlydiff", res).onchange = (e) => { onlyDiff = e.target.checked; draw(); };
     $("#bk-q", res).addEventListener("input", (e) => { query = e.target.value; draw(); });
+    $("#bk-tbody", res).onclick = (e) => {
+      const tr = e.target.closest("tr[data-key]"); if (!tr) return;
+      openFarkAnaliz(tr.dataset.key);
+    };
     $("#bk-csv", res).onclick = () => {
       const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
       const head = ["Hesap Adı", "Hesap Kodu", "Program Bakiye", "Program B/A", "Eski Bakiye", "Eski B/A", "Fark", "Fark B/A", "Durum"];

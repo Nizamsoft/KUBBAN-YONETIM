@@ -568,6 +568,11 @@ table.data input.num { text-align: right; }
 .bk-badge.file { background: #fff3cd; color: #7a5b00; }
 .bk-badge.prog { background: #e8eefc; color: #1a4bc4; }
 .bk-badge.warn { background: var(--gold-light); color: #4a3712; }
+.bk-table tr.bk-click { cursor: pointer; }
+.bk-table tr.bk-click:hover td { background: color-mix(in srgb, var(--gold-light) 40%, transparent); }
+.bk-inspect { font-size: 11px; opacity: .55; }
+.bk-table tr.bk-click:hover .bk-inspect { opacity: 1; }
+.notice.ok { border: 1px solid #137333; background: #e6f4ea; color: #0b5227; padding: 10px 12px; border-radius: 10px; font-size: 13px; }
 
 /* Masraflar — kutusuz tablo; açıklama dokununca büyür */
 .mf-thead, .mf-row { display: grid; grid-template-columns: 1fr 66px 104px; gap: 8px; align-items: start; }
