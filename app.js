@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.157";
+const APP_VERSION = "2026.158";
 const CHANGELOG = [
+  { version: "2026.158", date: "2026-08-12", items: [
+    "🔧 Bakiye Karşılaştır: dosya yüklerken 'Dosya okunuyor…' ekranında takılma düzeltildi. Hatalar artık ekranda görünür (sessiz donma yok), Excel çözümleyici arka planda önceden yüklenir ve 30 sn zaman aşımı korumalıdır",
+  ]},
   { version: "2026.157", date: "2026-08-12", items: [
     "⚖️ Yeni: Bakiye Karşılaştır (Hesaplar ekranında). Eski muhasebe programından aldığın bakiye listesini (Excel/CSV) yükle; hesaplar ADA (ünvana) göre eşleştirilip program bakiyeleriyle karşılaştırılır. Farklar büyükten küçüğe listelenir, aynı ad birden çok geçerse toplanır",
     "Borç/Alacak yönü otomatik hizalanır (dosyanın işaret düzenini program hangi yönle en çok tutuyorsa o seçilir). 'Yalnız farklılar' filtresi, ad/kod arama, 'yalnız dosyada / yalnız programda' durum etiketleri ve Farkları CSV indir",
@@ -3010,6 +3013,8 @@ async function viewBakiyeKarsilastir(c) {
     </div>
     <div id="bk-result"></div>`;
 
+  loadXLSX().catch(() => {}); // Excel çözümleyiciyi arka planda önceden yükle (dosya seçilince beklememek için)
+
   const [accounts, cari, bank, entries] = await Promise.all([
     fetchAll(C.accounts),
     fetchAll(C.currentMovements).catch(() => []),
@@ -3062,16 +3067,29 @@ async function viewBakiyeKarsilastir(c) {
 
   async function onFile(file) {
     const res = $("#bk-result", c);
+    const showErr = (msg) => {
+      res.innerHTML = `<div class="card"><div style="margin:14px;padding:12px 14px;border:1px solid var(--danger,#b3261e);background:#fdecea;color:#7a1c14;border-radius:10px;font-size:13px;line-height:1.5">⚠️ ${esc(msg)}</div></div>`;
+    };
     res.innerHTML = `<div class="card"><div class="empty" style="padding:26px"><div class="spinner" style="margin:0 auto"></div><p>Dosya okunuyor…</p></div></div>`;
+    await new Promise((r) => setTimeout(r, 30)); // spinner boyansın, ağır iş donmasın
+    try {
     let parsed;
-    try { parsed = await parseSpreadsheet(file); }
-    catch (e) { res.innerHTML = ""; return toast("Dosya okunamadı: " + e.message, "err"); }
+    try {
+      parsed = await Promise.race([
+        parseSpreadsheet(file),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("__timeout__")), 30000)),
+      ]);
+    } catch (e) {
+      return showErr(e && e.message === "__timeout__"
+        ? "Dosya çözümlenemedi (zaman aşımı). Excel çözümleyici (SheetJS) yüklenemedi olabilir — internet bağlantısı / reklam engelleyici olabilir. Sayfayı yenileyip tekrar dene."
+        : "Dosya okunamadı: " + (e && e.message ? e.message : e));
+    }
     const { headers, rows } = parsed;
+    if (!headers || !headers.length) return showErr("Dosyada başlık satırı bulunamadı.");
     const adCol = guessCol(headers, ["cari adi", "cari ad", "unvan", "ünvan", "musteri adi", "hesap adi", "adi"]);
     const bakCol = guessCol(headers, ["bakiye"]);
     if (!adCol || !bakCol) {
-      res.innerHTML = "";
-      return toast(`Sütun bulunamadı (Ad: ${adCol || "yok"}, Bakiye: ${bakCol || "yok"}). Başlıklar: ${headers.join(", ")}`, "err");
+      return showErr(`Sütun bulunamadı (Ad: ${adCol || "yok"}, Bakiye: ${bakCol || "yok"}). Başlıklar: ${headers.join(", ")}`);
     }
 
     // Dosya tarafı: ada göre topla
@@ -3204,6 +3222,9 @@ async function viewBakiyeKarsilastir(c) {
       toast("Fark listesi indirildi.", "ok");
     };
     draw();
+    } catch (e) {
+      showErr("Karşılaştırma sırasında hata: " + (e && e.message ? e.message : e) + (e && e.stack ? " · " + String(e.stack).split("\n")[1] : ""));
+    }
   }
 }
 
