@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.144";
+const APP_VERSION = "2026.145";
 const CHANGELOG = [
+  { version: "2026.145", date: "2026-08-12", items: [
+    "Defter en alta açılırken başa dönme hatası giderildi: yükseklik kilidi (fitLedger) iç kaydırmayı sıfırlıyordu — kaydırma artık her ölçümden sonra uygulanıyor, en altta kalıyor",
+  ]},
   { version: "2026.144", date: "2026-08-12", items: [
     "📋 Tüm Kayıtlar: 'Kayıt Zamanı' sütunu artık tam TARİH + SAAT gösterir (programa kaydedildiği an); CSV'ye de eklendi",
     "📋 Tüm Kayıtlar: toplu seçip silme — başlıktaki kutu filtrelenen TÜM kayıtları seçer (sayfalar arası), Shift+tık ile aralık; 'Seçilenleri Sil' ile toplu silinir",
@@ -4865,23 +4868,24 @@ async function viewAccountLedger(c) {
     const h = window.innerHeight - ledgerRoot.getBoundingClientRect().top - padB - 4;
     if (h > 240) { ledgerRoot.style.height = h + "px"; ledgerRoot.style.overflow = "hidden"; }
   }
-  requestAnimationFrame(fitLedger);
-  setTimeout(fitLedger, 300);   // geçiş animasyonu bitince kesin ölçü
-  ledgerFitHandler = fitLedger;
-  window.addEventListener("resize", fitLedger);
-
   // Her hesap açılışında defter EN ALTA (son işlemler) kaydırılmış başlar.
   // İnceleme adımında o faturaya odaklanılır (varsa onu görünür yap + vurgula).
-  requestAnimationFrame(() => {
+  // ÖNEMLİ: fitLedger yüksekliği kilitleyince iç kaydırma sıfırlanır — bu yüzden
+  // kaydırma HER fitLedger'dan SONRA uygulanır (yoksa "en alta gidip başa dönme").
+  function initScroll() {
     if (focusE) {
       const el = $(`[data-edit="${focusE.id}"]`, c)?.closest("tr, .tx-card");
-      if (el) { el.scrollIntoView({ block: "center", behavior: "smooth" }); el.style.outline = "2px solid var(--gold)"; el.style.outlineOffset = "-2px"; return; }
+      if (el) { el.scrollIntoView({ block: "center" }); el.style.outline = "2px solid var(--gold)"; el.style.outlineOffset = "-2px"; return; }
     }
     const tw = $(".ledger-table", c);
     if (tw && getComputedStyle(tw).display !== "none") { tw.scrollTop = tw.scrollHeight; return; }
     const cards = $$(".tx-card", c); const last = cards[cards.length - 1];
-    if (last) last.scrollIntoView({ block: "end", behavior: "smooth" });
-  });
+    if (last) last.scrollIntoView({ block: "end" });
+  }
+  requestAnimationFrame(() => { fitLedger(); initScroll(); });
+  setTimeout(() => { fitLedger(); initScroll(); }, 300);   // geçiş bitince kesin ölçü + en alta
+  ledgerFitHandler = fitLedger;
+  window.addEventListener("resize", fitLedger);
 
   // İnceleme turu: Sonraki / Bitir / Taşı + Enter kısayolu
   if (inReview) {
