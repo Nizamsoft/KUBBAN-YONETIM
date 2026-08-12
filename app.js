@@ -13,9 +13,9 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.137";
+} from "./supabase-backend.js?v=2026.138";
 
-import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.137";
+import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.138";
 
 // ---------------------------------------------------------------------------
 //  Kısayollar & yardımcılar
@@ -537,8 +537,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.137";
+const APP_VERSION = "2026.138";
 const CHANGELOG = [
+  { version: "2026.138", date: "2026-08-12", items: [
+    "🔴 Kritik eşleşme düzeltmesi: hesap adlarındaki görünmez 'U+0307' (İ.toLowerCase() → i+nokta) yüzünden binlerce cari eşleşmiyordu. normTr artık birleşen aksanları siliyor — mevcut kayıtlar bile yeniden yüklemeden eşleşir (2264 → 32 eşleşmeyen)",
+    "titleCase de temizlendi — yeni içe aktarımlarda hesap adları görünmez nokta içermez",
+  ]},
   { version: "2026.137", date: "2026-08-11", items: [
     "Cari Geçmişi: '⬇️ Eşleşmeyenleri indir (CSV)' — her eşleşmeyen şahsın satır sayısı + en yakın mevcut hesap + benzerlik % ile; neden bulunamadığı görünür",
     "Cari Geçmişi: noktalama/boşluk farkı olan isimler için ikinci tur eşleşme (yalnız TEKil ve kesin olanlar) — ör. 'Av. Uğur Ayaz' ↔ 'Av.Uğur Ayaz'",
@@ -1583,10 +1587,12 @@ const GS_GROUPS = [
 const normTr = (s) => String(s || "")
   .replace(/[İIı]/g, "i").replace(/[Şş]/g, "s").replace(/[Çç]/g, "c")
   .replace(/[Ğğ]/g, "g").replace(/[Öö]/g, "o").replace(/[Üü]/g, "u")
+  .replace(/[̀-ͯ]/g, "")   // birleşen aksanları sil (ör. "İ".toLowerCase() → "i"+U+0307)
   .toLowerCase().replace(/\s+/g, " ").trim();
 // Başlık düzeni: TÜMÜ BÜYÜK olsa bile "İlk Harfler Büyük" (kelime başları), gerisi küçük
 function titleCase(s) {
-  return String(s || "").toLowerCase()
+  // Not: "İ".toLowerCase() → "i"+U+0307 (görünmez nokta) üretir; onu temizle
+  return String(s || "").toLowerCase().replace(/[̀-ͯ]/g, "")
     .replace(/(^|[\s\-.\/(&])([a-zçğıöşü])/g, (m, sep, ch) => sep + ch.toUpperCase());
 }
 function gsMatchMethod(label) {
