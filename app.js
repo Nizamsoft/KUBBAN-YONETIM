@@ -542,8 +542,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.147";
+const APP_VERSION = "2026.148";
 const CHANGELOG = [
+  { version: "2026.148", date: "2026-08-12", items: [
+    "🧹 Grup Temizle büyük gruplarda (ör. 321'de ~2000 alt hesap) artık gerçekten siliyor: silme istekleri Supabase URL sınırını aşıyordu (çok id → hata). Silmeler 150'lik alt-partilere bölündü + ilerleme çubuğu eklendi (kaç/kaç kayıt). Bu düzeltme tüm toplu silmeleri (Tüm Kayıtlar dahil) kapsar",
+  ]},
   { version: "2026.147", date: "2026-08-12", items: [
     "🧾 Cari Geçmişi İçe Aktar — GRUP MODU: dosyada 'HESAP KODU' sütunu varsa, her şahıs bu koda göre gruplanır. Grup = nokta öncesi sayı (320.03→320, 108.01→108); 0/#N/A/#REF!/boş → 321. Her şahıs grubun altında sıralı kodla (320.01, 320.02…) yeni açılır, hareketleri açılış 0 ile yazılır. Eksik grup başlıkları (108/335/336/128 dahil) otomatik oluşur. Silme yok (önizleme + onay ile ekler)",
   ]},
@@ -3170,9 +3173,9 @@ function groupCleanModal(accounts, cari = [], bank = [], entries = []) {
 }
 
 async function runGroupClean(chosen, mode) {
-  const lb = loadingBar("Temizleniyor…");
+  const pb = progressBar("Temizleniyor…");
   try {
-    const delOps = [];
+    pb.set(2, "Kayıtlar toplanıyor…");
     // Taze veri çek (önbellek eskimişse doğru id'lerle sil)
     const [freshEntries, freshCur, freshBank] = await Promise.all([
       fetchAll(C.accountEntries).catch(() => []),
@@ -3187,30 +3190,38 @@ async function runGroupClean(chosen, mode) {
       if (mode === "A") s.children.forEach((ch) => acctDelIds.push(ch.id));
       else [s.root, ...s.children].forEach((a) => acctZeroIds.push(a.id));
     }
+    const delOps = [];
     freshEntries.forEach((e) => { if (allIds.has(e.accountId)) delOps.push(["accountEntries", e.id]); });
     freshCur.forEach((mv) => { if (allCodes.has(String(mv.code || "").trim())) delOps.push(["currentMovements", mv.id]); });
     freshBank.forEach((t) => { if (allIds.has(t.accountId)) delOps.push(["bankTransactions", t.id]); });
     if (mode === "A") acctDelIds.forEach((id) => delOps.push(["accounts", id]));
 
-    for (let i = 0; i < delOps.length; i += 400) {
+    // Küçük parti (Supabase .in("id",…) URL uzunluğu sınırı için) + gerçek ilerleme.
+    const CH = 150;
+    const totalOps = delOps.length + (mode === "B" ? acctZeroIds.length : 0);
+    let done = 0;
+    const tick = () => pb.set(3 + Math.round((done / Math.max(1, totalOps)) * 94), `${done.toLocaleString("tr-TR")} / ${totalOps.toLocaleString("tr-TR")} kayıt`);
+    for (let i = 0; i < delOps.length; i += CH) {
       const b = writeBatch(db);
-      delOps.slice(i, i + 400).forEach(([coll, id]) => b.delete(doc(db, coll, id)));
+      delOps.slice(i, i + CH).forEach(([coll, id]) => b.delete(doc(db, coll, id)));
       await b.commit();
+      done += Math.min(CH, delOps.length - i); tick();
     }
     if (mode === "B") {
-      for (let i = 0; i < acctZeroIds.length; i += 400) {
+      for (let i = 0; i < acctZeroIds.length; i += CH) {
         const b = writeBatch(db);
-        acctZeroIds.slice(i, i + 400).forEach((id) => b.update(doc(db, "accounts", id), { openingBalance: 0 }));
+        acctZeroIds.slice(i, i + CH).forEach((id) => b.update(doc(db, "accounts", id), { openingBalance: 0 }));
         await b.commit();
+        done += Math.min(CH, acctZeroIds.length - i); tick();
       }
     }
     const codesTxt = chosen.map((s) => s.root.code).join(", ");
     await logAction("Temizleme", "Hesap Grubu", `${codesTxt} · ${mode === "A" ? "hesap+hareket" : "sadece hareket"} · ${delOps.length} kayıt`);
-    lb.finish(() => {
+    pb.done(() => {
       toast(`${codesTxt} temizlendi (${delOps.length.toLocaleString("tr-TR")} kayıt silindi).`, "ok");
       route();
     });
-  } catch (e) { lb.finish(); toast("Hata: " + e.message, "err"); }
+  } catch (e) { pb.done(() => toast("Hata: " + e.message, "err")); }
 }
 
 // Bir ana hesabın bir sonraki alt hesap kodunu üretir (102.03 sonrası 102.04)

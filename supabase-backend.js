@@ -199,8 +199,12 @@ export function writeBatch(_db) {
         invalidateCache(n);
       }
       for (const [n, ids] of Object.entries(dels)) {
-        const { error } = await sb.from(n).delete().in("id", ids);
-        if (error) throw new Error(`${n}: ${error.message}`);
+        // .in("id",[…]) URL'e gömülür — çok id'de URL uzunluğu sınırı aşılır.
+        // 150'lik alt-partilere böl (tek writeBatch içinde binlerce silme güvenli).
+        for (let i = 0; i < ids.length; i += 150) {
+          const { error } = await sb.from(n).delete().in("id", ids.slice(i, i + 150));
+          if (error) throw new Error(`${n}: ${error.message}`);
+        }
         invalidateCache(n);
       }
       for (const op of updates) await updateDoc(op.ref, op.data);
