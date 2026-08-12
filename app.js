@@ -537,8 +537,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.140";
+const APP_VERSION = "2026.141";
 const CHANGELOG = [
+  { version: "2026.141", date: "2026-08-12", items: [
+    "🏦 Banka Geçmişi İçe Aktar artık MÜKERRER yapmıyor: her yükleme öncekini silmek yerine yalnız YENİ hareketleri ekler. Aynı hareket (tarih+giren+çıkan+açıklama) programda varsa atlanır — kısmi/çakışan dosya yüklesen bile tekrar oluşmaz. İşlem No mevcut son numaradan devam eder; açılış bakiyesi yalnız ilk yüklemede istenir",
+    "Banka önizlemede her satır 'Yeni' / 'Zaten var' etiketli; üstte kaç yeni/kaç mükerrer; aktarım sonunda özet + banka bazında güncel bakiye",
+    "Fatura Aktarımı: aynı cari + aynı Fatura No mükerrer koruması (mevcut) korundu; aktarım özetinde kaç faturanın zaten var olduğu gösteriliyor",
+  ]},
   { version: "2026.140", date: "2026-08-12", items: [
     "⚡ Cari Geçmişi İçe Aktar donma düzeltmesi: eşleşen binlerce hesap için tek tek (SELECT+UPSERT) yapılan yavaş güncelleme kaldırıldı — açılış yalnızca 0 DEĞİLSE sıfırlanır. Yeni cariler de tek toplu yazma ile açılır. 27 bin hareket artık takılmadan aktarılır",
     "Hareketler 800'lük partiler halinde yazılır (yazma tur sayısı ~yarıya iner)",
@@ -3720,14 +3725,30 @@ async function viewBankaImport(c) {
     && BANKS.some((b) => b.acc && e.accountId === b.acc.id)).length;
   const missing = BANKS.filter((b) => !b.acc);
 
+  // Mükerrer koruması: her hareketin imzası (tarih + giren + çıkan + işlem adı + açıklama).
+  const impSig = (r) => [r.date, Math.round((Number(r.giren) || 0) * 100), Math.round((Number(r.cikan) || 0) * 100), normTr(r.islemAdi || ""), normTr(r.aciklama || "")].join("|");
+  // Her banka için programdaki mevcut kayıtların imza-çokluğu (multiset) + net + son İşlem No + açılış.
+  const bankPrior = {};
+  BANKS.forEach((b) => {
+    if (!b.acc) { bankPrior[b.key] = null; return; }
+    const es = priorEntries.filter((e) => e.source === BANKA_SRC && e.accountId === b.acc.id);
+    const sigs = new Map(); let net = 0, maxIslem = 0;
+    es.forEach((e) => {
+      const s = impSig(e); sigs.set(s, (sigs.get(s) || 0) + 1);
+      net += (Number(e.giren) || 0) - (Number(e.cikan) || 0);
+      if ((e.islemNo || 0) > maxIslem) maxIslem = e.islemNo || 0;
+    });
+    bankPrior[b.key] = { sigs, net, maxIslem, count: es.length, opening: Number(b.acc.openingBalance) || 0 };
+  });
+
   c.innerHTML = `
     <div class="card">
       <div class="card-head"><h3>🏦 Banka Geçmişi İçe Aktar</h3><a class="btn btn-sm" href="#/hesaplar">← Hesaplar</a></div>
       ${missing.length ? `<div class="notice warn">⚠️ Şu hesap(lar) bulunamadı: <b>${missing.map((b) => b.key === "garanti" ? "102.01 Garanti" : "102.02 Türkiye Finans").join(", ")}</b>. Önce Hesaplar'dan varsayılan planı oluşturun.</div>` : `
       <div class="pv-fhint">Excel (.xlsx) yükleyin. <b>BANKA</b> sütununa göre satırlar ayrılır:
         <b>GARANTİ → 102.01</b>, <b>T.FINANS → 102.02</b>. Her banka kendi yürüyen bakiyesiyle işlenir.<br>
-        İşlem numaraları uygulama tarafından verilir. <b>Banka Bakiyesi</b> yalnız doğrulama için kullanılır.
-        ${priorCount ? `<br>⚠️ Daha önce içe aktarılmış <b>${priorCount.toLocaleString("tr-TR")}</b> banka geçmişi hareketi var — yeni yükleme <b>bunların yerini alır</b>.` : ""}</div>
+        İşlem numaraları uygulama tarafından verilir; hareketler <b>eklenir</b> — aynı hareket (tarih+giren+çıkan+açıklama) zaten varsa <b>atlanır</b> (mükerrer olmaz).
+        ${priorCount ? `<br>ℹ️ Programda <b>${priorCount.toLocaleString("tr-TR")}</b> banka hareketi var — yeni yükleme yalnız <b>yeni</b> satırları ekler.` : ""}</div>
       <div id="bi-drop" style="margin-top:12px"></div>`}
     </div>
     <div id="bi-editor"></div>`;
@@ -3792,22 +3813,48 @@ async function viewBankaImport(c) {
     });
     if (!rows.length) return toast("İşlenecek satır bulunamadı.", "err");
 
-    // Her banka için toplamlar. Açılış bakiyesi KULLANICI tarafından girilir —
-    // dosyadaki "Banka Bakiyesi" bu üründe net tutar (giren−çıkan), güvenilir değil.
+    // Her banka: dosya satırlarını YENİ / ZATEN VAR olarak ayır (imza-çokluğuna göre,
+    // dosya sırasında). Mevcut kayıtlar KORUNUR, yalnız yeni satırlar eklenir.
     const stats = {};
     BANKS.forEach((b) => {
       const list = byBank[b.key];
       if (!list.length) { stats[b.key] = null; return; }
-      const totGiren = list.reduce((s, r) => s + r.giren, 0);
-      const totCikan = list.reduce((s, r) => s + r.cikan, 0);
-      stats[b.key] = { count: list.length, totGiren, totCikan, net: totGiren - totCikan };
+      const prior = bankPrior[b.key];
+      const budget = new Map(prior ? prior.sigs : []);   // imza → kalan mevcut adet (klon)
+      const newRows = []; let dupCount = 0;
+      for (const r of list) {
+        const s = impSig(r);
+        const c = budget.get(s) || 0;
+        if (c > 0) { budget.set(s, c - 1); r._dup = true; dupCount++; }
+        else { r._dup = false; newRows.push(r); }
+      }
+      const totGiren = newRows.reduce((s, r) => s + r.giren, 0);
+      const totCikan = newRows.reduce((s, r) => s + r.cikan, 0);
+      stats[b.key] = {
+        count: list.length, newRows, newCount: newRows.length, dupCount,
+        hasPrior: !!(prior && prior.count), priorCount: prior ? prior.count : 0,
+        opening: prior ? prior.opening : 0, maxIslem: prior ? prior.maxIslem : 0,
+        curBalance: (prior ? prior.opening : 0) + (prior ? prior.net : 0),
+        totGiren, totCikan, net: totGiren - totCikan,
+      };
     });
 
     const card = (b) => {
       const s = stats[b.key];
       if (!s) return `<div class="ka-cell"><div class="k">${b.label}</div><div class="v" style="font-size:13px;color:var(--ink-soft)">dosyada yok</div></div>`;
+      const dupLine = `<div style="font-size:13px;margin-top:6px"><b style="color:var(--ok)">${s.newCount.toLocaleString("tr-TR")} yeni</b>${s.dupCount ? ` · <span style="color:var(--ink-soft)">${s.dupCount.toLocaleString("tr-TR")} zaten var</span>` : ""}</div>`;
+      if (s.hasPrior) {
+        // Mevcut kayıt var → açılış KORUNUR; yalnız yeni satırlar eklenir.
+        return `<div class="ka-cell" style="text-align:left">
+          <div class="k">${b.label} · dosyada ${s.count.toLocaleString("tr-TR")} satır</div>
+          <div style="font-size:12px;color:var(--ink-soft);margin-top:6px">Programda ${s.priorCount.toLocaleString("tr-TR")} hareket · Güncel bakiye <b>${fmtTRY(s.curBalance)}</b></div>
+          ${dupLine}
+          <div style="font-size:14px;font-weight:800;margin-top:5px">Aktarım sonrası: ${fmtTRY(s.curBalance + s.net)}</div>
+        </div>`;
+      }
+      // İlk yükleme (programda kayıt yok) → açılış bakiyesi elle girilir.
       return `<div class="ka-cell" style="text-align:left">
-        <div class="k">${b.label} · ${s.count.toLocaleString("tr-TR")} hareket</div>
+        <div class="k">${b.label} · ${s.count.toLocaleString("tr-TR")} hareket (ilk yükleme)</div>
         <div class="field" style="margin:8px 0 6px">
           <label style="font-size:11px;color:var(--ink-soft)">Açılış Bakiyesi</label>
           <div class="money-wrap"><input class="num money bi-open" data-bank="${b.key}" inputmode="decimal" value="0,00" /><span class="cur">₺</span></div>
@@ -3817,95 +3864,111 @@ async function viewBankaImport(c) {
       </div>`;
     };
 
+    const totalNew = BANKS.reduce((n, b) => n + (stats[b.key]?.newCount || 0), 0);
+    const totalDup = BANKS.reduce((n, b) => n + (stats[b.key]?.dupCount || 0), 0);
+
     const editor = $("#bi-editor");
     editor.innerHTML = `
       <div class="card">
         <div class="pv-head"><div class="pv-title">${rows.length.toLocaleString("tr-TR")} hareket okundu</div>
-          <div class="pv-sub">${unknown ? unknown + " satır bilinmeyen banka (atlandı) · " : ""}Garanti + T. Finans</div></div>
-        <div class="notice info" style="margin-bottom:10px">Her bankanın <b>Açılış Bakiyesi</b>'ni girin — <b>Son Bakiye</b> anında hesaplanır. (T. Finans genelde 0.) Bilinen güncel bakiyeyi tutturmak için açılışı ayarlayın.</div>
+          <div class="pv-sub">${unknown ? unknown + " satır bilinmeyen banka (atlandı) · " : ""}<b style="color:var(--ok)">${totalNew.toLocaleString("tr-TR")} yeni</b>${totalDup ? ` · ${totalDup.toLocaleString("tr-TR")} zaten var (atlanacak)` : ""}</div></div>
+        <div class="notice info" style="margin-bottom:10px">Hareketler <b>eklenir</b>; aynı hareket (tarih+giren+çıkan+açıklama) zaten varsa <b>atlanır</b>. Yeni banka için (programda kaydı yoksa) <b>Açılış Bakiyesi</b> girilir; mevcut bankalarda güncel bakiye korunur.</div>
         <div class="ka-grid">${BANKS.map(card).join("")}</div>
         <div class="table-wrap" style="margin-top:12px"><table class="data">
           <thead><tr>
-            <th>Banka</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
+            <th>Banka</th><th>Durum</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th>
             <th class="num">Giren</th><th class="num">Çıkan</th>
           </tr></thead>
-          <tbody>${rows.slice(0, 60).map((r) => `<tr>
+          <tbody>${rows.slice(0, 60).map((r) => `<tr${r._dup ? ' style="opacity:.5"' : ""}>
               <td>${r.bankKey === "garanti" ? "Garanti" : "T. Finans"}</td>
+              <td>${r._dup ? '<span class="tag warn">Zaten var</span>' : '<span class="tag ok">Yeni</span>'}</td>
               <td>${r.date ? fmtDate(r.date) : '<span style="color:var(--danger)">—</span>'}</td>
               <td>${esc(r.islemAdi)}</td><td>${esc(r.sahis)}</td><td>${esc(r.aciklama)}</td><td>${esc(r.rapor)}</td>
               <td class="num" style="color:var(--ok)">${r.giren ? fmtTRY(r.giren) : "—"}</td>
               <td class="num" style="color:var(--danger)">${r.cikan ? fmtTRY(r.cikan) : "—"}</td>
             </tr>`).join("")}</tbody>
         </table></div>
-        ${rows.length > 60 ? `<div class="pv-fhint">İlk 60 satır gösteriliyor; hepsi (${rows.length.toLocaleString("tr-TR")}) aktarılacak.</div>` : ""}
+        ${rows.length > 60 ? `<div class="pv-fhint">İlk 60 satır gösteriliyor; yalnız <b>${totalNew.toLocaleString("tr-TR")} yeni</b> hareket eklenecek.</div>` : ""}
       </div>
       <div class="pv-cta"><div class="grow"></div>
-        <button class="btn btn-primary" id="bi-save">✓ ${rows.length.toLocaleString("tr-TR")} Hareketi İçe Aktar</button></div>`;
+        <button class="btn btn-primary" id="bi-save" ${totalNew ? "" : "disabled"}>✓ ${totalNew.toLocaleString("tr-TR")} Yeni Hareketi Ekle</button></div>`;
 
-    // Açılış girişi → Son Bakiye canlı güncellenir
+    // Açılış girişi → Son Bakiye canlı güncellenir (yalnız ilk yükleme kartlarında)
     const openOf = (key) => parseNum($(`.bi-open[data-bank="${key}"]`, editor)?.value || 0);
     const refreshFinals = () => BANKS.forEach((b) => {
-      const s = stats[b.key]; if (!s) return;
+      const s = stats[b.key]; if (!s || s.hasPrior) return;
       const el = $(`.bi-final[data-bank="${b.key}"]`, editor);
       if (el) el.textContent = fmtTRY(openOf(b.key) + s.net);
     });
     wireMoney(editor);
     $$(".bi-open", editor).forEach((inp) => inp.addEventListener("input", refreshFinals));
 
-    $("#bi-save", editor).onclick = () => {
-      const openings = {}; BANKS.forEach((b) => { if (stats[b.key]) openings[b.key] = openOf(b.key); });
-      const parts = BANKS.filter((b) => stats[b.key]).map((b) =>
-        `${b.label}: ${stats[b.key].count.toLocaleString("tr-TR")} hareket, açılış ${fmtTRY(openings[b.key])} → son ${fmtTRY(openings[b.key] + stats[b.key].net)}`);
+    const saveBtn = $("#bi-save", editor);
+    if (saveBtn && !totalNew) return;
+    if (saveBtn) saveBtn.onclick = () => {
+      // Açılış yalnızca programda kaydı olmayan bankalar için girilir/uygulanır.
+      const openings = {}; BANKS.forEach((b) => { const s = stats[b.key]; if (s && !s.hasPrior) openings[b.key] = openOf(b.key); });
+      const parts = BANKS.filter((b) => stats[b.key] && stats[b.key].newCount).map((b) => {
+        const s = stats[b.key];
+        return s.hasPrior
+          ? `${b.label}: ${s.newCount.toLocaleString("tr-TR")} yeni → bakiye ${fmtTRY(s.curBalance + s.net)}`
+          : `${b.label}: ${s.newCount.toLocaleString("tr-TR")} yeni, açılış ${fmtTRY(openings[b.key] || 0)} → son ${fmtTRY((openings[b.key] || 0) + s.net)}`;
+      });
       confirmDialog(
-        `${rows.length.toLocaleString("tr-TR")} hareket aktarılacak. ${parts.join(" · ")}.` +
-        (priorCount ? ` Önceki ${priorCount.toLocaleString("tr-TR")} banka geçmişi silinecek.` : "") +
-        ` Devam edilsin mi?`,
+        `${totalNew.toLocaleString("tr-TR")} yeni hareket eklenecek${totalDup ? `, ${totalDup.toLocaleString("tr-TR")} mükerrer atlanacak` : ""}. ${parts.join(" · ")}. Devam edilsin mi?`,
         () => doImport(byBank, stats, openings));
     };
   }
 
   async function doImport(byBank, stats, openings) {
-    const pb = progressBar("Banka geçmişi aktarılıyor…");
+    const pb = progressBar("Banka hareketleri ekleniyor…");
     try {
-      // 1) Önceki banka-gecmis kayıtlarını sil (iki hesap için)
-      const stale = priorEntries.filter((e) => e.source === BANKA_SRC
-        && BANKS.some((b) => b.acc && e.accountId === b.acc.id));
-      if (stale.length) {
-        pb.set(4, `${stale.length.toLocaleString("tr-TR")} eski kayıt siliniyor…`);
-        for (let i = 0; i < stale.length; i += 400) {
-          const bt = writeBatch(db);
-          stale.slice(i, i + 400).forEach((e) => bt.delete(doc(db, "accountEntries", e.id)));
-          await bt.commit();
-        }
-      }
-
-      // 2) Her banka: açılış bakiyesi + hareketler (İşlem No 1…N)
+      // Silme YOK — mevcut kayıtlar korunur; yalnız YENİ hareketler eklenir.
+      // İşlem No her hesapta mevcut son numaradan devam eder. Açılış bakiyesi
+      // yalnız programda kaydı olmayan (ilk yükleme) bankalar için yazılır.
       const now = new Date().toISOString();
       const docs = [];
+      let totalDup = 0;
       for (const b of BANKS) {
-        const s = stats[b.key]; if (!s) continue;
-        await updateDoc(doc(db, "accounts", b.acc.id), { openingBalance: openings[b.key] || 0 });
-        byBank[b.key].forEach((r, i) => docs.push({
+        const s = stats[b.key]; if (!s || !s.newCount) { if (s) totalDup += s.dupCount; continue; }
+        totalDup += s.dupCount;
+        if (!s.hasPrior) await updateDoc(doc(db, "accounts", b.acc.id), { openingBalance: openings[b.key] || 0 });
+        let no = s.maxIslem;
+        s.newRows.forEach((r) => { no++; docs.push({
           accountId: b.acc.id, accountCode: String(b.acc.code),
-          islemNo: i + 1, date: r.date, islemAdi: r.islemAdi, sahis: r.sahis,
+          islemNo: no, date: r.date, islemAdi: r.islemAdi, sahis: r.sahis,
           aciklama: r.aciklama, rapor: r.rapor, giren: r.giren || 0, cikan: r.cikan || 0,
           source: BANKA_SRC, createdAt: now,
-        }));
+        }); });
       }
 
       const total = docs.length;
-      for (let i = 0; i < total; i += 400) {
+      for (let i = 0; i < total; i += 800) {
         const bt = writeBatch(db);
-        docs.slice(i, i + 400).forEach((d) => bt.set(doc(C.accountEntries()), d));
+        docs.slice(i, i + 800).forEach((d) => bt.set(doc(C.accountEntries()), d));
         await bt.commit();
-        const done = Math.min(i + 400, total);
-        pb.set(10 + Math.round((done / total) * 88), `${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")}`);
+        const done = Math.min(i + 800, total);
+        pb.set(6 + Math.round((done / Math.max(1, total)) * 92), `${done.toLocaleString("tr-TR")} / ${total.toLocaleString("tr-TR")}`);
       }
 
-      await logAction("İçe Aktarma", "Banka Geçmişi", `${total} hareket (Garanti + T.Finans)`);
+      // Özet: banka bazında yeni sayısı + güncel bakiye
+      const balLine = BANKS.filter((b) => stats[b.key] && stats[b.key].newCount).map((b) => {
+        const s = stats[b.key];
+        const base = s.hasPrior ? s.curBalance : (openings[b.key] || 0);
+        return `${b.label}: +${s.newCount.toLocaleString("tr-TR")} → ${fmtTRY(base + s.net)}`;
+      }).join(" · ");
+
+      await logAction("İçe Aktarma", "Banka Geçmişi", `${total} yeni hareket${totalDup ? ` · ${totalDup} mükerrer atlandı` : ""}`);
       pb.done(() => {
-        successAnim(`${total.toLocaleString("tr-TR")} banka hareketi aktarıldı`, () => {
-          location.hash = "#/hesaplar";
+        successAnim(`${total.toLocaleString("tr-TR")} yeni hareket eklendi${totalDup ? ` · ${totalDup.toLocaleString("tr-TR")} mükerrer atlandı` : ""}`, () => {
+          const body = document.createElement("div");
+          body.innerHTML = `<div class="inv-sum"><div class="inv-line"><span class="e">🏦</span> <b class="pos">${total.toLocaleString("tr-TR")}</b> yeni hareket eklendi</div>
+            ${totalDup ? `<div class="inv-line"><span class="e">♻️</span> <b>${totalDup.toLocaleString("tr-TR")}</b> mükerrer atlandı</div>` : ""}
+            <div class="inv-note">${esc(balLine)}</div></div>`;
+          const m = openModal({ title: "✅ Banka Aktarım Özeti", body, footer: [
+            mkBtn("Kapat", "", () => m.close()),
+            mkBtn("Hesaplara Git →", "btn-primary", () => { m.close(); location.hash = "#/hesaplar"; }),
+          ]});
         });
       });
     } catch (e) {
