@@ -575,8 +575,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.190";
+const APP_VERSION = "2026.191";
 const CHANGELOG = [
+  { version: "2026.191", date: "2026-08-13", items: [
+    "🔎 Giriş ekranındaki Güllüoğlu Kübban logosu büyütüldü ve altındaki 'Güllüoğlu Kübban' yazısıyla arasındaki boşluk azaltıldı (sabit kare kutu kaldırıldı; logo kendi oranında, daha geniş)",
+  ]},
   { version: "2026.190", date: "2026-08-13", items: [
     "✨ Giriş ekranı logosu artık GÖRSEL (nizamsoft-logo.png) olarak gösteriliyor — kendi logo dosyanı koyabilirsin. Dosya yüklenene kadar yedek vektörel işaret görünür",
     "💥 Logo açılışında 'teknolojik ışık patlaması' animasyonu: çekirdek parlaması + dışa fırlayan ışık huzmeleri + genişleyen çift halka + renkli parçacıklar + logoda tarama parıltısı. reduced-motion'da kapanır",

@@ -114,8 +114,8 @@ button { font-family: inherit; }
   padding: 34px 30px;
   text-align: center;
 }
-.login-card img.logo { width: 128px; height: 128px; object-fit: contain; margin: 0 auto 6px; }
-.login-card h1 { font-size: 20px; margin: 6px 0 2px; color: var(--gold-dark); letter-spacing: .3px; }
+.login-card img.logo { width: 210px; max-width: 74%; height: auto; object-fit: contain; margin: 0 auto -6px; }
+.login-card h1 { font-size: 20px; margin: 0 0 2px; color: var(--gold-dark); letter-spacing: .3px; }
 .login-card .sub { color: var(--ink-faint); font-size: 12px; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 22px; }
 .login-card form { text-align: left; }
 
