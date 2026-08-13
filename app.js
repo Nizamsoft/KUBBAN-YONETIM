@@ -594,8 +594,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.185";
+const APP_VERSION = "2026.186";
 const CHANGELOG = [
+  { version: "2026.186", date: "2026-08-13", items: [
+    "🐛 Dashboard 'Dünkü Ciro' yanlış günü (2 gün öncesini) gösteriyordu — saat dilimi (UTC) kaymasıydı; yerel tarihle düzeltildi, artık doğru dünü gösterir. Grafik gün/hafta/ay tarihleri de aynı kaymadan arındırıldı",
+    "🎨 Dashboard üstteki ciro kartı yeşil yerine altın/kahve (temayla uyumlu)",
+  ]},
   { version: "2026.185", date: "2026-08-13", items: [
     "📊 Dashboard üstteki büyük ciro kartı artık BUGÜN yerine DÜN'ü (en son kapanan günü) gösteriyor — gün sonu genelde ertesi gün girildiği için bugün boş görünüyordu. 'Dünkü Ciro · tarih' + önceki güne göre değişim",
   ]},
@@ -1761,7 +1765,10 @@ async function viewDashboard(c) {
   const byDay = new Map();
   records.filter((r) => r.date).forEach((r) => byDay.set(r.date, (byDay.get(r.date) || 0) + (r.total || 0)));
   const today = todayISO();
-  const yesterday = (() => { const d = new Date(today + "T00:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+  // YEREL tarih formatı (toISOString UTC'ye çevirip Türkiye'de günü 1 geri kaydırıyordu)
+  const ymdL = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const ymL = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  const yesterday = (() => { const d = new Date(today + "T00:00:00"); d.setDate(d.getDate() - 1); return ymdL(d); })();
   // Hero'da BUGÜN değil, en son KAPANAN günü göster (genelde DÜN)
   const past = [...byDay.keys()].filter((d) => d < today).sort();
   const mainDay = byDay.has(yesterday) ? yesterday : (past[past.length - 1] || "");
@@ -1774,18 +1781,18 @@ async function viewDashboard(c) {
 
   // Bu ay / geçen ay ciro
   const ym = today.slice(0, 7);
-  const prevYm = (() => { const d = new Date(today + "T00:00:00"); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+  const prevYm = (() => { const d = new Date(today + "T00:00:00"); d.setMonth(d.getMonth() - 1); return ymL(d); })();
   let ayCiro = 0, gecenAy = 0;
   byDay.forEach((v, d) => { if (d.slice(0, 7) === ym) ayCiro += v; else if (d.slice(0, 7) === prevYm) gecenAy += v; });
   const ayPct = gecenAy > 0 ? ((ayCiro - gecenAy) / gecenAy * 100) : null;
 
   // ---- Grafik serileri: gün / hafta / ay ----
-  const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
-  const weekStart = (iso) => { const d = new Date(iso + "T00:00:00"); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return d.toISOString().slice(0, 10); };
+  const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return ymdL(d); };
+  const weekStart = (iso) => { const d = new Date(iso + "T00:00:00"); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return ymdL(d); };
   const MON = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
   const daySeries = []; for (let i = 29; i >= 0; i--) { const d = addDays(today, -i); daySeries.push({ x: (i % 5 === 0 ? d.slice(8, 10) : ""), full: fmtDate(d), value: byDay.get(d) || 0, now: d === today }); }
   const weekSeries = []; { const wm = weekStart(today); for (let i = 11; i >= 0; i--) { const ws = addDays(wm, -7 * i); let s = 0; for (let k = 0; k < 7; k++) s += byDay.get(addDays(ws, k)) || 0; weekSeries.push({ x: ws.slice(8, 10) + "." + ws.slice(5, 7), full: fmtDate(ws) + " haftası", value: s, now: ws === wm }); } }
-  const monthSeries = []; for (let i = 11; i >= 0; i--) { const d = new Date(today + "T00:00:00"); d.setMonth(d.getMonth() - i); const key = d.toISOString().slice(0, 7); let s = 0; byDay.forEach((v, dd) => { if (dd.slice(0, 7) === key) s += v; }); monthSeries.push({ x: MON[d.getMonth()], full: MON[d.getMonth()] + " " + key.slice(0, 4), value: s, now: key === ym }); }
+  const monthSeries = []; for (let i = 11; i >= 0; i--) { const d = new Date(today + "T00:00:00"); d.setMonth(d.getMonth() - i); const key = ymL(d); let s = 0; byDay.forEach((v, dd) => { if (dd.slice(0, 7) === key) s += v; }); monthSeries.push({ x: MON[d.getMonth()], full: MON[d.getMonth()] + " " + key.slice(0, 4), value: s, now: key === ym }); }
   const barsHTML = (series) => {
     const max = Math.max(1, ...series.map((s) => s.value));
     const tot = series.reduce((a, s) => a + s.value, 0);
@@ -1807,7 +1814,7 @@ async function viewDashboard(c) {
 
   c.innerHTML = `<style>
     .dash{display:flex;flex-direction:column;gap:14px;width:100%;max-width:100%}
-    .dash-hero{display:block;border-radius:22px;padding:22px 20px;color:#fff;text-decoration:none;background:linear-gradient(135deg,#1f7a3d,#33ab5b);box-shadow:0 10px 26px rgba(31,122,61,.28)}
+    .dash-hero{display:block;border-radius:22px;padding:22px 20px;color:#fff;text-decoration:none;background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28)}
     .dash-hero.empty{background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28)}
     .dash-hero:active{transform:scale(.99)}
     .dh-top{font-size:13px;opacity:.92;font-weight:600;letter-spacing:.2px}
