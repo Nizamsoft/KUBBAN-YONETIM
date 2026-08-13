@@ -412,6 +412,8 @@ table.data input.num { text-align: right; }
 .sug-name { flex: 1; min-width: 0; font-size: 14px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 .acc-list { display: flex; flex-direction: column; }
+.acc-list.hide-zero .acc-row.sub.zerobal { display: none !important; }
+.acc-edit-ic.on { background: var(--gold); border-color: var(--gold); color: #fff; }
 .acc-row {
   display: flex; align-items: center; gap: 10px;
   padding: 13px 16px; border-top: 1px solid var(--line); cursor: pointer;

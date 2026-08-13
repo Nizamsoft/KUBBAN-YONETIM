@@ -594,8 +594,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.174";
+const APP_VERSION = "2026.175";
 const CHANGELOG = [
+  { version: "2026.175", date: "2026-08-13", items: [
+    "0️⃣ Hesap Planı başlığında yeni düğme: bakiyesi 0 olan ALT hesapları gizle/göster. Basınca tüm gruplardaki 0 bakiyeli alt hesaplar gizlenir (tekrar basınca geri gelir) — kalabalık gruplar sadeleşir",
+  ]},
   { version: "2026.174", date: "2026-08-13", items: [
     "🖥️ Dashboard yerleşimi düzeltildi: artık ekranı TAM DOLDURUYOR (900px'lik dar sütun sınırı kaldırıldı) — geniş ekranda yanlarda boşluk / sağa-sola kayma yok, taşma yok",
     "🟢 'Yemek Kartı Alacakları' → 'Alacaklarım': artık sadece 108 değil, TÜM alacakları gösteriyor — 108 (bloke) + 120 (müşteri/veresiye), en yüksekten sıralı, satıra dokun → hesap defteri",
@@ -3963,7 +3966,8 @@ async function viewHesaplar(c) {
   const rowHtml = (a, sub) => {
     const parent = !sub && childCount(a) > 0;
     const bal = sub ? cur(a) : rolled(a);
-    const cls = sub ? "sub" : (parent ? "parent" : "leaf");
+    const zero = sub && Math.abs(bal) < 0.005;
+    const cls = (sub ? "sub" : (parent ? "parent" : "leaf")) + (zero ? " zerobal" : "");
     return `<div class="acc-row ${cls}" data-id="${a.id}"${sub ? ` data-parent="${a.parentId}" style="display:none"` : ""}>
       <span class="chev">${parent ? "▸" : ""}</span>
       <span class="acc-ico${sub ? " blank" : ""}">${sub ? "" : accEmoji(a)}</span>
@@ -4013,6 +4017,7 @@ async function viewHesaplar(c) {
         <span class="ttl">📋 Hesap Planı</span>
         <span class="acc-plan-right">
           <span class="hint">${roots.length} ana hesap</span>
+          <button class="acc-edit-ic" id="acc-hidezero" title="Bakiyesi 0 olan alt hesapları gizle/göster">0️⃣</button>
           <button class="acc-edit-ic" id="edit-toggle" title="Hesapları Düzenle">✏️</button>
         </span>
       </div>
@@ -4059,6 +4064,17 @@ async function viewHesaplar(c) {
       setOpen(row.dataset.id, row.dataset.open !== "1");
     });
   });
+
+  // Bakiyesi 0 olan alt hesapları gizle/göster
+  let hideZero = false;
+  const hzBtn = $("#acc-hidezero", c);
+  if (hzBtn) hzBtn.onclick = () => {
+    hideZero = !hideZero;
+    $(".acc-list", c).classList.toggle("hide-zero", hideZero);
+    hzBtn.classList.toggle("on", hideZero);
+    hzBtn.style.opacity = hideZero ? "1" : "";
+    toast(hideZero ? "Bakiyesi 0 olan alt hesaplar gizlendi." : "Tüm alt hesaplar gösteriliyor.", "ok");
+  };
   $$(".acc-row.leaf", c).forEach((row) => {
     row.addEventListener("click", (e) => {
       if (e.target.closest("button")) return;
