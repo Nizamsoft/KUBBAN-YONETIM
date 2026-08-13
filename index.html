@@ -12,12 +12,21 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#241d15" />
-  <link rel="stylesheet" href="style.css?v=2026.138" />
+  <link rel="stylesheet" href="style.css?v=2026.166" />
 </head>
 <body>
 
-  <!-- Yükleniyor perdesi -->
-  <div id="loader"><div class="spinner"></div></div>
+  <!-- Yükleniyor perdesi (açılış: logo + ilerleme çubuğu + yüzde) -->
+  <div id="loader">
+    <div class="loader-box">
+      <img class="loader-logo" src="https://firebasestorage.googleapis.com/v0/b/nizam--to-do.firebasestorage.app/o/company-logos%2FahknZI41JjoHGdkfyy8W%2Fphoto.jpg?alt=media&token=2b3ea8e5-90ba-4299-8cb4-5681c646baf9" alt="Güllüoğlu Kübban" />
+      <div class="loader-name">Güllüoğlu Kübban</div>
+      <div class="loader-sub">Yönetim Paneli</div>
+      <div class="loader-track indet"><div class="loader-fill" id="loader-fill"></div></div>
+      <div class="loader-pct" id="loader-pct"></div>
+      <div class="loader-msg" id="loader-msg">Başlatılıyor…</div>
+    </div>
+  </div>
 
   <!-- ===================== GİRİŞ EKRANI ===================== -->
   <div id="login-view" class="hidden">
@@ -96,6 +105,6 @@
   <div id="modal-root"></div>
   <div id="toasts"></div>
 
-  <script type="module" src="app.js?v=2026.138"></script>
+  <script type="module" src="app.js?v=2026.166"></script>
 </body>
 </html>

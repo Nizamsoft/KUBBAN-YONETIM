@@ -421,14 +421,44 @@ function onAuth() {
 // ---------------------------------------------------------------------------
 //  GÖRÜNÜM GEÇİŞLERİ
 // ---------------------------------------------------------------------------
-function showLoader(on) { $("#loader").classList.toggle("hidden", !on); }
+function showLoader(on) {
+  const el = $("#loader"); if (!el) return;
+  if (on) { el.classList.remove("hidden", "fade-out"); }
+  else { el.classList.add("fade-out"); setTimeout(() => el.classList.add("hidden"), 320); }
+}
+// Açılış yükleme çubuğu: belirli yüzde / belirsiz (indeterminate) mod
+function setLoaderProgress(pct, msg) {
+  const fill = $("#loader-fill"), pctEl = $("#loader-pct"), msgEl = $("#loader-msg");
+  const track = fill && fill.parentElement;
+  const p = Math.max(0, Math.min(100, Math.round(pct)));
+  if (track) track.classList.remove("indet");
+  if (fill) fill.style.width = p + "%";
+  if (pctEl) pctEl.textContent = "%" + p;
+  if (msg != null && msgEl) msgEl.textContent = msg;
+}
+function setLoaderBusy(msg) {
+  const fill = $("#loader-fill"), pctEl = $("#loader-pct"), msgEl = $("#loader-msg");
+  const track = fill && fill.parentElement;
+  if (track) track.classList.add("indet");
+  if (pctEl) pctEl.textContent = "";
+  if (msg != null && msgEl) msgEl.textContent = msg;
+}
+// Sayfa yüklenirken içerik alanında ortada gösterge (boş beyaz ekran yerine)
+function showViewLoader() {
+  const main = document.querySelector(".main");
+  if (!main || document.getElementById("view-loader")) return;
+  const el = document.createElement("div");
+  el.id = "view-loader";
+  el.innerHTML = `<div class="spinner"></div><div class="vl-txt">Yükleniyor…</div>`;
+  main.appendChild(el);
+}
+function hideViewLoader() { const el = document.getElementById("view-loader"); if (el) el.remove(); }
 function showLogin() {
   showLoader(false);
   $("#app-view").classList.add("hidden");
   $("#login-view").classList.remove("hidden");
 }
 function showApp() {
-  showLoader(false);
   $("#login-view").classList.add("hidden");
   $("#app-view").classList.remove("hidden");
   // Kullanıcı bilgisi
@@ -440,18 +470,24 @@ function showApp() {
   const foot = $(".sidebar-foot");
   if (foot) foot.textContent = `Sürüm ${APP_VERSION} · Bulut (Supabase)`;
   buildNav();
-  if (!location.hash) location.hash = "#/dashboard";
-  route();
-  // İlk görünüm çizildikten sonra ağır koleksiyonları arka planda ısıt → sonraki gezinmeler anında
-  warmCache();
+  // Açılışta HER ŞEYİ yükle (logo + çubuk + %), sonra ilk ekranı aç → gezinmeler ışık hızında
+  preloadAndStart();
 }
 let _warmed = false;
-function warmCache() {
-  if (_warmed) return; _warmed = true;
-  setTimeout(() => {
-    [C.accounts, C.accountEntries, C.dayEndRecords, C.currentMovements, C.bankTransactions, C.cashflowItems]
-      .forEach((ref) => { try { fetchAll(ref).catch(() => {}); } catch (_) {} });
-  }, 350);
+async function preloadAndStart() {
+  _warmed = true;
+  showLoader(true);
+  setLoaderProgress(0, "Veriler yükleniyor…");
+  const refs = [C.accounts, C.accountEntries, C.dayEndRecords, C.currentMovements, C.bankTransactions, C.cashflowItems, C.settings];
+  let done = 0;
+  await Promise.all(refs.map((ref) => fetchAll(ref).catch(() => []).then(() => {
+    done++; setLoaderProgress((done / refs.length) * 100, "Veriler yükleniyor…");
+  })));
+  setLoaderProgress(100, "Hazır ✓");
+  if (!location.hash) location.hash = "#/dashboard";
+  try { await route({ silent: true }); } catch (_) {}   // ilk ekranı perde arkasında hazırla (cache sıcak → anında)
+  await new Promise((r) => setTimeout(r, 260));          // %100 kısa süre görünsün
+  showLoader(false);
 }
 // ---- Profil fotoğrafı / kullanıcı menüsü ----
 function avatarInner(u = currentUser, cls = "") {
@@ -552,8 +588,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.165";
+const APP_VERSION = "2026.166";
 const CHANGELOG = [
+  { version: "2026.166", date: "2026-08-12", items: [
+    "🚀 Açılış yükleme ekranı: logo + ilerleme çubuğu + yüzde. Giriş yapınca tüm veriler (hesaplar, hareketler, gün sonu, banka, kasa…) önceden yüklenir; ekran hazır olunca açılır → sonrasında her şey takır takır, ışık hızında",
+    "⏳ Sayfa yüklenirken artık boş beyaz ekran yok: içerik alanının ORTASINDA belirgin bir 'Yükleniyor' göstergesi çıkar (yalnız gerçekten yavaşsa; anında gelenlerde görünmez)",
+  ]},
   { version: "2026.165", date: "2026-08-12", items: [
     "⚡ Hesaplar ekranı çok daha hızlı açılıyor: 3600+ hesabın tamamını baştan çizmek yerine yalnız ana başlıklar çizilir; bir grubun alt hesapları ancak o grubu AÇINCA (bir kez) üretilir. Düzenle/alt ekle, arama ve düzenleme modu aynen çalışır",
   ]},
@@ -1383,9 +1423,10 @@ async function route(opts = {}) {
     else { backEl.style.display = "none"; backEl.onclick = null; }
   }
   const c = $("#view-container");
-  // İlk yükleme yavaşsa (önbellek yoksa) üstte ince ilerleme çubuğu göster.
-  // Önbellekten anında gelen geçişlerde (<140ms) hiç görünmez → titremez.
+  // Yavaş yüklemede (önbellek yoksa) üstte ince çubuk + içerik alanında ortada belirgin gösterge.
+  // Önbellekten anında gelen geçişlerde (<130ms) hiçbiri görünmez → titremez, beyaz ekran olmaz.
   const barTimer = silent ? null : setTimeout(showRouteBar, 140);
+  const loadTimer = silent ? null : setTimeout(showViewLoader, 130);
   try {
     await r.render(c);
     if (!silent) {
@@ -1399,6 +1440,8 @@ async function route(opts = {}) {
     c.innerHTML = `<div class="notice warn"><b>Hata:</b> ${esc(err.message || err)}</div>`;
   } finally {
     if (barTimer) clearTimeout(barTimer);
+    if (loadTimer) clearTimeout(loadTimer);
+    hideViewLoader();
     if (!silent) hideRouteBar();
   }
 }

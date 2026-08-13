@@ -65,14 +65,34 @@ button { font-family: inherit; }
 #loader {
   position: fixed; inset: 0; z-index: 9999;
   display: flex; align-items: center; justify-content: center;
-  background: var(--bg);
+  background: radial-gradient(120% 120% at 50% 0%, #fffdf8 0%, var(--bg) 60%);
+  transition: opacity .3s ease;
 }
+#loader.fade-out { opacity: 0; pointer-events: none; }
+.loader-box { display: flex; flex-direction: column; align-items: center; text-align: center; padding: 24px; animation: viewIn .3s ease; }
+.loader-logo { width: 84px; height: 84px; border-radius: 22px; object-fit: cover; box-shadow: 0 10px 30px rgba(122,90,32,.22); }
+.loader-name { margin-top: 16px; font-size: 20px; font-weight: 800; color: var(--ink); letter-spacing: .2px; }
+.loader-sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; letter-spacing: 2px; text-transform: uppercase; }
+.loader-track { position: relative; width: min(260px, 70vw); height: 7px; border-radius: 999px; background: var(--line); margin-top: 22px; overflow: hidden; }
+.loader-fill { position: absolute; inset: 0 auto 0 0; width: 0%; border-radius: 999px; background: linear-gradient(90deg, var(--gold-dark), var(--gold-light)); transition: width .28s cubic-bezier(.3,.8,.4,1); }
+.loader-track.indet .loader-fill { width: 40% !important; animation: loaderIndet 1.1s ease-in-out infinite; transition: none; }
+@keyframes loaderIndet { 0% { transform: translateX(-120%); } 100% { transform: translateX(320%); } }
+.loader-pct { margin-top: 12px; font-size: 22px; font-weight: 800; color: var(--gold-dark); font-variant-numeric: tabular-nums; min-height: 26px; }
+.loader-msg { margin-top: 2px; font-size: 12.5px; color: var(--ink-soft); }
 .spinner {
   width: 42px; height: 42px; border-radius: 50%;
   border: 4px solid var(--line-strong); border-top-color: var(--gold);
   animation: spin .8s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+/* Sayfa yüklenirken içerik alanında ortada belirgin gösterge (boş beyaz ekran yerine) */
+#view-loader {
+  position: absolute; inset: 0; z-index: 40;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  background: var(--bg); animation: vlFade .14s ease;
+}
+#view-loader .vl-txt { font-size: 13px; font-weight: 700; color: var(--ink-soft); letter-spacing: .3px; }
+@keyframes vlFade { from { opacity: 0; } to { opacity: 1; } }
 
 /* ==========================================================================
    GİRİŞ EKRANI
@@ -220,7 +240,7 @@ button { font-family: inherit; }
 .gs-topbar { display: flex; align-items: center; margin-bottom: 12px; }
 
 /* İçerik */
-.main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.main { flex: 1; min-width: 0; display: flex; flex-direction: column; position: relative; }
 .topbar {
   display: flex; align-items: center; gap: 12px;
   padding: 14px 24px; background: var(--surface);
