@@ -594,8 +594,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.178";
+const APP_VERSION = "2026.179";
 const CHANGELOG = [
+  { version: "2026.179", date: "2026-08-13", items: [
+    "🧾 Gün sonu cari eşleştirme AKILLANDI: birebir ad tutmasa bile çekirdek kelimeyle (A.Ş./Ltd/Şti/San/Tic eklerini atarak) ve aynı tarih+tutarlı faturanın carisi + isim benzerliğiyle doğru hesabı bulur. Emin değilse yanlış atamaz — boş bırakıp '⚠️ Eşleştir/Ekle' ile sorar",
+    "🔵 T.Finans kart → hesap eşleştirme artık SADECE kesin eşleşme (öğrenilmiş hafıza + birebir ad/kod). Bulamazsa hesap BOŞ kalır (yanlış hesaba ya da gereksiz yeni hesaba yazmaz); sen seçersin",
+    "🌙 Kasa sayımında 'Gerçekleşen' girerken Enter'a basınca imleç bir ALT satırın kutusuna geçer (hızlı giriş)",
+  ]},
   { version: "2026.178", date: "2026-08-13", items: [
     "📱 Mobil dashboard yerleşim bug'ı DÜZELTİLDİ: mini kartlarda min-width:0 olmadığı için içerik ekrandan taşıyıp yerleşimi bozuyordu. Artık her şey ekrana tam sığar (kayma/taşma yok)",
     "✂️ Dashboard Borçlarım/Alacaklarım listesinde hesap adının yalnız İLK 2 KELİMESİ gösterilir (ad + tutar yan yana sığar); tam ad için satıra dokun",
@@ -1999,6 +2004,18 @@ function titleCase(s) {
   return String(s || "").toLowerCase().replace(/[̀-ͯ]/g, "")
     .replace(/(^|[\s\-.\/(&])([a-zçğıöşü])/g, (m, sep, ch) => sep + ch.toUpperCase());
 }
+// Cari ad eşleştirme (fatura mantığı): şirket eklerini at, çekirdek kelime KÜMELERİ birebir aynı mı
+const CARI_STOP = new Set(["a", "s", "as", "anonim", "sirketi", "sti", "ltd", "limited", "san", "sanayi", "tic", "ticaret", "ve", "paz", "pazarlama", "ith", "ihracat", "ihr", "dis", "org"]);
+const cariNorm = (s) => normTr(s).replace(/[^0-9a-z ]/g, " ").replace(/\s+/g, " ").trim();
+const cariCoreSet = (s) => new Set(cariNorm(s).split(" ").filter((w) => w.length > 1 && !CARI_STOP.has(w)));
+const cariNameMatch = (aName, bName) => {
+  const A = cariCoreSet(aName), B = cariCoreSet(bName);
+  if (!A.size || !B.size) return cariNorm(aName) === cariNorm(bName) && !!cariNorm(aName);
+  if (A.size !== B.size) return false;
+  for (const w of A) if (!B.has(w)) return false;
+  return true;
+};
+const cariShareCore = (aName, bName) => { const A = cariCoreSet(aName), B = cariCoreSet(bName); for (const w of A) if (B.has(w)) return true; return false; };
 function gsMatchMethod(label) {
   const lab = normTr(label);
   let best = null, bestLen = 0;
@@ -2444,6 +2461,14 @@ async function viewGunSonuAktarim(c) {
         if (row) { row.classList.remove("flash-y"); void row.offsetWidth; row.classList.add("flash-y"); }
       }
     }));
+    // Enter → bir ALT satırın Gerçekleşen kutusuna geç (son satırda çıkışa odaktan çıkar)
+    const gsReals = $$(".gs-real", body);
+    gsReals.forEach((inp, idx) => inp.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const nx = gsReals[idx + 1];
+      if (nx) { nx.focus(); nx.select && nx.select(); } else inp.blur();
+    }));
     recompute();
 
     // Tepe: X → İkram (canlı düşer) ve Net Satış
@@ -2499,22 +2524,39 @@ async function viewGunSonuAktarim(c) {
 
     // Aynı tarih + aynı tutarda fatura zaten girilmişse "faturalı" say (aktarılmaz)
     const allEntries = await fetchAll(C.accountEntries).catch(() => []);
-    const faturaAmts = new Set(allEntries
-      .filter((e) => e.source === "fatura-import" && e.date === gsState.date)
-      .map((e) => Math.round((parseNum(e.borc) || 0) * 100))
-      .filter(Boolean));
+    const accByIdGs = new Map(accounts.map((a) => [a.id, a]));
+    const faturaAmts = new Set();
+    const faturaByAmt = new Map();   // tutar(kuruş) → [o faturanın carisi hesap]
+    allEntries.filter((e) => e.source === "fatura-import" && e.date === gsState.date).forEach((e) => {
+      const c = Math.round((parseNum(e.borc) || 0) * 100); if (!c) return;
+      faturaAmts.add(c);
+      const acc = accByIdGs.get(e.accountId);
+      if (acc) { if (!faturaByAmt.has(c)) faturaByAmt.set(c, []); faturaByAmt.get(c).push(acc); }
+    });
     gsState._faturaAmts = [...faturaAmts];
     const isFaturali = (key, r) => key === "cariIslem" && faturaAmts.has(Math.round(parseNum(r.tutar) * 100));
 
-    // Cari eşleştirme (faturalardaki gibi): ada göre otomatik bul; yoksa Eşleştir/Ekle
+    // Cari eşleştirme — AKILLI (faturalardaki mantık): birebir → çekirdek kelime →
+    // aynı tarih+tutarlı faturanın carisi (isim benzerliğiyle). Emin değilse null (boş kalır, sorulur).
     const parentIds = new Set(accounts.map((a) => a.parentId).filter(Boolean));
     const allLeaf = accounts.filter((a) => !parentIds.has(a.id) && a.code);
     const cariLeaf = accounts.filter((a) => a.parentId && isCari(a.type));
-    const byNameCari = (nm) => {
-      const k = normTr(nm || ""); if (!k) return null;
-      return cariLeaf.find((a) => normTr(a.name) === k || (a.nameAliases || []).some((al) => normTr(al) === k)) || null;
+    const byNameCari = (nm, tutar) => {
+      const k = normTr(nm || "");
+      if (k) {
+        let hit = cariLeaf.find((a) => normTr(a.name) === k || (a.nameAliases || []).some((al) => normTr(al) === k));
+        if (hit) return hit;                                   // 1) birebir ad/alias
+        hit = cariLeaf.find((a) => cariNameMatch(a.name, nm) || (a.nameAliases || []).some((al) => cariNameMatch(al, nm)));
+        if (hit) return hit;                                   // 2) çekirdek kelime kümesi
+      }
+      // 3) fatura tutarı ipucu: aynı tarih+tutarlı fatura carisi + isim benzerliği
+      const cands = faturaByAmt.get(Math.round(parseNum(tutar) * 100)) || [];
+      const exact = cands.find((a) => cariNameMatch(a.name, nm));
+      if (exact) return exact;
+      if (cands.length === 1 && cariShareCore(cands[0].name, nm)) return cands[0];
+      return null;
     };
-    const effAcc = (r) => r.acc || byNameCari(r.sahis);   // sabitlenen (elle) öncelikli
+    const effAcc = (r) => r.acc || byNameCari(r.sahis, r.tutar);   // sabitlenen (elle) öncelikli
     async function createCariGs(name) {
       let main = accounts.find((a) => a.type === "musteri" && !a.parentId) || accounts.find((a) => a.type === "musteri");
       if (!main) {
@@ -7805,7 +7847,10 @@ async function viewBanka(c) {
       if (!merchant) return null;
       const a = aliasMap[bkSig(merchant)];
       if (a) return a;
-      const hit = resolveAcc(merchant);
+      // Sadece KESİN eşleşme: birebir ad ya da kod. Gevşek önek eşleşmesi YOK →
+      // bulamazsa null döner (boş kalır), yanlış hesaba yazılmaz.
+      const v = normTr(merchant);
+      const hit = leafAccs.find((x) => normTr(x.name) === v) || leafAccs.find((x) => String(x.code) === String(merchant).trim());
       return hit ? { code: hit.code, name: hit.name, rapor: "" } : null;
     };
 
@@ -7848,7 +7893,7 @@ async function viewBanka(c) {
     const cozumRowHtml = (r, i, kind, bal) => {
       const merc = r.card ? r.card.merchant : "";
       const sug = merc ? suggest(merc) : null;
-      const accVal = sug ? `${sug.code} · ${sug.name}` : (merc ? titleCase(merc) : "");
+      const accVal = sug ? `${sug.code} · ${sug.name}` : "";   // emin değilse boş kalsın (yanlış hesaba yazma)
       const rapVal = sug ? sug.rapor : "";
       const pickRow = kind === "unmatch"
         ? `<tr class="tf-cardpick-row" data-i="${i}"><td colspan="9">
