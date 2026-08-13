@@ -594,8 +594,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.180";
+const APP_VERSION = "2026.181";
 const CHANGELOG = [
+  { version: "2026.181", date: "2026-08-13", items: [
+    "💳 YENİ: Ödeme Modu sayfası (Raporlar altında). Tedarikçi borçların büyükten küçüğe listelenir; her borç için Garanti / T.Finans'tan ödeme yazarsın → 'kalan borç' ve 'kalan banka bakiyesi' CANLI güncellenir. Tepede: Toplam Borç, Garanti bakiye, T.Finans bakiye, toplam ödeme, kalan bakiye. SADECE PLAN — muhasebe kaydı oluşturmaz; girdiğin tutarlar bu cihazda saklanır. Mobilde kart düzeni",
+  ]},
   { version: "2026.180", date: "2026-08-13", items: [
     "🔄 Ters bakiye grupları sıralaması: 159 Verilen Sipariş Avansları BÜYÜKTEN küçüğe (en büyük avans üstte), 340 Alınan Sipariş Avansları KÜÇÜKTEN büyüğe",
   ]},
@@ -1368,6 +1371,7 @@ const NAV = [
   ]},
   { label: "Hesaplar", icon: "💼", path: "hesaplar" },
   { label: "Raporlar", icon: "📈", children: [
+    { label: "Ödeme Modu",          icon: "💳", path: "odeme-modu" },
     { label: "Kâr / Zarar Durumu",  icon: "💹", path: "kar-zarar" },
     { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
     { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
@@ -1385,6 +1389,7 @@ const NAV = [
 const ROUTES = {
   "dashboard":        { title: "Dashboard", crumb: "Ana Sayfa", render: viewDashboard },
   "borc-alacak":      { title: "Borçlar / Alacaklar", crumb: "Ana Sayfa", render: viewBorcAlacak, back: "#/dashboard" },
+  "odeme-modu":       { title: "Ödeme Modu", crumb: "Raporlar", render: viewOdemeModu },
   "gunsonu-aktarim":  { title: "Gün Sonu Aktarımı", crumb: "Veri Girişleri", render: viewGunSonuAktarim },
   "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu Aktarımı", render: viewGunSonuKayitlar },
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
@@ -1953,6 +1958,121 @@ async function viewBorcAlacak(c) {
   });
   $(".ba-q", c).addEventListener("input", (e) => { query = e.target.value; draw(); });
   draw();
+}
+
+// Ödeme Modu — tedarikçi borçlarını büyükten küçüğe göster; Garanti/T.Finans'tan ödeme PLANLA (kayıt YOK)
+async function viewOdemeModu(c) {
+  const [accounts, cari, bank, entries] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.currentMovements).catch(() => []),
+    fetchAll(C.bankTransactions).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  const bal = computeBalances(accounts, cari, bank, entries);
+  const cur = (id) => bal.get(id)?.current || 0;
+  const hasChild = new Set(accounts.map((a) => a.parentId).filter(Boolean));
+  const leaves = accounts.filter((a) => !hasChild.has(a.id) && a.code);
+  const groupOf = (cd) => String(cd || "").split(".")[0];
+  const suppliers = leaves.filter((a) => groupOf(a.code) === "320").map((a) => ({ a, debt: -cur(a.id) })).filter((x) => x.debt > 0.5).sort((x, y) => y.debt - x.debt);
+  const toplamBorc = suppliers.reduce((s, x) => s + x.debt, 0);
+  const bankLeaves = leaves.filter((a) => groupOf(a.code) === "102");
+  const garanti = bankLeaves.find((a) => normTr(a.name).includes("garanti"));
+  const tfin = bankLeaves.find((a) => normTr(a.name).includes("finans"));
+  const garantiBal = garanti ? cur(garanti.id) : 0, tfinBal = tfin ? cur(tfin.id) : 0;
+  const first2 = (nm) => { const w = String(nm || "").trim().split(/\s+/); return w.slice(0, 2).join(" ") || String(nm || ""); };
+
+  // Plan taslağı (yerelde saklanır; muhasebe kaydı DEĞİL)
+  let plan = {}; try { plan = JSON.parse(localStorage.getItem("odeme-plan") || "{}") || {}; } catch (_) { plan = {}; }
+  const pg = (id) => parseNum(plan[id]?.g); const pt = (id) => parseNum(plan[id]?.t);
+
+  if (!suppliers.length) {
+    c.innerHTML = `<div class="card"><div class="empty"><div class="ico">💳</div><p>Ödenecek tedarikçi borcu yok 🎉</p></div></div>`;
+    return;
+  }
+
+  c.innerHTML = `<style>
+    .om{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+    .om-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;position:sticky;top:0;z-index:5}
+    .om-tile{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:14px;padding:12px 14px;min-width:0}
+    .om-tile .l{font-size:11px;color:var(--ink-faint,#8b8172);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .om-tile .v{font-size:19px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .om-tile .s{font-size:11px;color:var(--ink-faint,#9a9082);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .om-tile.borc{border-left:4px solid var(--danger,#d33)} .om-tile.gar{border-left:4px solid #1f7a3d} .om-tile.tf{border-left:4px solid #2f6db0} .om-tile.ode{border-left:4px solid var(--gold,#b8952e)}
+    .om-tile .v.red{color:var(--danger,#d33)} .om-tile .v.green{color:var(--ok,#2e9e52)}
+    .om-tbl{width:100%;border-collapse:collapse;background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:14px;overflow:hidden}
+    .om-tbl th,.om-tbl td{padding:10px 12px;border-bottom:1px solid var(--line,#f0ece2);text-align:right;font-size:13px;white-space:nowrap}
+    .om-tbl th{font-size:11px;color:var(--ink-faint,#8b8172);background:var(--bg,#f6f2e9);position:sticky;top:0}
+    .om-tbl td.nm,.om-tbl th.nm{text-align:left;max-width:0;width:40%;overflow:hidden;text-overflow:ellipsis}
+    .om-tbl tr:last-child td{border-bottom:0}
+    .om-in{width:110px;max-width:34vw;text-align:right;padding:7px 9px;border:1px solid var(--line,#ddd4c2);border-radius:8px;font-size:14px;font-variant-numeric:tabular-nums}
+    .om-in.gar:focus{outline:2px solid #1f7a3d55} .om-in.tf:focus{outline:2px solid #2f6db055}
+    .om-borc{color:var(--danger,#d33);font-weight:700} .om-kalan.red{color:var(--danger,#d33);font-weight:700} .om-kalan.ok{color:var(--ok,#2e9e52);font-weight:700}
+    .om-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
+    .om-hint{font-size:12px;color:var(--ink-faint,#8b8172);padding:0 2px}
+    .om-tools{display:flex;gap:8px;align-items:center}
+    @media(max-width:640px){
+      .om-wrap{overflow:visible}
+      .om-tbl,.om-tbl tbody{display:block;border:0;background:transparent}
+      .om-tbl thead{display:none}
+      .om-tbl tr{display:block;border:1px solid var(--line,#ece7dc);border-radius:14px;margin-bottom:10px;padding:6px 12px 10px;background:var(--card,#fff)}
+      .om-tbl td{display:flex;justify-content:space-between;align-items:center;gap:12px;border:0;padding:7px 0;text-align:right;white-space:nowrap}
+      .om-tbl td::before{content:attr(data-label);font-size:12px;color:var(--ink-faint,#8b8172);font-weight:600;text-align:left}
+      .om-tbl td.nm{max-width:none;width:auto;font-weight:800;font-size:15px;border-bottom:1px solid var(--line,#f0ece2);padding:8px 0}
+      .om-tbl td.nm::before{content:""}
+      .om-in{width:160px;max-width:56vw}
+    }
+  </style>
+  <div class="om">
+    <div class="om-sum">
+      <div class="om-tile borc"><div class="l">Toplam Borç</div><div class="v">${fmtTRY(toplamBorc)}</div><div class="s" id="om-kalanborc">kalan ${fmtTRY(toplamBorc)}</div></div>
+      <div class="om-tile gar"><div class="l">🟢 Garanti Bakiye</div><div class="v" id="om-gark">${fmtTRY(garantiBal)}</div><div class="s">başlangıç ${fmtTRY(garantiBal)}</div></div>
+      <div class="om-tile tf"><div class="l">🔵 T.Finans Bakiye</div><div class="v" id="om-tfk">${fmtTRY(tfinBal)}</div><div class="s">başlangıç ${fmtTRY(tfinBal)}</div></div>
+      <div class="om-tile ode"><div class="l">Toplam Ödeme</div><div class="v" id="om-ode">${fmtTRY(0)}</div><div class="s" id="om-kalanbank">kalan bakiye ${fmtTRY(garantiBal + tfinBal)}</div></div>
+    </div>
+    <div class="om-tools"><span class="om-hint">💡 Sadece plan — kayıt oluşturmaz. Girdiğin tutarlar bu cihazda saklanır.</span><div class="grow" style="flex:1"></div><button class="btn btn-sm" id="om-clear">Planı Temizle</button></div>
+    <div class="om-wrap"><table class="om-tbl">
+      <thead><tr><th class="nm">Hesap</th><th>Güncel Borç</th><th>🟢 Garanti Öde</th><th>🔵 T.Finans Öde</th><th>Kalan Borç</th></tr></thead>
+      <tbody>${suppliers.map((x) => `<tr data-acc="${x.a.id}">
+        <td class="nm" title="${esc(x.a.name)}">${esc(first2(x.a.name))}</td>
+        <td class="om-borc" data-label="Güncel Borç" data-debt="${x.debt}">${fmtTRY(x.debt)}</td>
+        <td data-label="🟢 Garanti Öde"><input class="om-in gar" inputmode="decimal" data-acc="${x.a.id}" data-src="g" value="${pg(x.a.id) ? fmtNum(pg(x.a.id)) : ""}" placeholder="0,00" /></td>
+        <td data-label="🔵 T.Finans Öde"><input class="om-in tf" inputmode="decimal" data-acc="${x.a.id}" data-src="t" value="${pt(x.a.id) ? fmtNum(pt(x.a.id)) : ""}" placeholder="0,00" /></td>
+        <td class="om-kalan" data-label="Kalan Borç">${fmtTRY(x.debt)}</td>
+      </tr>`).join("")}</tbody>
+    </table></div>
+  </div>`;
+
+  const save = () => { try { localStorage.setItem("odeme-plan", JSON.stringify(plan)); } catch (_) {} };
+  const recompute = () => {
+    let gSum = 0, tSum = 0;
+    $$("tr[data-acc]", c).forEach((tr) => {
+      const gi = $(".om-in.gar", tr), ti = $(".om-in.tf", tr);
+      const g = parseNum(gi.value), t = parseNum(ti.value);
+      gSum += g; tSum += t;
+      const debt = parseNum($(".om-borc", tr).dataset.debt);
+      const kalan = debt - g - t;
+      const kc = $(".om-kalan", tr);
+      kc.textContent = fmtTRY(kalan);
+      kc.className = "om-kalan " + (Math.abs(kalan) < 0.005 ? "ok" : "red");
+    });
+    const ode = gSum + tSum;
+    $("#om-ode", c).textContent = fmtTRY(ode);
+    const garK = garantiBal - gSum, tfK = tfinBal - tSum;
+    const ge = $("#om-gark", c); ge.textContent = fmtTRY(garK); ge.className = "v " + (garK < -0.005 ? "red" : garK > 0.005 ? "green" : "");
+    const te = $("#om-tfk", c); te.textContent = fmtTRY(tfK); te.className = "v " + (tfK < -0.005 ? "red" : tfK > 0.005 ? "green" : "");
+    $("#om-kalanbank", c).textContent = `kalan bakiye ${fmtTRY((garantiBal + tfinBal) - ode)}`;
+    $("#om-kalanborc", c).textContent = `kalan ${fmtTRY(toplamBorc - ode)}`;
+  };
+  $$(".om-in", c).forEach((inp) => {
+    inp.addEventListener("input", rafThrottle(() => {
+      const id = inp.dataset.acc, src = inp.dataset.src;
+      plan[id] = plan[id] || {}; plan[id][src] = inp.value.trim() === "" ? "" : parseNum(inp.value);
+      save(); recompute();
+    }));
+    inp.addEventListener("blur", () => { if (inp.value.trim() !== "") inp.value = fmtNum(parseNum(inp.value)); });
+  });
+  $("#om-clear", c).onclick = () => confirmDialog("Ödeme planı temizlensin mi? (Girdiğin tutarlar silinir; muhasebe etkilenmez.)", () => { plan = {}; save(); route(); });
+  recompute();
 }
 
 function monthlyEquivalent(item) {
