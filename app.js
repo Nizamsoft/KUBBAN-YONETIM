@@ -594,8 +594,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.173";
+const APP_VERSION = "2026.174";
 const CHANGELOG = [
+  { version: "2026.174", date: "2026-08-13", items: [
+    "🖥️ Dashboard yerleşimi düzeltildi: artık ekranı TAM DOLDURUYOR (900px'lik dar sütun sınırı kaldırıldı) — geniş ekranda yanlarda boşluk / sağa-sola kayma yok, taşma yok",
+    "🟢 'Yemek Kartı Alacakları' → 'Alacaklarım': artık sadece 108 değil, TÜM alacakları gösteriyor — 108 (bloke) + 120 (müşteri/veresiye), en yüksekten sıralı, satıra dokun → hesap defteri",
+  ]},
   { version: "2026.173", date: "2026-08-13", items: [
     "🌙 Düzeltme: Gün sonu kasa (100) nakit girişi = elle girilen Nakit (Gerçekleşen) + 'X' (İkram'dan düşülür alanı) toplanarak yazılıyor. (Önceki sürümdeki 'Sistem' değeri yanlıştı — doğrusu ekranda elle girdiğin X alanı)",
   ]},
@@ -1743,11 +1747,12 @@ async function viewDashboard(c) {
   const groupOf = (cd) => String(cd || "").split(".")[0];
   const suppliers = leaves.filter((a) => groupOf(a.code) === "320").map((a) => ({ a, debt: -cur(a.id) })).filter((x) => x.debt > 0.5).sort((x, y) => y.debt - x.debt);
   const supTotal = suppliers.reduce((s, x) => s + x.debt, 0);
-  const firms = leaves.filter((a) => groupOf(a.code) === "108").map((a) => ({ a, val: cur(a.id) })).filter((x) => Math.abs(x.val) > 0.5).sort((x, y) => y.val - x.val);
+  const alacakGroups = new Set(["108", "120"]);   // bloke + müşteri/veresiye
+  const firms = leaves.filter((a) => alacakGroups.has(groupOf(a.code))).map((a) => ({ a, val: cur(a.id) })).filter((x) => x.val > 0.5).sort((x, y) => y.val - x.val);
   const firmTotal = firms.reduce((s, x) => s + x.val, 0);
 
   c.innerHTML = `<style>
-    .dash{display:flex;flex-direction:column;gap:14px;max-width:900px;margin:0 auto}
+    .dash{display:flex;flex-direction:column;gap:14px;width:100%;max-width:100%}
     .dash-hero{display:block;border-radius:22px;padding:22px 20px;color:#fff;text-decoration:none;background:linear-gradient(135deg,#1f7a3d,#33ab5b);box-shadow:0 10px 26px rgba(31,122,61,.28)}
     .dash-hero.empty{background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28)}
     .dash-hero:active{transform:scale(.99)}
@@ -1824,7 +1829,7 @@ async function viewDashboard(c) {
           : `<div class="dash-empty">Tedarikçi borcu yok 🎉</div>`}
       </div>
       <div class="card dash-card">
-        <div class="dash-card-head"><h3>🟢 Yemek Kartı Alacakları</h3><span class="dash-tot green">${fmtTRY(firmTotal)}</span></div>
+        <div class="dash-card-head"><h3>🟢 Alacaklarım</h3><span class="dash-tot green">${fmtTRY(firmTotal)}</span></div>
         ${firms.length
           ? `<div class="dash-list">${firms.slice(0, 6).map((x) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}"><span class="dli-nm">${esc(x.a.name)}</span><span class="dli-vl ${x.val >= 0 ? "green" : "red"}">${fmtTRY(x.val)}</span></a>`).join("")}</div>${firms.length > 6 ? `<a class="dash-more" href="#/hesaplar">+${firms.length - 6} hesap daha →</a>` : ""}`
           : `<div class="dash-empty">Bekleyen alacak yok</div>`}
