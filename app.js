@@ -594,8 +594,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.169";
+const APP_VERSION = "2026.170";
 const CHANGELOG = [
+  { version: "2026.170", date: "2026-08-13", items: [
+    "📱 YENİ DASHBOARD — patron görünümü (Instagram tarzı, sade, mobil): en üstte kocaman BUGÜNKÜ CİRO (düne göre ▲/▼), altında Bu Ay Ciro + Elimdeki Nakit kartları, günlük ciro grafiği (Gün/Hafta/Ay düğmeli, bugünün çubuğu altın), 'Borçlarım' (en çok borçlu tedarikçiler) ve 'Yemek Kartı Alacakları' (108 bloke). Her satır/kart dokununca ilgili hesaba/kayıtlara gider",
+  ]},
   { version: "2026.169", date: "2026-08-12", items: [
     "🛠️ Sinir bozucu 'sekmeden dönünce yükleme ekranı yeniden çıkıyor' sorunu düzeltildi. Sebep: oturum servisi (Supabase) sekmeye her dönüşte/token yenilemede tetikleniyor, biz de her seferinde açılış ekranını baştan çalıştırıyorduk. Artık açılış yalnız İLK girişte çalışır; sekmeden dönünce hiçbir şey yeniden yüklenmez",
     "🔗 Bakiye Karşılaştır tutarlılık: hareket dosyası yüklüyse GENEL TABLO da artık ondan (net borç−alacak) hesaplanıyor. Böylece tablodaki 'Fark' ile hesaba tıklayınca çıkan tarih-tarih 'Fark' BİREBİR aynı oluyor. (Önceden tablo bakiye dosyasından, tarih-tarih hareket dosyasından geliyordu; iki dosya farklı tarih/kapsamda alınınca farklar tutmuyordu — ör. Edenred'de eksik bir fatura yüzünden 287.966 görünüyordu; doğrusu 9.251)",
@@ -1680,67 +1683,164 @@ function editableTable(columns, initialRows = [], opts = {}) {
 //  MODÜL: DASHBOARD
 // ===========================================================================
 async function viewDashboard(c) {
-  const [accounts, records, cashflow, cari, bank, entries] = await Promise.all([
+  const [accounts, records, cari, bank, entries] = await Promise.all([
     fetchAll(C.accounts).catch(() => []),
     fetchAll(C.dayEndRecords).catch(() => []),
-    fetchAll(C.cashflowItems).catch(() => []),
     fetchAll(C.currentMovements).catch(() => []),
     fetchAll(C.bankTransactions).catch(() => []),
     fetchAll(C.accountEntries).catch(() => []),
   ]);
   const bal = computeBalances(accounts, cari, bank, entries);
-  const sumType = (t) => accounts.filter((a) => a.type === t)
-    .reduce((s, a) => s + (bal.get(a.id)?.current || 0), 0);
-  const kasa = sumType("kasa");
-  const tedarikci = sumType("tedarikci");
-  const banka = sumType("banka");
+  const cur = (id) => bal.get(id)?.current || 0;
+  const sumType = (t) => accounts.filter((a) => a.type === t).reduce((s, a) => s + cur(a.id), 0);
+  const kasa = sumType("kasa"), banka = sumType("banka"), elde = kasa + banka;
 
-  const monthlyIn = cashflow.filter((x) => x.type === "gelir" && x.active !== false)
-    .reduce((s, x) => s + monthlyEquivalent(x), 0);
-  const monthlyOut = cashflow.filter((x) => x.type === "gider" && x.active !== false)
-    .reduce((s, x) => s + monthlyEquivalent(x), 0);
+  // ---- Ciro (gün sonu) günlük toplam ----
+  const byDay = new Map();
+  records.filter((r) => r.date).forEach((r) => byDay.set(r.date, (byDay.get(r.date) || 0) + (r.total || 0)));
+  const today = todayISO();
+  const todayTotal = byDay.get(today) || 0;
+  const past = [...byDay.keys()].filter((d) => d < today).sort();
+  const prevDay = past[past.length - 1] || "";
+  const prevTotal = prevDay ? byDay.get(prevDay) : 0;
+  const deltaPct = prevTotal > 0 ? ((todayTotal - prevTotal) / prevTotal * 100) : null;
 
-  const recent = [...records].sort((a, b) => (b.date || "").localeCompare(a.date || "")).slice(0, 6);
-  const todayRec = records.find((r) => r.date === todayISO());
+  // Bu ay / geçen ay ciro
+  const ym = today.slice(0, 7);
+  const prevYm = (() => { const d = new Date(today + "T00:00:00"); d.setMonth(d.getMonth() - 1); return d.toISOString().slice(0, 7); })();
+  let ayCiro = 0, gecenAy = 0;
+  byDay.forEach((v, d) => { if (d.slice(0, 7) === ym) ayCiro += v; else if (d.slice(0, 7) === prevYm) gecenAy += v; });
+  const ayPct = gecenAy > 0 ? ((ayCiro - gecenAy) / gecenAy * 100) : null;
 
-  c.innerHTML = `
-    <div class="grid cols-4">
-      <div class="stat"><div class="label">Toplam Kasa (100)</div><div class="value">${fmtTRY(kasa)}</div><div class="foot">${accounts.filter(a=>a.type==="kasa").length} kasa hesabı</div></div>
-      <div class="stat green"><div class="label">Banka</div><div class="value">${fmtTRY(banka)}</div><div class="foot">${accounts.filter(a=>a.type==="banka").length} banka hesabı</div></div>
-      <div class="stat red"><div class="label">Tedarikçi Borcu (320)</div><div class="value">${fmtTRY(tedarikci)}</div><div class="foot">${accounts.filter(a=>a.type==="tedarikci").length} tedarikçi</div></div>
-      <div class="stat"><div class="label">Aylık Net Nakit Akış</div><div class="value" style="color:${monthlyIn-monthlyOut>=0?'var(--ok)':'var(--danger)'}">${fmtTRY(monthlyIn-monthlyOut)}</div><div class="foot">Gelir ${fmtTRY(monthlyIn)} · Gider ${fmtTRY(monthlyOut)}</div></div>
+  // ---- Grafik serileri: gün / hafta / ay ----
+  const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); };
+  const weekStart = (iso) => { const d = new Date(iso + "T00:00:00"); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return d.toISOString().slice(0, 10); };
+  const MON = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
+  const daySeries = []; for (let i = 29; i >= 0; i--) { const d = addDays(today, -i); daySeries.push({ x: (i % 5 === 0 ? d.slice(8, 10) : ""), full: fmtDate(d), value: byDay.get(d) || 0, now: d === today }); }
+  const weekSeries = []; { const wm = weekStart(today); for (let i = 11; i >= 0; i--) { const ws = addDays(wm, -7 * i); let s = 0; for (let k = 0; k < 7; k++) s += byDay.get(addDays(ws, k)) || 0; weekSeries.push({ x: ws.slice(8, 10) + "." + ws.slice(5, 7), full: fmtDate(ws) + " haftası", value: s, now: ws === wm }); } }
+  const monthSeries = []; for (let i = 11; i >= 0; i--) { const d = new Date(today + "T00:00:00"); d.setMonth(d.getMonth() - i); const key = d.toISOString().slice(0, 7); let s = 0; byDay.forEach((v, dd) => { if (dd.slice(0, 7) === key) s += v; }); monthSeries.push({ x: MON[d.getMonth()], full: MON[d.getMonth()] + " " + key.slice(0, 4), value: s, now: key === ym }); }
+  const barsHTML = (series) => {
+    const max = Math.max(1, ...series.map((s) => s.value));
+    const tot = series.reduce((a, s) => a + s.value, 0);
+    const nz = series.filter((s) => s.value > 0).length || 1;
+    return `<div class="dash-bars">${series.map((s) => `<a class="dbar" href="#/gunsonu-kayitlar" title="${esc(s.full)}: ${fmtTRY(s.value)}"><div class="dbar-fill${s.now ? " now" : ""}" style="height:${Math.round(s.value / max * 100)}%"></div><span class="dbar-x">${esc(s.x || "")}</span></a>`).join("")}</div>
+      <div class="dash-chart-foot">Toplam <b>${fmtTRY(tot)}</b> · günlük ort. ${fmtTRY(tot / nz)}</div>`;
+  };
+
+  // ---- Borçlarım (320) ve Yemek kartı alacakları (108) ----
+  const hasChild = new Set(accounts.map((a) => a.parentId).filter(Boolean));
+  const leaves = accounts.filter((a) => !hasChild.has(a.id) && a.code);
+  const groupOf = (cd) => String(cd || "").split(".")[0];
+  const suppliers = leaves.filter((a) => groupOf(a.code) === "320").map((a) => ({ a, debt: -cur(a.id) })).filter((x) => x.debt > 0.5).sort((x, y) => y.debt - x.debt);
+  const supTotal = suppliers.reduce((s, x) => s + x.debt, 0);
+  const firms = leaves.filter((a) => groupOf(a.code) === "108").map((a) => ({ a, val: cur(a.id) })).filter((x) => Math.abs(x.val) > 0.5).sort((x, y) => y.val - x.val);
+  const firmTotal = firms.reduce((s, x) => s + x.val, 0);
+
+  c.innerHTML = `<style>
+    .dash{display:flex;flex-direction:column;gap:14px;max-width:900px;margin:0 auto}
+    .dash-hero{display:block;border-radius:22px;padding:22px 20px;color:#fff;text-decoration:none;background:linear-gradient(135deg,#1f7a3d,#33ab5b);box-shadow:0 10px 26px rgba(31,122,61,.28)}
+    .dash-hero.empty{background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28)}
+    .dash-hero:active{transform:scale(.99)}
+    .dh-top{font-size:13px;opacity:.92;font-weight:600;letter-spacing:.2px}
+    .dh-val{font-size:clamp(30px,9vw,42px);font-weight:800;line-height:1.05;margin:6px 0 4px}
+    .dh-sub{font-size:13px;opacity:.96}
+    .dh-sub .up{font-weight:800;color:#c9f7d7}.dh-sub .down{font-weight:800;color:#ffd9d2}
+    .dash-mini{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .dmini{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:18px;padding:15px 16px;text-decoration:none;color:inherit;display:block}
+    .dm-ic{font-size:20px}.dm-lb{font-size:12px;color:var(--ink-faint,#8b8172);margin-top:3px;font-weight:600}
+    .dm-vl{font-size:clamp(16px,4.8vw,23px);font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dm-dl{font-size:11px;color:var(--ink-faint,#8b8172);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .dm-dl.up{color:var(--ok,#2e9e52)}.dm-dl.down{color:var(--danger,#d33)}
+    .dash-card{border-radius:18px}
+    .dash-card-head{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 12px;gap:10px}
+    .dash-card-head h3{margin:0;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .dash-tot{font-weight:800;font-size:16px;flex:0 0 auto;white-space:nowrap}.dash-tot.green{color:var(--ok,#2e9e52)}.dash-tot.red{color:var(--danger,#d33)}
+    .dash-seg{display:inline-flex;background:var(--bg,#f1ede3);border-radius:11px;padding:3px}
+    .dash-seg button{border:0;background:transparent;padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink-faint,#8b8172)}
+    .dash-seg button.on{background:var(--card,#fff);color:var(--ink,#241d15);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+    .dash-bars{display:flex;align-items:flex-end;gap:2px;height:150px;padding-top:8px}
+    .dbar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;text-decoration:none;min-width:0}
+    .dbar-fill{width:100%;max-width:20px;background:linear-gradient(180deg,#54c97a,#2e9e52);border-radius:6px 6px 0 0;min-height:3px;transition:height .35s ease}
+    .dbar-fill.now{background:linear-gradient(180deg,#f3c53c,#dd9f1f)}
+    .dbar:active .dbar-fill{filter:brightness(.9)}
+    .dbar-x{font-size:9px;color:var(--ink-faint,#9a9082);margin-top:4px;white-space:nowrap}
+    .dash-chart-foot{font-size:12px;color:var(--ink-faint,#8b8172);text-align:center;margin-top:10px}
+    .dash-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .dash-list{display:flex;flex-direction:column}
+    .dli{display:flex;justify-content:space-between;gap:8px;padding:10px 4px;border-bottom:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit;font-size:13px;align-items:center}
+    .dli:last-child{border-bottom:0}
+    .dli-nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .dli-vl{flex:0 0 auto;font-weight:800;white-space:nowrap}.dli-vl.red{color:var(--danger,#d33)}.dli-vl.green{color:var(--ok,#2e9e52)}
+    .dash-more{display:block;text-align:center;font-size:12px;padding:9px;color:var(--gold,#b8952e);text-decoration:none;font-weight:600}
+    .dash-empty{padding:18px;text-align:center;color:var(--ink-faint,#9a9082);font-size:13px}
+    .dash-quick{display:flex;gap:10px;overflow-x:auto;padding-bottom:2px}
+    .dash-quick a{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:5px;background:var(--bg,#f5f1e8);border-radius:15px;padding:12px 18px;text-decoration:none;color:inherit;font-size:11px;font-weight:600}
+    .dash-quick a i{font-style:normal;font-size:20px}
+    @media(max-width:560px){.dash-two{grid-template-columns:1fr}.dh-val{font-size:36px}}
+  </style>
+  <div class="dash">
+    <a class="dash-hero${todayTotal ? "" : " empty"}" href="#/${todayTotal ? "gunsonu-kayitlar" : "gunsonu-aktarim"}">
+      <div class="dh-top">💰 Bugünkü Ciro · ${fmtDate(today)}</div>
+      <div class="dh-val">${todayTotal ? fmtTRY(todayTotal) : "—"}</div>
+      <div class="dh-sub">${todayTotal
+        ? (deltaPct == null ? "Önceki güne göre kıyas yok" : `<span class="${deltaPct >= 0 ? "up" : "down"}">${deltaPct >= 0 ? "▲" : "▼"} %${Math.abs(deltaPct).toFixed(0)}</span> düne göre${prevDay ? ` · ${fmtDate(prevDay)}: ${fmtTRY(prevTotal)}` : ""}`)
+        : "Bugün gün sonu girilmedi — dokun ve aktar →"}</div>
+    </a>
+
+    <div class="dash-mini">
+      <a class="dmini" href="#/gunsonu-kayitlar">
+        <div class="dm-ic">📅</div><div class="dm-lb">Bu Ay Ciro</div>
+        <div class="dm-vl">${fmtTRY(ayCiro)}</div>
+        <div class="dm-dl ${ayPct == null ? "" : (ayPct >= 0 ? "up" : "down")}">${ayPct == null ? "geçen ay kaydı yok" : `${ayPct >= 0 ? "▲" : "▼"} %${Math.abs(ayPct).toFixed(0)} · geçen ay ${fmtTRY(gecenAy)}`}</div>
+      </a>
+      <a class="dmini" href="#/hesaplar">
+        <div class="dm-ic">💵</div><div class="dm-lb">Elimdeki Nakit</div>
+        <div class="dm-vl">${fmtTRY(elde)}</div>
+        <div class="dm-dl">Kasa ${fmtTRY(kasa)} · Banka ${fmtTRY(banka)}</div>
+      </a>
     </div>
 
-    <div class="grid cols-2" style="margin-top:18px">
-      <div class="card">
-        <div class="card-head"><h3>Bugünün Gün Sonu</h3><span class="hint">${fmtDate(todayISO())}</span></div>
-        ${todayRec
-          ? `<div class="stat" style="border-left-color:var(--ok)"><div class="label">Toplam Ciro</div><div class="value">${fmtTRY(todayRec.total||0)}</div><div class="foot">${(todayRec.rows||[]).length} satır · ${esc(todayRec.status||"")}</div></div>`
-          : `<div class="empty"><div class="ico">🗓️</div><p>Bugün için gün sonu kaydı yok.</p><a class="btn btn-primary btn-sm" href="#/gunsonu-aktarim">Gün Sonu Aktarımı</a></div>`}
+    <div class="card dash-card">
+      <div class="dash-card-head"><h3>📈 Ciro Grafiği</h3>
+        <div class="dash-seg"><button data-k="gun" class="on">Gün</button><button data-k="hafta">Hafta</button><button data-k="ay">Ay</button></div>
       </div>
-      <div class="card">
-        <div class="card-head"><h3>Son Gün Sonu Kayıtları</h3><a class="hint" href="#/gunsonu-kayitlar">Tümü →</a></div>
-        ${recent.length ? `<div class="table-wrap"><table class="data">
-          <thead><tr><th>Tarih</th><th class="num">Toplam</th><th>Durum</th></tr></thead>
-          <tbody>${recent.map((r) => `<tr>
-            <td>${fmtDate(r.date)}</td>
-            <td class="num">${fmtTRY(r.total || 0)}</td>
-            <td><span class="tag ${r.status==="onaylandi"?"ok":"gold"}">${esc(r.status || "aktarıldı")}</span></td>
-          </tr>`).join("")}</tbody></table></div>`
-          : `<div class="empty"><div class="ico">🗂️</div><p>Henüz kayıt yok.</p></div>`}
+      <div id="dash-bars-wrap">${barsHTML(daySeries)}</div>
+    </div>
+
+    <div class="dash-two">
+      <div class="card dash-card">
+        <div class="dash-card-head"><h3>🔴 Borçlarım</h3><span class="dash-tot red">${fmtTRY(supTotal)}</span></div>
+        ${suppliers.length
+          ? `<div class="dash-list">${suppliers.slice(0, 6).map((x) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}"><span class="dli-nm">${esc(x.a.name)}</span><span class="dli-vl red">${fmtTRY(x.debt)}</span></a>`).join("")}</div>${suppliers.length > 6 ? `<a class="dash-more" href="#/hesaplar">+${suppliers.length - 6} tedarikçi daha →</a>` : ""}`
+          : `<div class="dash-empty">Tedarikçi borcu yok 🎉</div>`}
+      </div>
+      <div class="card dash-card">
+        <div class="dash-card-head"><h3>🟢 Yemek Kartı Alacakları</h3><span class="dash-tot green">${fmtTRY(firmTotal)}</span></div>
+        ${firms.length
+          ? `<div class="dash-list">${firms.slice(0, 6).map((x) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}"><span class="dli-nm">${esc(x.a.name)}</span><span class="dli-vl ${x.val >= 0 ? "green" : "red"}">${fmtTRY(x.val)}</span></a>`).join("")}</div>${firms.length > 6 ? `<a class="dash-more" href="#/hesaplar">+${firms.length - 6} hesap daha →</a>` : ""}`
+          : `<div class="dash-empty">Bekleyen alacak yok</div>`}
       </div>
     </div>
 
-    <div class="card" style="margin-top:18px">
-      <div class="card-head"><h3>Hızlı İşlemler</h3></div>
-      <div class="toolbar" style="margin:0">
-        <a class="btn" href="#/gunsonu-aktarim">📥 Gün Sonu Aktar</a>
-        <a class="btn" href="#/cari-hareket">🔁 Cari Hareket Yükle</a>
-        <a class="btn" href="#/banka">🏦 Banka Dosyası Yükle</a>
-        <a class="btn" href="#/nakit-akis-rapor">📈 Nakit Akış Raporu</a>
-        <a class="btn" href="#/hesaplar">💼 Hesaplar</a>
+    <div class="card dash-card">
+      <div class="dash-card-head"><h3>⚡ Hızlı İşlemler</h3></div>
+      <div class="dash-quick">
+        <a href="#/gunsonu-aktarim"><i>🌙</i><span>Gün Sonu</span></a>
+        <a href="#/banka"><i>🏦</i><span>Banka</span></a>
+        <a href="#/cari-hareket"><i>🔁</i><span>Cari</span></a>
+        <a href="#/gunsonu-rapor"><i>📄</i><span>Rapor</span></a>
+        <a href="#/hesaplar"><i>💼</i><span>Hesaplar</span></a>
       </div>
-    </div>`;
+    </div>
+  </div>`;
+
+  // Grafik gün/hafta/ay geçişi
+  const wrap = c.querySelector("#dash-bars-wrap");
+  const seriesMap = { gun: daySeries, hafta: weekSeries, ay: monthSeries };
+  c.querySelectorAll(".dash-seg button").forEach((b) => b.addEventListener("click", () => {
+    c.querySelectorAll(".dash-seg button").forEach((x) => x.classList.remove("on"));
+    b.classList.add("on");
+    if (wrap) wrap.innerHTML = barsHTML(seriesMap[b.dataset.k] || daySeries);
+  }));
 }
 function monthlyEquivalent(item) {
   const amt = item.amount || 0;
