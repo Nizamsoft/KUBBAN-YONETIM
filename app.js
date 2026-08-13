@@ -588,8 +588,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.166";
+const APP_VERSION = "2026.167";
 const CHANGELOG = [
+  { version: "2026.167", date: "2026-08-12", items: [
+    "✨ Sayfa geçişleri artık her yerde belirgin ama hızlı bir animasyonla açılıyor (yukarı yükselme + yumuşak açılma, ~0.3sn) — 'tık' diye ani geçiş yok",
+  ]},
   { version: "2026.166", date: "2026-08-12", items: [
     "🚀 Açılış yükleme ekranı: logo + ilerleme çubuğu + yüzde. Giriş yapınca tüm veriler (hesaplar, hareketler, gün sonu, banka, kasa…) önceden yüklenir; ekran hazır olunca açılır → sonrasında her şey takır takır, ışık hızında",
     "⏳ Sayfa yüklenirken artık boş beyaz ekran yok: içerik alanının ORTASINDA belirgin bir 'Yükleniyor' göstergesi çıkar (yalnız gerçekten yavaşsa; anında gelenlerde görünmez)",
@@ -1430,10 +1433,10 @@ async function route(opts = {}) {
   try {
     await r.render(c);
     if (!silent) {
-      // Yumuşak geçiş (GPU: opacity + transform)
+      // Yumuşak sayfa geçişi (GPU: opacity + transform) — belirgin ama hızlı
       c.style.animation = "none";
       void c.offsetWidth;
-      c.style.animation = "viewIn .17s cubic-bezier(.22,.61,.36,1)";
+      c.style.animation = "viewIn .3s cubic-bezier(.16,.84,.44,1)";
     }
   } catch (err) {
     console.error(err);

@@ -275,7 +275,7 @@ button { font-family: inherit; }
 
 .content { padding: 24px; flex: 1; min-width: 0; }
 #view-container { min-width: 0; }
-@keyframes viewIn { from { opacity: 0; transform: translate3d(0, 6px, 0); } to { opacity: 1; transform: none; } }
+@keyframes viewIn { from { opacity: 0; transform: translate3d(0, 16px, 0) scale(.985); } to { opacity: 1; transform: none; } }
 /* Hareket azaltma tercihi: geçiş animasyonlarını kapat (erişilebilirlik + eski cihazda akıcılık) */
 @media (prefers-reduced-motion: reduce) {
   #view-container { animation: none !important; }
