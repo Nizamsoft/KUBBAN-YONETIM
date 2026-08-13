@@ -575,8 +575,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.193";
+const APP_VERSION = "2026.194";
 const CHANGELOG = [
+  { version: "2026.194", date: "2026-08-13", items: [
+    "📅 Dashboard: 'Bu Ay Ciro' kartı artık ay adını yazıyor — ör. 'Ağustos · şimdiye kadarki ciro' (o ayın bugüne dek toplam cirosu)",
+    "💧 'Elimdeki Nakit' → 'Kullanılabilir Likit Varlık' oldu. Karta dokununca kırılım açılır: solda 🟢 Garanti · 🔵 Türkiye Finans · 💵 Nakit (kullanılabilir), sağda 🔒 valörlü blokedeki paralar (Garanti/T.Finans blokesi + Edenred, Multinet, Pluxee, Metropol… yemek kartları). Her satır dokununca o hesabın hareketlerine gider",
+  ]},
   { version: "2026.193", date: "2026-08-13", items: [
     "👥 Yeni kullanıcı ekleme düzeltildi: Sistem → Kullanıcılar → '+ Yeni Kullanıcı' ile eklenen kişi artık OTOMATİK olarak onaylı listeye (approved_users) de ekleniyor — böylece giriş yapıp verileri görebiliyor. (Güvenlik sıkılaştırmasından sonra sadece Auth'ta oluşturmak yetmiyordu; kullanıcı giriş yapıp boş ekran görüyordu.) Kullanıcı silinince onaylı listeden de çıkarılır. ⚠️ Bu düzeltmenin etkinleşmesi için 'admin-users' Edge Function'ı yeniden deploy edilmeli",
   ]},
@@ -1792,6 +1796,8 @@ async function viewDashboard(c) {
   const heroLabel = mainDay === yesterday ? "Dünkü Ciro" : "Son Gün Sonu";
 
   // Bu ay / geçen ay ciro
+  const AY_ADLARI = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+  const ayAdi = AY_ADLARI[new Date(today + "T00:00:00").getMonth()];
   const ym = today.slice(0, 7);
   const prevYm = (() => { const d = new Date(today + "T00:00:00"); d.setMonth(d.getMonth() - 1); return ymL(d); })();
   let ayCiro = 0, gecenAy = 0;
@@ -1879,14 +1885,14 @@ async function viewDashboard(c) {
 
     <div class="dash-mini">
       <a class="dmini" href="#/gunsonu-kayitlar">
-        <div class="dm-ic">📅</div><div class="dm-lb">Bu Ay Ciro</div>
+        <div class="dm-ic">📅</div><div class="dm-lb">${esc(ayAdi)} · şimdiye kadarki ciro</div>
         <div class="dm-vl">${fmtTRY(ayCiro)}</div>
         <div class="dm-dl ${ayPct == null ? "" : (ayPct >= 0 ? "up" : "down")}">${ayPct == null ? "geçen ay kaydı yok" : `${ayPct >= 0 ? "▲" : "▼"} %${Math.abs(ayPct).toFixed(0)} · geçen ay ${fmtTRY(gecenAy)}`}</div>
       </a>
-      <a class="dmini" href="#/hesaplar">
-        <div class="dm-ic">💵</div><div class="dm-lb">Elimdeki Nakit</div>
+      <a class="dmini" id="dm-likit" href="#/hesaplar">
+        <div class="dm-ic">💧</div><div class="dm-lb">Kullanılabilir Likit Varlık</div>
         <div class="dm-vl">${fmtTRY(elde)}</div>
-        <div class="dm-dl">Kasa ${fmtTRY(kasa)} · Banka ${fmtTRY(banka)}</div>
+        <div class="dm-dl">Banka ${fmtTRY(banka)} · Nakit ${fmtTRY(kasa)} · dokun → kırılım</div>
       </a>
     </div>
 
@@ -1956,6 +1962,53 @@ async function viewDashboard(c) {
     if (dp) dp.onchange = (e) => { if (e.target.value) { selDate = e.target.value > today ? today : e.target.value; renderHero(); } };
   };
   renderHero();
+
+  // Kullanılabilir Likit Varlık → kırılım (Garanti / T.Finans / Nakit) + valörlü blokedeki paralar
+  const openLikitModal = () => {
+    const nn = (a) => normTr(a.name || "");
+    const bankaAccts = accounts.filter((a) => a.type === "banka");
+    const grA = bankaAccts.filter((a) => nn(a).includes("garanti"));
+    const tfA = bankaAccts.filter((a) => nn(a).includes("finans"));
+    const otA = bankaAccts.filter((a) => !nn(a).includes("garanti") && !nn(a).includes("finans"));
+    const kasaAcc = accounts.find((a) => a.type === "kasa" && !a.parentId) || accounts.find((a) => a.type === "kasa");
+    const likit = [
+      { ic: "🟢", nm: "Garanti Bankası", val: grA.reduce((s, a) => s + cur(a.id), 0), id: grA[0]?.id },
+      { ic: "🔵", nm: "Türkiye Finans", val: tfA.reduce((s, a) => s + cur(a.id), 0), id: tfA[0]?.id },
+      { ic: "💵", nm: "Nakit (Kasa)", val: kasa, id: kasaAcc?.id },
+    ];
+    otA.forEach((a) => likit.push({ ic: accEmoji(a), nm: a.name, val: cur(a.id), id: a.id }));
+    const bloke = leaves.filter((a) => groupOf(a.code) === "108")
+      .map((a) => ({ ic: accEmoji(a), nm: a.name, val: cur(a.id), id: a.id }))
+      .filter((x) => Math.abs(x.val) > 0.5).sort((x, y) => y.val - x.val);
+    const likitTot = likit.reduce((s, r) => s + r.val, 0);
+    const blokeTot = bloke.reduce((s, r) => s + r.val, 0);
+    const rowH = (r) => `<a class="lkr" data-id="${r.id || ""}" href="${r.id ? `#/hesap-detay?id=${r.id}&from=dashboard` : "#"}"><span class="lkr-n">${r.ic} ${esc(r.nm)}</span><b class="lkr-v">${fmtTRY(r.val)}</b></a>`;
+    const body = document.createElement("div");
+    body.innerHTML = `<style>
+      .lk-grid{display:grid;grid-template-columns:1fr;gap:16px}
+      @media(min-width:520px){.lk-grid{grid-template-columns:1fr 1fr}}
+      .lk-col{min-width:0}
+      .lk-col h4{margin:0 0 6px;font-size:12px;color:var(--ink-faint,#8b8172);font-weight:600;display:flex;flex-direction:column;gap:1px;border-bottom:2px solid var(--line,#eee);padding-bottom:6px}
+      .lk-col h4 b{font-size:16px;color:var(--ink,#241d15);white-space:nowrap}
+      .lkr{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit;font-size:13px}
+      .lkr:last-child{border-bottom:0}
+      .lkr-n{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      .lkr-v{flex:0 0 auto;font-weight:800;white-space:nowrap}
+      .lk-note{font-size:12px;color:var(--ink-faint,#8b8172);margin-top:14px;line-height:1.5}
+    </style>
+    <div class="lk-grid">
+      <div class="lk-col"><h4>💧 Kullanılabilir <b>${fmtTRY(likitTot)}</b></h4>${likit.map(rowH).join("")}</div>
+      <div class="lk-col"><h4>🔒 Blokedeki (valörlü) <b>${fmtTRY(blokeTot)}</b></h4>${bloke.length ? bloke.map(rowH).join("") : `<div style="font-size:13px;color:var(--ink-faint,#8b8172);padding:9px 4px">Blokede para yok.</div>`}</div>
+    </div>
+    <div class="lk-note">💡 <b>Kullanılabilir</b> = bugün elindeki para (banka + nakit). <b>Blokedeki</b> = valör tarihinde çözülüp bankana geçecek para (yemek kartları + banka blokesi).</div>`;
+    const m = openModal({ title: "Kullanılabilir Likit Varlık", body, footer: [mkBtn("Kapat", "btn-primary", () => m.close())] });
+    body.querySelectorAll(".lkr").forEach((el) => el.addEventListener("click", (e) => {
+      const id = el.dataset.id; if (id) { e.preventDefault(); m.close(); location.hash = `#/hesap-detay?id=${id}&from=dashboard`; }
+      else e.preventDefault();
+    }));
+  };
+  const likitBtn = c.querySelector("#dm-likit");
+  if (likitBtn) likitBtn.onclick = (e) => { e.preventDefault(); openLikitModal(); };
 
   // Grafik gün/hafta/ay geçişi
   const wrap = c.querySelector("#dash-bars-wrap");
