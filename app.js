@@ -588,8 +588,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.167";
+const APP_VERSION = "2026.168";
 const CHANGELOG = [
+  { version: "2026.168", date: "2026-08-12", items: [
+    "⚖️ Bakiye Karşılaştır — satır işlemleri: her hesap satırında '🔍 Aç' (hareket defterine git) ve '🗑️' (hesabı + tüm hareketlerini sil, onaylı). Örn. yanlış/gereksiz hesabı direkt sil",
+    "🔗 Bakiye Karşılaştır — elle eşleştirme: dosyada olup otomatik eşleşmeyen adı ('yalnız dosyada') doğru program hesabıyla eşleştir; ad hesabın takma adına eklenir, bir daha otomatik tutar",
+    "📅 Bakiye Karşılaştır — TARİH TARİH: eski programın tüm hareket dökümünü (ayrı 'hareket dosyası') yükle; farklı bir hesaba tıklayınca Tarih · Program · Arşiv/Dosya · Fark · Kümülatif tablosu açılır ve ilk ayrışma tarihini gösterir (eski fark-tahmini ekranının yerine)",
+  ]},
   { version: "2026.167", date: "2026-08-12", items: [
     "✨ Sayfa geçişleri artık her yerde belirgin ama hızlı bir animasyonla açılıyor (yukarı yükselme + yumuşak açılma, ~0.3sn) — 'tık' diye ani geçiş yok",
   ]},
@@ -2041,6 +2046,12 @@ function daysBetweenISO(a, b) {
   if (!pa || !pb) return 0;
   return Math.round((Date.UTC(+pb[1], +pb[2] - 1, +pb[3]) - Date.UTC(+pa[1], +pa[2] - 1, +pa[3])) / 86400000);
 }
+// Bakiye Karşılaştır elle eşleştirme hafızası (dosya adı → hesap id)
+function bkMatchGet() { try { return JSON.parse(localStorage.getItem("bk_match") || "{}") || {}; } catch (_) { return {}; } }
+function bkMatchSet(key, accId) {
+  const m = bkMatchGet(); if (accId) m[key] = accId; else delete m[key];
+  try { localStorage.setItem("bk_match", JSON.stringify(m)); } catch (_) {}
+}
 // Bankalarda "son girdiğim gün" hafızası (satır anahtarına göre; ör. 108.09-kredi → 23)
 function gsGunMemGet() { try { return JSON.parse(localStorage.getItem("gs_valor_gun") || "{}") || {}; } catch (_) { return {}; } }
 function gsGunMemSet(key, n) {
@@ -3188,6 +3199,13 @@ async function viewBakiyeKarsilastir(c) {
           büyükten küçüğe listelenir. Borç/Alacak yönü <b>otomatik</b> hizalanır.
         </p>
         <div id="bk-drop"></div>
+        <div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)">
+          <div style="font-size:12.5px;color:var(--ink-soft);margin-bottom:8px">
+            📒 <b>Hareket dosyası</b> (isteğe bağlı): eski programın <b>tüm hareket dökümünü</b> (tarih · borç · alacak · şahıs) yükle.
+            Sonra farklı bir hesaba tıklayınca <b>tarih tarih</b> program ↔ arşiv karşılaştırması açılır. <span id="bk-move-info" style="color:var(--ok,#137333);font-weight:700"></span>
+          </div>
+          <div id="bk-move-drop"></div>
+        </div>
         <div class="toolbar" style="margin-top:12px">
           <button class="btn btn-sm" id="bk-dl-prog">📥 Program Bakiyelerini İndir (CSV)</button>
         </div>
@@ -3218,6 +3236,20 @@ async function viewBakiyeKarsilastir(c) {
     o.ids.push(a.id);
     o.current += cur; o.count++;
   });
+  const accById = new Map(accounts.map((a) => [a.id, a]));
+  // Takma ad indeksi: dosya adı hesabın alias'ıyla eşleşirse otomatik bulunur
+  const aliasIndex = new Map();
+  accounts.forEach((a) => (a.nameAliases || []).forEach((al) => {
+    const k = normTr(al); if (k && !aliasIndex.has(k)) aliasIndex.set(k, normTr(a.name));
+  }));
+  // Bir dosya adını program hesabına çöz: elle eşleştirme → birebir ad → takma ad
+  const resolveProgKey = (fileKey) => {
+    const mid = bkMatchGet()[fileKey];
+    if (mid && accById.has(mid)) return normTr(accById.get(mid).name);
+    if (progByName.has(fileKey)) return fileKey;
+    if (aliasIndex.has(fileKey)) return aliasIndex.get(fileKey);
+    return null;
+  };
 
   // Program bakiye kelimesi: borç(+) / alacak(−) yönlü, B/A etiketli
   const baTag = (v) => {
@@ -3292,8 +3324,59 @@ async function viewBakiyeKarsilastir(c) {
   };
 
   let fileByNameRef = null, signRef = 1;   // onFile bunları doldurur; fark analizi kullanır
+
+  // TARİH TARİH karşılaştırma (hareket dosyası yüklüyse): sol tarih · program · arşiv · fark · kümülatif
+  const openTarihTarih = (o, fileMoves) => {
+    const pItems = accItems(normTr(o.name));
+    const pByDate = new Map(); pItems.forEach((it) => { const d = it.date || "—"; pByDate.set(d, (pByDate.get(d) || 0) + it.amt); });
+    const fByDate = new Map(); fileMoves.forEach((mv) => { const d = mv.date || "—"; fByDate.set(d, (fByDate.get(d) || 0) + (mv.borc - mv.alacak)); });
+    const dkey = (d) => d === "—" ? "9999-99-99" : d;
+    const dates = [...new Set([...pByDate.keys(), ...fByDate.keys()])].sort((a, b) => dkey(a).localeCompare(dkey(b)));
+    let cum = 0, firstDiff = null;
+    const rowsHtml = dates.map((d) => {
+      const pv = pByDate.get(d) || 0, fv = fByDate.get(d) || 0, fk = pv - fv;
+      cum += fk; const diff = Math.abs(fk) >= 0.5;
+      if (diff && !firstDiff) firstDiff = d;
+      return `<tr class="${diff ? "bk-hit" : ""}">
+        <td style="white-space:nowrap">${d === "—" ? "—" : esc(fmtDate(d))}</td>
+        <td class="num">${pByDate.has(d) ? baTag(pv) : "—"}</td>
+        <td class="num">${fByDate.has(d) ? baTag(fv) : "—"}</td>
+        <td class="num">${diff ? `<b>${baTag(fk)}</b>` : baTag(0)}</td>
+        <td class="num" style="color:var(--ink-faint)">${baTag(cum)}</td>
+      </tr>`;
+    }).join("");
+    const pTot = [...pByDate.values()].reduce((s, x) => s + x, 0);
+    const fTot = [...fByDate.values()].reduce((s, x) => s + x, 0);
+    const body = document.createElement("div");
+    body.innerHTML = `
+      <div class="bk-summary" style="padding:0 0 10px">
+        <div class="bk-stat"><span>Program</span><b>${baTag(pTot)}</b></div>
+        <div class="bk-stat"><span>Arşiv (dosya)</span><b>${baTag(fTot)}</b></div>
+        <div class="bk-stat ${Math.abs(pTot - fTot) >= 0.5 ? "bad" : "good"}"><span>Fark</span><b>${baTag(pTot - fTot)}</b></div>
+      </div>
+      ${firstDiff ? `<div class="notice warn" style="margin:0 0 10px">İlk ayrışma: <b>${esc(fmtDate(firstDiff))}</b> — o tarihten sonra kümülatif fark birikiyor.</div>` : `<div class="notice ok" style="margin:0 0 10px">✓ Tarih tarih tam uyuşuyor.</div>`}
+      <div style="max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:10px">
+        <table class="bk-table"><thead><tr><th>Tarih</th><th class="num">Program</th><th class="num">Arşiv/Dosya</th><th class="num">Fark</th><th class="num">Kümülatif</th></tr></thead>
+        <tbody>${rowsHtml || `<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--ink-faint)">Kayıt yok.</td></tr>`}</tbody></table>
+      </div>
+      <div style="font-size:11px;color:var(--ink-faint);margin-top:8px">Aynı gün birden çok işlem varsa gün toplamı gösterilir. Program: bu hesabın hareketleri · Arşiv: yüklediğin hareket dosyası.</div>`;
+    const m = openModal({ title: `Tarih Tarih — ${o.name}`, body, footer: [mkBtn("Kapat", "btn-primary", () => m.close())] });
+  };
+  // Hesaba karşılık gelen arşiv hareketlerini (ad + alias + elle eşleştirme) topla
+  const gatherFileMoves = (key, o) => {
+    if (!moveByName || !moveByName.size) return [];
+    const cand = new Set([key]);
+    o.ids.forEach((id) => { const a = accById.get(id); if (a) { cand.add(normTr(a.name)); (a.nameAliases || []).forEach((al) => cand.add(normTr(al))); } });
+    const mm = bkMatchGet(); Object.keys(mm).forEach((fk) => { if (o.ids.includes(mm[fk])) cand.add(fk); });
+    const out = [];
+    cand.forEach((nm) => { const arr = moveByName.get(nm); if (arr) out.push(...arr); });
+    return out;
+  };
+
   const openFarkAnaliz = (key) => {
     const o = progByName.get(key); if (!o) return;
+    const fileMoves = gatherFileMoves(key, o);
+    if (fileMoves.length) { openTarihTarih(o, fileMoves); return; }   // hareket dosyası varsa: tarih tarih
     const f = fileByNameRef ? fileByNameRef.get(key) : null;
     const prog = o.current;
     const eski = f ? signRef * f.bakiye : null;
@@ -3372,6 +3455,52 @@ async function viewBakiyeKarsilastir(c) {
     if (pend && pend.buf) { try { await onFile(pendingToFile(pend), true); } catch (_) {} }
   })();
 
+  // ---- Hareket dosyası (tarih-tarih karşılaştırma için): ada göre hareket listesi ----
+  let moveByName = null;   // normAd → [{date(ISO), borc, alacak, aciklama, islemAdi, faturaNo}]
+  const toISOdate = (v) => {
+    if (v == null || v === "") return "";
+    if (v instanceof Date) return isNaN(v) ? "" : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, "0")}-${String(v.getDate()).padStart(2, "0")}`;
+    if (typeof v === "number") { const iso = excelDateToISO(v); return iso || ""; }
+    const s = String(v).trim();
+    let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/); if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+    m = s.match(/^(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/); if (m) return `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}`;
+    return "";
+  };
+  async function parseMoveFile(file, restored) {
+    const info = $("#bk-move-info", c);
+    if (info) info.textContent = "okunuyor…";
+    let parsed;
+    try { parsed = await parseSpreadsheet(file); } catch (e) { if (info) info.textContent = "okunamadı"; toast("Hareket dosyası okunamadı: " + (e.message || e), "err"); return; }
+    const { headers, rows } = parsed;
+    const adCol = guessCol(headers, ["sahis", "şahıs", "cari ad", "unvan", "ünvan", "musteri adi", "hesap adi", "adi"]);
+    const dCol = guessCol(headers, ["tarih"]);
+    const bCol = guessCol(headers, ["borc", "borç"]);
+    const aCol = guessCol(headers, ["alacak"]);
+    if (!adCol || !dCol || (!bCol && !aCol)) { if (info) info.textContent = "sütun bulunamadı"; toast(`Hareket dosyasında sütun bulunamadı (Ad/Tarih/Borç/Alacak). Başlıklar: ${headers.join(", ")}`, "err"); return; }
+    const acCol = guessCol(headers, ["aciklama", "açıklama"]);
+    const iaCol = guessCol(headers, ["islem adi", "işlem adı", "islem ad"]);
+    const fnCol = guessCol(headers, ["fatura no"]);
+    const map = new Map();
+    rows.forEach((r) => {
+      const nm = String(r[adCol] || "").trim(); if (!nm) return;
+      const dISO = toISOdate(r[dCol]);
+      const borc = bCol ? parseNum(r[bCol]) : 0, alacak = aCol ? parseNum(r[aCol]) : 0;
+      if (!dISO && !borc && !alacak) return;
+      const key = normTr(nm);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push({ date: dISO, borc, alacak, aciklama: acCol ? String(r[acCol] || "") : "", islemAdi: iaCol ? String(r[iaCol] || "") : "", faturaNo: fnCol ? String(r[fnCol] || "") : "" });
+    });
+    moveByName = map;
+    if (!restored) savePendingImport("bakiye-hareket", file);
+    if (info) info.textContent = `✓ ${rows.length.toLocaleString("tr-TR")} hareket · ${map.size.toLocaleString("tr-TR")} hesap yüklendi`;
+    toast("Hareket dosyası yüklendi. Farklı bir hesaba tıkla → tarih tarih.", "ok");
+  }
+  $("#bk-move-drop", c).appendChild(fileDrop((file) => parseMoveFile(file, false), ".xlsx,.xls,.csv", true));
+  (async () => {
+    const pend = await loadPendingImport("bakiye-hareket");
+    if (pend && pend.buf) { try { await parseMoveFile(pendingToFile(pend), true); } catch (_) {} }
+  })();
+
   async function onFile(file, restored) {
     const res = $("#bk-result", c);
     const showErr = (msg) => {
@@ -3400,15 +3529,17 @@ async function viewBakiyeKarsilastir(c) {
       return showErr(`Sütun bulunamadı (Ad: ${adCol || "yok"}, Bakiye: ${bakCol || "yok"}). Başlıklar: ${headers.join(", ")}`);
     }
 
-    // Dosya tarafı: ada göre topla
+    // Dosya tarafı: ada göre topla. Eşleşen (elle/ad/alias) satırlar PROGRAM anahtarına toplanır.
     const fileByName = new Map();
     rows.forEach((r) => {
       const nm = String(r[adCol] || "").trim();
       if (!nm) return;
-      const key = normTr(nm);
+      const fileKey = normTr(nm);
       const bak = parseNum(r[bakCol]);
+      const progKey = resolveProgKey(fileKey);
+      const key = progKey || fileKey;
       let o = fileByName.get(key);
-      if (!o) { o = { name: nm, bakiye: 0, count: 0 }; fileByName.set(key, o); }
+      if (!o) { o = { name: progKey ? (progByName.get(progKey)?.name || nm) : nm, fileName: nm, bakiye: 0, count: 0 }; fileByName.set(key, o); }
       o.bakiye += bak; o.count++;
     });
 
@@ -3434,6 +3565,8 @@ async function viewBakiyeKarsilastir(c) {
       list.push({
         key: k, name: (p && p.name) || (f && f.name) || k,
         codes: p ? p.codes.join(", ") : "",
+        ids: p ? p.ids.slice() : [],
+        fileName: f ? (f.fileName || f.name) : "",
         prog, eski, fark, status,
         dupWarn: (p && p.count > 1) || (f && f.count > 1),
       });
@@ -3451,20 +3584,28 @@ async function viewBakiyeKarsilastir(c) {
     list.sort((a, b) => (rank(a) - rank(b)) || (Math.abs(b.fark) - Math.abs(a.fark)) || String(a.name).localeCompare(String(b.name), "tr"));
 
     let onlyDiff = true, query = "";
+    const actCell = (r) => {
+      if (r.status === "file") return `<button class="bk-act" data-act="match" data-key="${esc(r.key)}" title="Program hesabıyla eşleştir">🔗 Eşleştir</button>`;
+      const one = r.ids.length === 1;
+      return `<button class="bk-act" data-act="open" data-key="${esc(r.key)}" title="Hareket defterine git">🔍 Aç</button>`
+        + (one ? `<button class="bk-act danger" data-act="del" data-key="${esc(r.key)}" title="Hesabı ve hareketlerini sil">🗑️</button>` : "");
+    };
     const row = (r) => {
       const tag = r.status === "file" ? `<span class="bk-badge file">yalnız dosyada</span>`
         : r.status === "prog" ? `<span class="bk-badge prog">yalnız programda</span>`
         : (Math.abs(r.fark) >= eps ? `<span class="bk-badge diff">FARK</span>` : `<span class="bk-badge ok">✓</span>`);
-      const clickable = r.status !== "file"; // program tarafı olan satırlar için analiz açılabilir
+      const clickable = r.status !== "file"; // program tarafı olan satırlar için tarih-tarih analiz
       return `<tr class="${Math.abs(r.fark) >= eps || r.status !== "both" ? "bk-hit" : ""}${clickable ? " bk-click" : ""}" ${clickable ? `data-key="${esc(r.key)}"` : ""}>
-        <td><div class="bk-nm">${esc(r.name)}${clickable ? ` <span class="bk-inspect" title="Fark analizi">🔎</span>` : ""}${r.dupWarn ? ` <span class="bk-badge warn" title="Bu ad birden çok kez geçiyor, toplandı">×${r.status === "file" ? (fileByName.get(r.key).count) : (progByName.get(r.key)?.count || 1)}</span>` : ""}</div>
+        <td><div class="bk-nm">${esc(r.name)}${clickable ? ` <span class="bk-inspect" title="Tarih tarih karşılaştır">🔎</span>` : ""}${r.dupWarn ? ` <span class="bk-badge warn" title="Bu ad birden çok kez geçiyor, toplandı">×${r.status === "file" ? (fileByName.get(r.key).count) : (progByName.get(r.key)?.count || 1)}</span>` : ""}</div>
           ${r.codes ? `<div class="bk-code">${esc(r.codes)}</div>` : ""}</td>
         <td class="num">${r.prog != null ? baTag(r.prog) : "—"}</td>
         <td class="num">${r.eski != null ? baTag(r.eski) : "—"}</td>
         <td class="num">${(r.status === "both") ? (Math.abs(r.fark) >= eps ? `<b>${baTag(r.fark)}</b>` : baTag(0)) : "—"}</td>
         <td>${tag}</td>
+        <td class="bk-acts">${actCell(r)}</td>
       </tr>`;
     };
+    const byKeyRow = new Map(list.map((r) => [r.key, r]));
     const draw = () => {
       const nq = normTr(query);
       const view = list.filter((r) => {
@@ -3473,7 +3614,7 @@ async function viewBakiyeKarsilastir(c) {
         return true;
       });
       const tb = $("#bk-tbody", res);
-      if (tb) tb.innerHTML = view.map(row).join("") || `<tr><td colspan="5" style="text-align:center;color:var(--ink-faint);padding:20px">Kayıt yok.</td></tr>`;
+      if (tb) tb.innerHTML = view.map(row).join("") || `<tr><td colspan="6" style="text-align:center;color:var(--ink-faint);padding:20px">Kayıt yok.</td></tr>`;
       const cnt = $("#bk-count", res);
       if (cnt) cnt.textContent = `${view.length.toLocaleString("tr-TR")} satır gösteriliyor`;
     };
@@ -3502,7 +3643,7 @@ async function viewBakiyeKarsilastir(c) {
         </div>
         <div style="overflow-x:auto">
           <table class="bk-table">
-            <thead><tr><th>Hesap</th><th class="num">Program</th><th class="num">Eski (dosya)</th><th class="num">Fark</th><th>Durum</th></tr></thead>
+            <thead><tr><th>Hesap</th><th class="num">Program</th><th class="num">Eski (dosya)</th><th class="num">Fark</th><th>Durum</th><th>İşlem</th></tr></thead>
             <tbody id="bk-tbody"></tbody>
           </table>
         </div>
@@ -3510,7 +3651,65 @@ async function viewBakiyeKarsilastir(c) {
 
     $("#bk-onlydiff", res).onchange = (e) => { onlyDiff = e.target.checked; draw(); };
     $("#bk-q", res).addEventListener("input", (e) => { query = e.target.value; draw(); });
+    // Elle eşleştir: dosya adını bir program hesabına bağla (alias + hafıza) → yeniden hesapla
+    const bkMatchPicker = (r) => {
+      const parentIds = new Set(accounts.map((a) => a.parentId).filter(Boolean));
+      const leaf = accounts.filter((a) => !parentIds.has(a.id) && a.code);
+      openAccountPicker({
+        accounts: leaf, title: `Eşleştir: ${r.fileName || r.name}`, allowNew: false, query: "",
+        onPick: async (res2) => {
+          const acc = res2.acc; if (!acc) return;
+          bkMatchSet(r.key, acc.id);
+          const nm = r.fileName || r.name;
+          if (nm && normTr(acc.name) !== normTr(nm)) {
+            const al = acc.nameAliases || [];
+            if (!al.some((x) => normTr(x) === normTr(nm))) { al.push(nm); acc.nameAliases = al; updateDoc(doc(db, "accounts", acc.id), { nameAliases: al }).catch(() => {}); }
+          }
+          toast(`Eşleştirildi: ${acc.code || ""} ${acc.name}`, "ok");
+          const pend = await loadPendingImport("bakiye-karsilastir");
+          if (pend && pend.buf) onFile(pendingToFile(pend), true);
+        },
+      });
+    };
+    // Hesabı + tüm hareketlerini sil
+    const bkDeleteAccount = (r) => {
+      const acc = accById.get(r.ids[0]); if (!acc) return toast("Hesap bulunamadı.", "err");
+      const kids = accounts.filter((a) => a.parentId === acc.id);
+      if (kids.length) return toast("Bu hesabın alt hesapları var; önce onları silin.", "err");
+      const nE = entries.filter((e) => e.accountId === acc.id).length;
+      const nC = cari.filter((m) => String(m.code || "") === String(acc.code || "")).length;
+      const nB = bank.filter((t) => t.accountId === acc.id).length;
+      const tot = nE + nC + nB;
+      confirmDialog(`${acc.code || ""} ${acc.name} hesabı ve ${tot} hareketi SİLİNECEK. Geri alınamaz. Emin misin?`, async () => {
+        try {
+          const [eAll, cAll, bAll] = await Promise.all([fetchAll(C.accountEntries).catch(() => []), fetchAll(C.currentMovements).catch(() => []), fetchAll(C.bankTransactions).catch(() => [])]);
+          const delOps = [];
+          eAll.filter((e) => e.accountId === acc.id).forEach((x) => delOps.push(["accountEntries", x.id]));
+          cAll.filter((m) => String(m.code || "") === String(acc.code || "")).forEach((x) => delOps.push(["currentMovements", x.id]));
+          bAll.filter((t) => t.accountId === acc.id).forEach((x) => delOps.push(["bankTransactions", x.id]));
+          const CH = 150;
+          for (let i = 0; i < delOps.length; i += CH) {
+            const b = writeBatch(db);
+            delOps.slice(i, i + CH).forEach(([coll, id]) => b.delete(doc(db, coll, id)));
+            await b.commit();
+          }
+          await deleteDoc(doc(db, "accounts", acc.id));
+          await logAction("Silme", "Hesap", `${acc.code || ""} ${acc.name} (+${tot} hareket)`);
+          toast("Hesap silindi.", "ok");
+          route(); // program değişti → yeniden hesapla
+        } catch (e) { toast("Silinemedi: " + e.message, "err"); }
+      });
+    };
     $("#bk-tbody", res).onclick = (e) => {
+      const btn = e.target.closest(".bk-act");
+      if (btn) {
+        e.stopPropagation();
+        const r = byKeyRow.get(btn.dataset.key); if (!r) return;
+        if (btn.dataset.act === "open") { const id = r.ids[0]; if (id) location.hash = "#/hesap-detay?id=" + id; else toast("Hesap bulunamadı.", "err"); }
+        else if (btn.dataset.act === "del") bkDeleteAccount(r);
+        else if (btn.dataset.act === "match") bkMatchPicker(r);
+        return;
+      }
       const tr = e.target.closest("tr[data-key]"); if (!tr) return;
       openFarkAnaliz(tr.dataset.key);
     };

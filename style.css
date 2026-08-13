@@ -598,6 +598,11 @@ table.data input.num { text-align: right; }
 .bk-badge.file { background: #fff3cd; color: #7a5b00; }
 .bk-badge.prog { background: #e8eefc; color: #1a4bc4; }
 .bk-badge.warn { background: var(--gold-light); color: #4a3712; }
+.bk-acts { white-space: nowrap; }
+.bk-act { font-size: 11px; font-weight: 700; padding: 3px 8px; margin: 1px 2px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.bk-act:hover { background: var(--surface-2); }
+.bk-act.danger { color: var(--danger); border-color: #f0c8c8; }
+.bk-act.danger:hover { background: #fdecea; }
 .bk-table tr.bk-click { cursor: pointer; }
 .bk-table tr.bk-click:hover td { background: color-mix(in srgb, var(--gold-light) 40%, transparent); }
 .bk-inspect { font-size: 11px; opacity: .55; }
