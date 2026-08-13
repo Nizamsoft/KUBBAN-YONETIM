@@ -594,8 +594,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.183";
+const APP_VERSION = "2026.184";
 const CHANGELOG = [
+  { version: "2026.184", date: "2026-08-13", items: [
+    "📅 Blokeye Aktarımlar: yemek kartı VALÖR TARİHLERİ de artık hatırlanıyor. Bir kez girdiğin tarih (Edenred, Multinet, Pluxee, Metropol, Set, Yemek Sepeti, Getir, Trendyol) o hesap için saklanır ve DEĞİŞENE KADAR her gün sonunda varsayılan gelir. (Bankalardaki +N gün zaten hatırlanıyordu.)",
+    "🏦 Garanti YDK (Yurt Dışı) artık Sanal POS'u da içeriyor: YDK = (Garanti Bankası + Garanti Sanal) − Kredi − Debit",
+    "🔢 Blokeye Aktarımlar'da büyük tutarlar kırpılmıyor (ör. 311.778,30). Tutar sütunu genişletildi, Kredi/Komisyon etiketleri üste alındı — 7 haneli tutarlar bile tam görünür",
+  ]},
   { version: "2026.183", date: "2026-08-13", items: [
     "💳 Ödeme Modu iyileştirmeleri: (1) üst özet (Toplam Borç · Garanti · T.Finans · Kalan Bakiye) artık ilgili SÜTUNLARLA HİZALI (masaüstünde tablo başlığında yapışkan; mobilde kart). (2) Hesap adına dokununca o hesabın hareketlerine gider, geri basınca Ödeme Modu'na döner. (3) Ödeme kutusunda Enter → alt satırın aynı sütununa iner. (4) Tutar yazarken binlik nokta canlı eklenir (1.000 gibi)",
   ]},
@@ -2388,10 +2393,12 @@ function gsComputeBlokeRows(state, blokeAccounts) {
     if (!acc) continue;                        // o adla bloke hesabı yoksa satırı atla
     const code = String(acc.code), name = acc.name;
     if (m.garanti) {
+      const sanal = gerMap["Garanti Sanal"] || 0;   // Sanal POS da Garanti bloke toplamına dahil
+      const total = ger + sanal;
       const kredi = parseNum(bl.garantiKredi), debit = parseNum(bl.garantiDebit);
-      out.push({ code, name, aciklama: "KK", tip: "kredi", manual: true, borc: kredi, ger, banka: true });
-      out.push({ code, name, aciklama: "DK", tip: "debit", manual: true, borc: debit, ger, banka: true });
-      out.push({ code, name, aciklama: "YDK", tip: "yurtdisi", manual: false, borc: ger - kredi - debit, ger, banka: true });
+      out.push({ code, name, aciklama: "KK", tip: "kredi", manual: true, borc: kredi, ger: total, banka: true });
+      out.push({ code, name, aciklama: "DK", tip: "debit", manual: true, borc: debit, ger: total, banka: true });
+      out.push({ code, name, aciklama: "YDK", tip: "yurtdisi", manual: false, borc: total - kredi - debit, ger: total, banka: true });
     } else {
       out.push({ code, name, aciklama: "", tip: "tek", manual: false, borc: ger, ger, banka: !!m.banka });
     }
@@ -2461,6 +2468,12 @@ function gsGunMemGet() { try { return JSON.parse(localStorage.getItem("gs_valor_
 function gsGunMemSet(key, n) {
   const m = gsGunMemGet(); m[key] = n;
   try { localStorage.setItem("gs_valor_gun", JSON.stringify(m)); } catch (_) {}
+}
+// Yemek kartlarında "son girdiğim valör TARİHİ" hafızası (satır anahtarına göre; sabit tarih, değişene kadar)
+function gsTarihMemGet() { try { return JSON.parse(localStorage.getItem("gs_valor_tarih") || "{}") || {}; } catch (_) { return {}; } }
+function gsTarihMemSet(key, iso) {
+  const m = gsTarihMemGet(); if (iso) m[key] = iso; else delete m[key];
+  try { localStorage.setItem("gs_valor_tarih", JSON.stringify(m)); } catch (_) {}
 }
 
 // Çok adımlı Gün Sonu Aktarım durumu (adımlar arası korunur)
@@ -2807,13 +2820,14 @@ async function viewGunSonuAktarim(c) {
 
     const rowKey = (r) => r.code + "-" + r.tip;
     const gunMem = gsGunMemGet();
+    const tarihMem = gsTarihMemGet();
     const blRowHtml = (r) => {
       const key = rowKey(r);
-      // Bankalarda varsayılan = en son girdiğin gün (hafıza); yoksa +1 gün. Yemek kartlarında belli tarih.
+      // Banka: son girdiğin GÜN (hafıza) → gün sonu + N. Yemek kartı: son girdiğin TARİH (hafıza, sabit) → değişene kadar.
       if (!bl.rowValor[key]) {
         bl.rowValor[key] = (r.banka && gunMem[key] != null)
           ? addDaysISO(gsState.date, gunMem[key])
-          : (bl.valor || nextDayISO(gsState.date));
+          : (!r.banka && tarihMem[key] ? tarihMem[key] : (bl.valor || nextDayISO(gsState.date)));
       }
       const rv = bl.rowValor[key];
       let amtCell;
@@ -2919,10 +2933,11 @@ async function viewGunSonuAktarim(c) {
       inp.addEventListener("focus", () => inp.select());
     });
 
-    // Valör: yemek kartlarında belli TARİH (takvim)
+    // Valör: yemek kartlarında belli TARİH (takvim) — girilen tarih hafızaya yazılır (değişene kadar varsayılan)
     $$(".bl-valor-row", body).forEach((inp) => inp.addEventListener("change", () => {
       const key = inp.dataset.key;
       bl.rowValor[key] = inp.value || bl.valor;
+      if (inp.value) gsTarihMemSet(key, inp.value);
     }));
     // Valör: bankalarda "+N gün" — girilen gün hafızaya yazılır (bir sonraki gün sonunda varsayılan gelir)
     $$(".bl-valor-gun", body).forEach((inp) => inp.addEventListener("input", () => {
