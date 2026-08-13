@@ -594,8 +594,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.176";
+const APP_VERSION = "2026.177";
 const CHANGELOG = [
+  { version: "2026.177", date: "2026-08-13", items: [
+    "🔗 Fatura & Banka kontrolünde carisi/hesabı OLMAYAN satırlar için 'Eşleştir / Ekle' penceresi artık KENDİLİĞİNDEN açılır — sırayla gelir, hepsini bağlayınca biter, 'Vazgeç' ile durur. (Fatura önizlemesinde eşleşmeyen cari; bankada boş POS-dışı hesap satırları)",
+  ]},
   { version: "2026.176", date: "2026-08-13", items: [
     "⚖️ Hesap Planı'nda otomatik TERS BAKİYE ayrımı (yalnız gösterim, veri taşınmaz): 320'de bir tedarikçi BORÇ bakiyeye düşerse (ona avans vermişsin) '🔄 159 Verilen Sipariş Avansları' altında; 120'de bir müşteri ALACAK bakiyeye düşerse (senden avans almış) '🔄 340 Alınan Sipariş Avansları' altında gösterilir. Bakiye değişince otomatik güncellenir",
     "⬇️ Kontrol/inceleme ekranı artık HER ZAMAN en alta (son işlem görünür) kayar; incelenen fatura ayrıca vurgulanır. 'Son işlem görünmüyor' sorunu giderildi",
@@ -6699,11 +6702,11 @@ async function viewCariHareket(c) {
     // Elle eşleştirilen (forced) öncelikli; sonra doğru tür (320/120); bulamazsa tüm cari hesaplar
     const findAcc = (it) => it.forced || findIn(cariAccounts, it) || findIn(allCari, it);
     // Elle eşleştir: seçilen hesabı sabitle + fatura adını hesabın alias'ına ekle (kalıcı hafıza)
-    async function matchCari(it) {
+    async function matchCari(it, chain) {
       openAccountPicker({
         accounts: allLeaf, title: "Hesap Eşleştir", query: "", fixedNewName: it.ad || "",
         onPick: async (res) => {
-          if (res.newName) { const acc = await createCari({ ...it, ad: res.newName }, true); it.forced = acc; toast(`Cari eklendi: ${acc.name}`, "ok"); draw(); return; }
+          if (res.newName) { const acc = await createCari({ ...it, ad: res.newName }, true); it.forced = acc; toast(`Cari eklendi: ${acc.name}`, "ok"); draw(); if (chain) setTimeout(openNextUnmatched, 60); return; }
           const acc = res.acc; if (!acc) return;
           it.forced = acc;
           const aliases = acc.nameAliases || [];
@@ -6711,10 +6714,13 @@ async function viewCariHareket(c) {
             aliases.push(it.ad);
             try { await updateDoc(doc(db, "accounts", acc.id), { nameAliases: aliases }); acc.nameAliases = aliases; } catch (_) {}
           }
-          toast(`Eşleştirildi: ${acc.name}`, "ok"); draw();
+          toast(`Eşleştirildi: ${acc.name}`, "ok"); draw(); if (chain) setTimeout(openNextUnmatched, 60);
         },
       });
     }
+    // #4a: carisi olmayan fatura satırları için eşleştir/ekle penceresini otomatik aç (sırayla)
+    const firstUnmatched = () => items.find((it) => !findAcc(it));
+    const openNextUnmatched = () => { const it = firstUnmatched(); if (it) matchCari(it, true); };
     const statusOf = (it) => {
       const acc = findAcc(it);
       if (!acc) return { code: "nocari" };
@@ -7070,6 +7076,7 @@ async function viewCariHareket(c) {
     draw();
     const startIdx = nonDupIdx();
     if (kind === "satis" && startIdx.length) runWizard(startIdx);
+    else openNextUnmatched();   // #4a: cari yoksa Eşleştir/Ekle penceresi kendiliğinden açılır
   }
 }
 
@@ -7535,10 +7542,13 @@ async function viewBanka(c) {
 
     const saveBtn = $("#bk-save", editor);
     // Hesap alanı → uygulama-içi aranabilir seçici
-    $$(".bk-acc", editor).forEach((inp) => inp.onclick = () => openAccountPicker({
+    const openBkAcc = (inp, chain) => openAccountPicker({
       accounts: leafAccs, title: "Hesap Seç", query: /·/.test(inp.value) ? "" : inp.value,
-      onPick: (res) => { inp.value = res.acc ? accLabel(res.acc) : res.newName; inp.dispatchEvent(new Event("input", { bubbles: true })); },
-    }));
+      onPick: (res) => { inp.value = res.acc ? accLabel(res.acc) : res.newName; inp.dispatchEvent(new Event("input", { bubbles: true })); if (chain) setTimeout(openNextBankAcc, 60); },
+    });
+    $$(".bk-acc", editor).forEach((inp) => inp.onclick = () => openBkAcc(inp, false));
+    // #4a: hesabı boş POS-dışı satırlar için seçiciyi kendiliğinden aç (sırayla; Vazgeç ile durur)
+    const openNextBankAcc = () => { const inp = $$(".pv-oth .bk-acc", editor).find((x) => !x.value.trim()); if (inp) openBkAcc(inp, true); };
     // Rapor alanı → hesap seçici ile aynı pencere
     $$(".bk-rapor", editor).forEach((inp) => inp.onclick = () => openRaporPicker({
       raporItems, query: inp.value,
@@ -7576,6 +7586,7 @@ async function viewBanka(c) {
     editor.addEventListener("input", bkSync);
     bkSync();
     saveBtn.onclick = () => saveAll(saveBtn, bank, bankAcc, blokeAcc, groups, other, resolveAcc, accLabel);
+    setTimeout(openNextBankAcc, 120);   // #4a: boş POS-dışı hesapları sırayla sor
   }
 
   // ---- T. FİNANS: hesap (bloke) + kart dosyaları eşleştirme ----
