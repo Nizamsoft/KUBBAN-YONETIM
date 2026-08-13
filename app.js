@@ -594,8 +594,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.171";
+const APP_VERSION = "2026.172";
 const CHANGELOG = [
+  { version: "2026.172", date: "2026-08-13", items: [
+    "🗂️ Tüm Kayıtlar artık TOPLU AKTARIMLARI gruplar: bir seferde yaptığın aktarım (ör. 10 alış faturası, banka aktarımı) tek satırda '🗂️ Kaynak · N kayıt · zaman' olarak görünür — üstüne dokun aç/kapa, sağdaki '🗑️ Toplu Sil' ile o aktarımın tamamını sil, grup kutusuyla toplu seç. ARAMA ya da TARİH filtresi yaparsan yine tüm hareketler tek tek (düz liste) açılır. Aynı kaynak + yakın kayıt zamanı (3 dk) bir aktarım sayılır",
+  ]},
   { version: "2026.171", date: "2026-08-13", items: [
     "📁 Hesabı Düzenle → 'Grup / Üst Hesap · Değiştir': 321'deki bir hesabı 320'ye (ya da başka gruba) taşırken artık KOD YAZMANA GEREK YOK — sadece ana hesabı/grubu seç, sıradaki boş alt kod (ör. 320.47) otomatik verilir, hesap türü güncellenir ve hesabın cari hareketleri de yeni koda taşınır (kopuk kalmaz). Alt hesabı olan hesap taşınamaz uyarısı",
     "🌙 Gün sonu kasa (100) nakit girişi artık dosyadaki Nakit (Sistem) + elle girilen Gerçekleşen TOPLANARAK yazılıyor. Önceden sadece elle girilen Gerçekleşen yazılıyordu (girmezsen 0 gidiyordu)",
@@ -5848,25 +5851,58 @@ async function viewTumKayitlar(c) {
   const qEl = $(".tk-q", c), srcEl = $(".tk-src", c), fromEl = $(".tk-from", c), toEl = $(".tk-to", c);
   const bodyEl = $(".tk-body", c), countEl = $(".tk-count", c);
   const PAGE = 100;
-  let view = all, page = 0;
-  const tp = () => Math.max(1, Math.ceil(view.length / PAGE));
+
+  // ---- Toplu aktarım (batch) kümeleme: aynı kaynak + yakın kayıt zamanı = tek aktarım ----
+  const GAP = 3 * 60 * 1000;   // 3 dk içindeki aynı kaynak kayıtlar tek aktarım
+  const batches = [];
+  { let cur = null;
+    all.forEach((r) => {
+      const ts = tsOf(r.e.createdAt || r.e.updatedAt);
+      if (cur && cur.src === r.src && Math.abs(cur.lastTs - ts) < GAP) { cur.rows.push(r); cur.lastTs = ts; }
+      else { cur = { id: "b" + batches.length, src: r.src, srcL: r.srcL, firstTs: ts, lastTs: ts, rows: [r] }; batches.push(cur); }
+    });
+  }
+  const batchAmt = (b) => { let borc = 0, alacak = 0, giren = 0, cikan = 0; b.rows.forEach((r) => { const e = r.e; borc += parseNum(e.borc); alacak += parseNum(e.alacak); giren += parseNum(e.giren); cikan += parseNum(e.cikan); }); return amtTxt({ borc, alacak, giren, cikan }); };
+
+  let displayList = [], viewRows = all, page = 0;
+  const expanded = new Set();
+  const tp = () => Math.max(1, Math.ceil(displayList.length / PAGE));
+
+  const rowHtml = (r, child) => `<tr data-id="${r.e.id}" class="${child ? "tk-child" : ""}" style="cursor:pointer">
+      <td>${child ? '<span style="display:inline-block;width:12px"></span>' : ""}<input type="checkbox" class="tk-ck" data-id="${r.e.id}" ${selected.has(r.e.id) ? "checked" : ""} /></td>
+      <td>${child ? "" : `<span class="tag ${r.src ? "" : "warn"}" style="font-size:10px">${esc(r.srcL)}</span>`}</td>
+      <td>${esc(r.code)} ${esc(r.name)}</td>
+      <td>${r.e.date ? fmtDate(r.e.date) : "—"}</td>
+      <td style="white-space:nowrap;color:var(--ink-soft)">${fmtDT(r.e.createdAt || r.e.updatedAt) || "—"}</td>
+      <td>${esc(r.e.sahis || r.e.islemAdi || "")}</td>
+      <td class="tdwrap">${esc(r.e.aciklama || "")}${r.e.rapor ? ` · <span style="color:var(--ink-faint)">${esc(r.e.rapor)}</span>` : ""}</td>
+      <td class="num">${amtTxt(r.e)}</td>
+      <td>${esc(r.e.faturaNo || "")}</td>
+      <td style="text-align:right"><button class="btn btn-sm" data-edit="${r.e.id}">Düzenle</button></td>
+    </tr>`;
+  const groupHtml = (b) => {
+    const open = expanded.has(b.id);
+    const allSel = b.rows.every((r) => selected.has(r.e.id));
+    return `<tr class="tk-grouprow" data-bid="${b.id}" style="cursor:pointer;background:var(--bg,#f4f0e7);font-weight:600">
+      <td><input type="checkbox" class="tk-gck" data-bid="${b.id}" ${allSel ? "checked" : ""} /></td>
+      <td colspan="6">${open ? "▾" : "▸"} 🗂️ <b>${esc(b.srcL)}</b> · ${b.rows.length.toLocaleString("tr-TR")} kayıt <span style="color:var(--ink-faint);font-weight:400">· ${fmtDT(b.rows[0].e.createdAt || b.rows[0].e.updatedAt)}</span></td>
+      <td class="num">${batchAmt(b)}</td>
+      <td></td>
+      <td style="text-align:right"><button class="btn btn-sm btn-danger tk-gdel" data-bid="${b.id}">🗑️ Toplu Sil</button></td>
+    </tr>`;
+  };
 
   function render() {
     page = Math.max(0, Math.min(tp() - 1, page));
-    const slice = view.slice(page * PAGE, page * PAGE + PAGE);
-    bodyEl.innerHTML = slice.length ? slice.map((r) => `<tr data-id="${r.e.id}" style="cursor:pointer">
-        <td><input type="checkbox" class="tk-ck" data-id="${r.e.id}" ${selected.has(r.e.id) ? "checked" : ""} /></td>
-        <td><span class="tag ${r.src ? "" : "warn"}" style="font-size:10px">${esc(r.srcL)}</span></td>
-        <td>${esc(r.code)} ${esc(r.name)}</td>
-        <td>${r.e.date ? fmtDate(r.e.date) : "—"}</td>
-        <td style="white-space:nowrap;color:var(--ink-soft)">${fmtDT(r.e.createdAt || r.e.updatedAt) || "—"}</td>
-        <td>${esc(r.e.sahis || r.e.islemAdi || "")}</td>
-        <td class="tdwrap">${esc(r.e.aciklama || "")}${r.e.rapor ? ` · <span style="color:var(--ink-faint)">${esc(r.e.rapor)}</span>` : ""}</td>
-        <td class="num">${amtTxt(r.e)}</td>
-        <td>${esc(r.e.faturaNo || "")}</td>
-        <td style="text-align:right"><button class="btn btn-sm" data-edit="${r.e.id}">Düzenle</button></td>
-      </tr>`).join("") : `<tr><td colspan="10"><div class="empty" style="padding:20px">Kayıt yok.</div></td></tr>`;
-    countEl.textContent = `${view.length.toLocaleString("tr-TR")} kayıt${view.length !== all.length ? ` (toplam ${all.length.toLocaleString("tr-TR")})` : ""}`;
+    const slice = displayList.slice(page * PAGE, page * PAGE + PAGE);
+    let html = "";
+    if (!slice.length) html = `<tr><td colspan="10"><div class="empty" style="padding:20px">Kayıt yok.</div></td></tr>`;
+    else for (const it of slice) {
+      if (it.type === "row") html += rowHtml(it.r, false);
+      else { html += groupHtml(it.b); if (expanded.has(it.b.id)) html += it.b.rows.map((r) => rowHtml(r, true)).join(""); }
+    }
+    bodyEl.innerHTML = html;
+    countEl.textContent = `${viewRows.length.toLocaleString("tr-TR")} kayıt${viewRows.length !== all.length ? ` (toplam ${all.length.toLocaleString("tr-TR")})` : ""}`;
     $$(".pg-info", c).forEach((el) => el.textContent = `${page + 1}/${tp()}`);
     $$("[data-pg]", c).forEach((b) => b.disabled = b.dataset.pg === "prev" ? page === 0 : page === tp() - 1);
     const openEdit = (id) => {
@@ -5876,6 +5912,24 @@ async function viewTumKayitlar(c) {
     };
     $$("[data-edit]", c).forEach((b) => b.onclick = (ev) => { ev.stopPropagation(); openEdit(b.dataset.edit); });
     $$("tr[data-id]", bodyEl).forEach((tr) => tr.onclick = (ev) => { if (ev.target.closest(".tk-ck")) return; openEdit(tr.dataset.id); });
+    // Grup satırı: aç/kapat
+    $$(".tk-grouprow", bodyEl).forEach((tr) => tr.onclick = (ev) => {
+      if (ev.target.closest(".tk-gck") || ev.target.closest(".tk-gdel")) return;
+      const bid = tr.dataset.bid; if (expanded.has(bid)) expanded.delete(bid); else expanded.add(bid); render();
+    });
+    // Grup seç kutusu → gruptaki tüm kayıtları seç/kaldır
+    $$(".tk-gck", bodyEl).forEach((ck) => ck.onclick = (ev) => {
+      ev.stopPropagation();
+      const b = batches.find((x) => x.id === ck.dataset.bid); if (!b) return;
+      b.rows.forEach((r) => { if (ck.checked) selected.add(r.e.id); else selected.delete(r.e.id); });
+      render();
+    });
+    // Grup toplu sil
+    $$(".tk-gdel", bodyEl).forEach((btn) => btn.onclick = (ev) => {
+      ev.stopPropagation();
+      const b = batches.find((x) => x.id === btn.dataset.bid); if (!b) return;
+      confirmDialog(`Bu aktarımdaki ${b.rows.length.toLocaleString("tr-TR")} kayıt (${b.srcL}) SİLİNECEK. Geri alınamaz. Emin misin?`, () => delIds(b.rows.map((r) => r.e.id), `${b.srcL} aktarımı`));
+    });
     // Seçim kutuları — Shift+tık ile aralık seç
     const cks = $$(".tk-ck", bodyEl);
     cks.forEach((ck, i) => ck.onclick = (ev) => {
@@ -5896,15 +5950,32 @@ async function viewTumKayitlar(c) {
     const cks = $$(".tk-ck", bodyEl);
     if (allCk) allCk.checked = cks.length > 0 && cks.every((x) => x.checked);
   }
+  // Ortak silme (id listesi)
+  async function delIds(ids, label) {
+    if (!ids.length) return;
+    const pb = progressBar("Siliniyor…");
+    try {
+      for (let i = 0; i < ids.length; i += 400) {
+        const bt = writeBatch(db);
+        ids.slice(i, i + 400).forEach((id) => bt.delete(doc(db, "accountEntries", id)));
+        await bt.commit();
+        pb.set(Math.round(((i + 400) / ids.length) * 100), `${Math.min(i + 400, ids.length)} / ${ids.length}`);
+      }
+      await logAction("Silme", "Tüm Kayıtlar", `${ids.length} kayıt (${label})`);
+      pb.done(() => { toast(`${ids.length.toLocaleString("tr-TR")} kayıt silindi.`, "ok"); route(); });
+    } catch (e) { pb.done(() => toast("Hata: " + e.message, "err")); }
+  }
   function applyFilter() {
     const q = normTr(qEl.value.trim()), s = srcEl.value, f = fromEl.value, t = toEl.value;
-    view = all.filter((r) => {
-      if (q && !hayOf(r).includes(q)) return false;
-      if (s && r.src !== s) return false;
-      if (f && (!r.e.date || r.e.date < f)) return false;
-      if (t && (!r.e.date || r.e.date > t)) return false;
-      return true;
-    });
+    const grouped = !q && !f && !t;   // arama ve tarih yoksa → toplu aktarım grupları; aksi halde düz liste
+    if (grouped) {
+      const bs = s ? batches.filter((b) => b.src === s) : batches;
+      displayList = bs.map((b) => b.rows.length > 1 ? { type: "group", b } : { type: "row", r: b.rows[0] });
+      viewRows = bs.flatMap((b) => b.rows);
+    } else {
+      viewRows = all.filter((r) => (!q || hayOf(r).includes(q)) && (!s || r.src === s) && (!f || (r.e.date && r.e.date >= f)) && (!t || (r.e.date && r.e.date <= t)));
+      displayList = viewRows.map((r) => ({ type: "row", r }));
+    }
     page = 0; render();
   }
 
@@ -5921,38 +5992,25 @@ async function viewTumKayitlar(c) {
     const q = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const head = ["Kaynak", "HesapKodu", "HesapAdi", "Tarih", "KayitZamani", "IslemNo", "IslemAdi", "Sahis", "Aciklama", "Rapor", "Borc", "Alacak", "Giren", "Cikan", "FaturaTuru", "FaturaNo"];
     const lines = [head.map(q).join(";")];
-    view.forEach((r) => { const e = r.e; lines.push([r.srcL, r.code, r.name, e.date || "", fmtDT(e.createdAt || e.updatedAt), e.islemNo ?? "", e.islemAdi || "", e.sahis || "", e.aciklama || "", e.rapor || "", parseNum(e.borc) || "", parseNum(e.alacak) || "", parseNum(e.giren) || "", parseNum(e.cikan) || "", e.faturaTuru || "", e.faturaNo || ""].map(q).join(";")); });
+    viewRows.forEach((r) => { const e = r.e; lines.push([r.srcL, r.code, r.name, e.date || "", fmtDT(e.createdAt || e.updatedAt), e.islemNo ?? "", e.islemAdi || "", e.sahis || "", e.aciklama || "", e.rapor || "", parseNum(e.borc) || "", parseNum(e.alacak) || "", parseNum(e.giren) || "", parseNum(e.cikan) || "", e.faturaTuru || "", e.faturaNo || ""].map(q).join(";")); });
     const blob = new Blob(["﻿" + lines.join("\r\n")], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = `tum-kayitlar-${todayISO()}.csv`; a.click();
     URL.revokeObjectURL(url);
-    toast(`${view.length.toLocaleString("tr-TR")} kayıt indirildi.`, "ok");
+    toast(`${viewRows.length.toLocaleString("tr-TR")} kayıt indirildi.`, "ok");
   };
 
   // Filtrelenenleri sil
   $(".tk-del", c).onclick = () => {
-    if (!view.length) return toast("Silinecek kayıt yok.", "err");
+    if (!viewRows.length) return toast("Silinecek kayıt yok.", "err");
     const srcTxt = srcEl.value ? srcLabel(srcEl.value) : "TÜM kaynaklar";
-    confirmDialog(`${view.length.toLocaleString("tr-TR")} kayıt SİLİNECEK (${srcTxt}). Geri alınamaz. Emin misin?`, async () => {
-      const pb = progressBar("Siliniyor…");
-      try {
-        const ids = view.map((r) => r.e.id);
-        for (let i = 0; i < ids.length; i += 400) {
-          const bt = writeBatch(db);
-          ids.slice(i, i + 400).forEach((id) => bt.delete(doc(db, "accountEntries", id)));
-          await bt.commit();
-          pb.set(Math.round(((i + 400) / ids.length) * 100), `${Math.min(i + 400, ids.length)} / ${ids.length}`);
-        }
-        await logAction("Silme", "Tüm Kayıtlar", `${ids.length} kayıt (${srcTxt})`);
-        pb.done(() => { toast(`${ids.length.toLocaleString("tr-TR")} kayıt silindi.`, "ok"); route(); });
-      } catch (e) { pb.done(() => toast("Hata: " + e.message, "err")); }
-    });
+    confirmDialog(`${viewRows.length.toLocaleString("tr-TR")} kayıt SİLİNECEK (${srcTxt}). Geri alınamaz. Emin misin?`, () => delIds(viewRows.map((r) => r.e.id), srcTxt));
   };
 
   // Görünenleri (filtrelenen tüm sayfaları) toplu seç/kaldır
   $(".tk-all", c).onclick = (ev) => {
     const on = ev.target.checked;
-    view.forEach((r) => { if (on) selected.add(r.e.id); else selected.delete(r.e.id); });
+    viewRows.forEach((r) => { if (on) selected.add(r.e.id); else selected.delete(r.e.id); });
     render();
   };
 
@@ -5976,7 +6034,7 @@ async function viewTumKayitlar(c) {
   };
 
   render._last = -1;
-  render();
+  applyFilter();
 }
 
 async function viewAccountLedger(c) {
