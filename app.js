@@ -575,8 +575,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.187";
+const APP_VERSION = "2026.188";
 const CHANGELOG = [
+  { version: "2026.188", date: "2026-08-13", items: [
+    "🚫 Bakiye Karşılaştır: her hesap satırına '🚫 Yoksay' düğmesi eklendi. Basınca o hesap kontrolden çıkar — 'Farklı', 'Toplam fark' ve listede artık görünmez (kabul ettiğin/bilinen farkları gizlemek için). Özete 'Yoksayılan' sayacı eklendi",
+    "⚙️ Yoksayılanlar yönetimi: araç çubuğundaki '⚙️ Yoksayılanlar (N)' düğmesi yoksaydığın hesapları listeler; tek tek '↩︎ Geri aç' ya da 'Tümünü geri aç' ile kontrolü geri açarsın. Seçim cihazda kalıcı saklanır",
+  ]},
   { version: "2026.187", date: "2026-08-13", items: [
     "🔒 Giriş ekranından 'Kayıt olun' kaldırıldı (güvenlik) — yeni kullanıcı artık yalnız yönetici tarafından Supabase panelinden eklenir. Yanıltıcı 'Yerel mod / tarayıcıda saklanır' notları kaldırıldı",
     "©️ Giriş ekranı ve yan menüye 'Nizam Soft — Kerem Güllü · Tüm hakları saklıdır' telif satırı eklendi (logo yeri hazır)",
@@ -2463,6 +2467,14 @@ function bkMatchSet(key, accId) {
   const m = bkMatchGet(); if (accId) m[key] = accId; else delete m[key];
   try { localStorage.setItem("bk_match", JSON.stringify(m)); } catch (_) {}
 }
+// Bakiye Karşılaştır'da "yoksayılan" hesaplar (bir daha kontrol edilmesin diye).
+// key(normAd) → { name, codes }.  Ayarlardan (⚙️ Yoksayılanlar) geri açılır.
+function bkIgnoreGet() { try { return JSON.parse(localStorage.getItem("bk_ignore") || "{}") || {}; } catch (_) { return {}; } }
+function bkIgnored(key) { return Object.prototype.hasOwnProperty.call(bkIgnoreGet(), key); }
+function bkIgnoreSet(key, info) {
+  const m = bkIgnoreGet(); if (info) m[key] = info; else delete m[key];
+  try { localStorage.setItem("bk_ignore", JSON.stringify(m)); } catch (_) {}
+}
 // Bankalarda "son girdiğim gün" hafızası (satır anahtarına göre; ör. 108.09-kredi → 23)
 function gsGunMemGet() { try { return JSON.parse(localStorage.getItem("gs_valor_gun") || "{}") || {}; } catch (_) { return {}; } }
 function gsGunMemSet(key, n) {
@@ -4069,23 +4081,26 @@ async function viewBakiyeKarsilastir(c) {
       });
     });
 
-    // Özet
-    const bothList = list.filter((r) => r.status === "both");
+    // Özet (yoksayılan hesaplar kontrol edilmez → sayımların dışında)
+    const bothList = list.filter((r) => r.status === "both" && !bkIgnored(r.key));
     const diffList = bothList.filter((r) => Math.abs(r.fark) >= eps);
-    const onlyFile = list.filter((r) => r.status === "file" && Math.abs(r.eski) >= eps);
-    const onlyProg = list.filter((r) => r.status === "prog" && Math.abs(r.prog) >= eps);
+    const onlyFile = list.filter((r) => r.status === "file" && Math.abs(r.eski) >= eps && !bkIgnored(r.key));
+    const onlyProg = list.filter((r) => r.status === "prog" && Math.abs(r.prog) >= eps && !bkIgnored(r.key));
     const totalDiff = diffList.reduce((s, r) => s + Math.abs(r.fark), 0);
+    const ignoredCount = list.filter((r) => bkIgnored(r.key)).length;
 
     // Sıralama: farkı büyükten küçüğe; sonra eşleşen 0-farklar; sonra yalnız-tek-taraf
     const rank = (r) => r.status === "both" ? 0 : (r.status === "file" ? 1 : 2);
     list.sort((a, b) => (rank(a) - rank(b)) || (Math.abs(b.fark) - Math.abs(a.fark)) || String(a.name).localeCompare(String(b.name), "tr"));
 
     let onlyDiff = true, query = "";
+    const ignoreBtn = (r) => `<button class="bk-act" data-act="ignore" data-key="${esc(r.key)}" title="Bu hesabı kontrolden çıkar (yoksay)">🚫 Yoksay</button>`;
     const actCell = (r) => {
-      if (r.status === "file") return `<button class="bk-act" data-act="match" data-key="${esc(r.key)}" title="Program hesabıyla eşleştir">🔗 Eşleştir</button>`;
+      if (r.status === "file") return `<button class="bk-act" data-act="match" data-key="${esc(r.key)}" title="Program hesabıyla eşleştir">🔗 Eşleştir</button>` + ignoreBtn(r);
       const one = r.ids.length === 1;
       return `<button class="bk-act" data-act="open" data-key="${esc(r.key)}" title="Hareket defterine git">🔍 Aç</button>`
-        + (one ? `<button class="bk-act danger" data-act="del" data-key="${esc(r.key)}" title="Hesabı ve hareketlerini sil">🗑️</button>` : "");
+        + (one ? `<button class="bk-act danger" data-act="del" data-key="${esc(r.key)}" title="Hesabı ve hareketlerini sil">🗑️</button>` : "")
+        + ignoreBtn(r);
     };
     const row = (r) => {
       const tag = r.status === "file" ? `<span class="bk-badge file">yalnız dosyada</span>`
@@ -4106,6 +4121,7 @@ async function viewBakiyeKarsilastir(c) {
     const draw = () => {
       const nq = normTr(query);
       const view = list.filter((r) => {
+        if (bkIgnored(r.key)) return false; // yoksayılan hesap listede görünmez
         if (onlyDiff && !(r.status === "both" && Math.abs(r.fark) >= eps) && !(r.status === "file" && Math.abs(r.eski) >= eps) && !(r.status === "prog" && Math.abs(r.prog) >= eps)) return false;
         if (nq && !normTr(r.name).includes(nq) && !normTr(r.codes).includes(nq)) return false;
         return true;
@@ -4126,6 +4142,7 @@ async function viewBakiyeKarsilastir(c) {
           <div class="bk-stat"><span>Toplam fark</span><b>${fmtTRY(totalDiff)}</b></div>
           <div class="bk-stat"><span>Yalnız dosyada</span><b>${onlyFile.length.toLocaleString("tr-TR")}</b></div>
           <div class="bk-stat"><span>Yalnız programda</span><b>${onlyProg.length.toLocaleString("tr-TR")}</b></div>
+          <div class="bk-stat"><span>Yoksayılan</span><b>${ignoredCount.toLocaleString("tr-TR")}</b></div>
         </div>
         <div style="font-size:11.5px;color:var(--ink-faint);padding:0 14px 4px">
           İşaret yönü otomatik seçildi: dosya bakiyesi <b>${sign < 0 ? "ters" : "aynı"}</b> yönle hizalandı
@@ -4137,6 +4154,7 @@ async function viewBakiyeKarsilastir(c) {
             <input type="checkbox" id="bk-onlydiff" checked style="width:17px;height:17px" /> Yalnız farklılar
           </label>
           <button class="btn btn-sm" id="bk-csv">📥 Farkları CSV indir</button>
+          <button class="btn btn-sm" id="bk-ignored" title="Yoksaydığın hesapları görüntüle / geri aç">⚙️ Yoksayılanlar (${ignoredCount})</button>
           <span id="bk-count" style="font-size:12px;color:var(--ink-faint);align-self:center"></span>
         </div>
         <div style="overflow-x:auto">
@@ -4205,6 +4223,11 @@ async function viewBakiyeKarsilastir(c) {
         if (btn.dataset.act === "open") { const id = r.ids[0]; if (id) location.hash = "#/hesap-detay?id=" + id; else toast("Hesap bulunamadı.", "err"); }
         else if (btn.dataset.act === "del") bkDeleteAccount(r);
         else if (btn.dataset.act === "match") bkMatchPicker(r);
+        else if (btn.dataset.act === "ignore") {
+          bkIgnoreSet(r.key, { name: r.name, codes: r.codes || "" });
+          toast(`Yoksayıldı: ${r.name} — artık kontrol edilmeyecek.`, "ok");
+          refreshOverview();
+        }
         return;
       }
       const tr = e.target.closest("tr[data-key]"); if (!tr) return;
@@ -4234,6 +4257,37 @@ async function viewBakiyeKarsilastir(c) {
       const a = document.createElement("a"); a.href = url; a.download = `bakiye-fark-${todayISO()}.csv`; a.click();
       URL.revokeObjectURL(url);
       toast("Fark listesi indirildi.", "ok");
+    };
+    // ⚙️ Yoksayılanlar — yoksaydığın hesapları görüntüle / tek tek ya da topluca geri aç
+    $("#bk-ignored", res).onclick = () => {
+      const render = (m) => {
+        const ig = bkIgnoreGet();
+        const keys = Object.keys(ig);
+        m.body.innerHTML = keys.length ? `
+          <p style="font-size:13px;color:var(--ink-soft);margin:0 0 12px;line-height:1.5">
+            Bu hesaplar <b>kontrolden çıkarıldı</b> (fark/sayımlarda görünmez). Geri açınca tekrar karşılaştırmaya girer.
+          </p>
+          <div style="max-height:52vh;overflow:auto;border:1px solid var(--line);border-radius:10px">
+            <table class="bk-table"><tbody>
+              ${keys.map((k) => `<tr>
+                <td><div class="bk-nm">${esc(ig[k].name || k)}</div>${ig[k].codes ? `<div class="bk-code">${esc(ig[k].codes)}</div>` : ""}</td>
+                <td class="bk-acts" style="text-align:right"><button class="bk-act" data-un="${esc(k)}" title="Kontrolü geri aç">↩︎ Geri aç</button></td>
+              </tr>`).join("")}
+            </tbody></table>
+          </div>` : `<div class="empty" style="padding:24px"><div class="ico">🚫</div><p>Yoksayılan hesap yok.</p></div>`;
+        m.body.querySelectorAll("[data-un]").forEach((b) => b.onclick = () => {
+          bkIgnoreSet(b.dataset.un, null); toast("Geri açıldı — tekrar kontrol edilecek.", "ok"); render(m);
+        });
+      };
+      const body = document.createElement("div");
+      const m = openModal({
+        title: "⚙️ Yoksayılan Hesaplar", body,
+        footer: [
+          mkBtn("Tümünü geri aç", "btn", () => { const ig = bkIgnoreGet(); Object.keys(ig).forEach((k) => bkIgnoreSet(k, null)); toast("Tüm yoksayılanlar geri açıldı.", "ok"); render(m); }),
+          mkBtn("Kapat", "btn-primary", () => { m.close(); refreshOverview(); }),
+        ],
+      });
+      m.body = body; render(m);
     };
     draw();
     };
