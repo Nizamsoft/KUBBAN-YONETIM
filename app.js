@@ -403,15 +403,21 @@ async function ensureUserDoc(fbUser, nameHint) {
   return data;
 }
 
+let _appShownForUid = null;   // uygulama hangi kullanıcı için açıldı (tekrar tetiklenmeyi önler)
 function onAuth() {
   onAuthStateChanged(auth, async (fbUser) => {
     if (fbUser) {
+      // Supabase onAuthStateChange sekmeye dönünce / token yenileyince TEKRAR tetikler.
+      // Aynı kullanıcı için uygulama zaten açıksa hiçbir şeyi yeniden yükleme (yükleme ekranı çıkmasın).
+      if (_appShownForUid === fbUser.uid) return;
       let profile;
       try { profile = await ensureUserDoc(fbUser); }
       catch { profile = { role: "user", displayName: fbUser.email, email: fbUser.email }; }
       currentUser = { uid: fbUser.uid, email: fbUser.email, ...profile };
+      _appShownForUid = fbUser.uid;
       showApp();
     } else {
+      _appShownForUid = null;
       currentUser = null;
       showLogin();
     }
@@ -588,8 +594,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.168";
+const APP_VERSION = "2026.169";
 const CHANGELOG = [
+  { version: "2026.169", date: "2026-08-12", items: [
+    "🛠️ Sinir bozucu 'sekmeden dönünce yükleme ekranı yeniden çıkıyor' sorunu düzeltildi. Sebep: oturum servisi (Supabase) sekmeye her dönüşte/token yenilemede tetikleniyor, biz de her seferinde açılış ekranını baştan çalıştırıyorduk. Artık açılış yalnız İLK girişte çalışır; sekmeden dönünce hiçbir şey yeniden yüklenmez",
+    "🔗 Bakiye Karşılaştır tutarlılık: hareket dosyası yüklüyse GENEL TABLO da artık ondan (net borç−alacak) hesaplanıyor. Böylece tablodaki 'Fark' ile hesaba tıklayınca çıkan tarih-tarih 'Fark' BİREBİR aynı oluyor. (Önceden tablo bakiye dosyasından, tarih-tarih hareket dosyasından geliyordu; iki dosya farklı tarih/kapsamda alınınca farklar tutmuyordu — ör. Edenred'de eksik bir fatura yüzünden 287.966 görünüyordu; doğrusu 9.251)",
+    "Üstte 'Kaynak: Hareket dosyası / Bakiye dosyası' göstergesi. Hareket dosyası yoksa eskisi gibi bakiye dosyası kullanılır. Aynı adın farklı yazımları (A.Ş / A.Ş.) tek hesapta toplanır",
+  ]},
   { version: "2026.168", date: "2026-08-12", items: [
     "⚖️ Bakiye Karşılaştır — satır işlemleri: her hesap satırında '🔍 Aç' (hareket defterine git) ve '🗑️' (hesabı + tüm hareketlerini sil, onaylı). Örn. yanlış/gereksiz hesabı direkt sil",
     "🔗 Bakiye Karşılaştır — elle eşleştirme: dosyada olup otomatik eşleşmeyen adı ('yalnız dosyada') doğru program hesabıyla eşleştir; ad hesabın takma adına eklenir, bir daha otomatik tutar",
@@ -3457,6 +3468,39 @@ async function viewBakiyeKarsilastir(c) {
 
   // ---- Hareket dosyası (tarih-tarih karşılaştırma için): ada göre hareket listesi ----
   let moveByName = null;   // normAd → [{date(ISO), borc, alacak, aciklama, islemAdi, faturaNo}]
+  const moveRawName = new Map();   // normAd → ham ad (görünüm için)
+  let balRows = null, balAdCol = null, balBakCol = null, balFileName = "", balRestored = false;   // bakiye dosyası durumu
+  let _renderComparison = null;   // onFile içinde atanır; genel tabloyu çizer
+
+  // Dosya tarafını kur — bakiye dosyasından (ham bakiye) ya da hareket dosyasından (net borç−alacak)
+  const buildBalanceFileByName = () => {
+    const m = new Map();
+    (balRows || []).forEach((r) => {
+      const nm = String(r[balAdCol] || "").trim(); if (!nm) return;
+      const fileKey = normTr(nm), progKey = resolveProgKey(fileKey), key = progKey || fileKey;
+      let o = m.get(key);
+      if (!o) { o = { name: progKey ? (progByName.get(progKey)?.name || nm) : nm, fileName: nm, bakiye: 0, count: 0 }; m.set(key, o); }
+      o.bakiye += parseNum(r[balBakCol]); o.count++;
+    });
+    return m;
+  };
+  const buildMoveFileByName = () => {
+    const m = new Map();
+    (moveByName || new Map()).forEach((arr, fileKey) => {
+      const net = arr.reduce((s, mv) => s + (mv.borc - mv.alacak), 0);
+      const progKey = resolveProgKey(fileKey), key = progKey || fileKey, raw = moveRawName.get(fileKey) || fileKey;
+      let o = m.get(key);
+      if (!o) { o = { name: progKey ? (progByName.get(progKey)?.name || raw) : raw, fileName: raw, bakiye: 0, count: 0 }; m.set(key, o); }
+      o.bakiye += net; o.count++;
+    });
+    return m;
+  };
+  // Genel tabloyu yeniden kur: hareket dosyası yüklüyse ONDAN (tutarlı), yoksa bakiye dosyasından
+  const refreshOverview = () => {
+    if (!_renderComparison) return;
+    if (moveByName && moveByName.size) _renderComparison(buildMoveFileByName(), { source: "hareket", fileName: balFileName, restored: false });
+    else if (balRows) _renderComparison(buildBalanceFileByName(), { source: "bakiye", fileName: balFileName, restored: balRestored });
+  };
   const toISOdate = (v) => {
     if (v == null || v === "") return "";
     if (v instanceof Date) return isNaN(v) ? "" : `${v.getFullYear()}-${String(v.getMonth() + 1).padStart(2, "0")}-${String(v.getDate()).padStart(2, "0")}`;
@@ -3487,13 +3531,14 @@ async function viewBakiyeKarsilastir(c) {
       const borc = bCol ? parseNum(r[bCol]) : 0, alacak = aCol ? parseNum(r[aCol]) : 0;
       if (!dISO && !borc && !alacak) return;
       const key = normTr(nm);
-      if (!map.has(key)) map.set(key, []);
+      if (!map.has(key)) { map.set(key, []); moveRawName.set(key, nm); }
       map.get(key).push({ date: dISO, borc, alacak, aciklama: acCol ? String(r[acCol] || "") : "", islemAdi: iaCol ? String(r[iaCol] || "") : "", faturaNo: fnCol ? String(r[fnCol] || "") : "" });
     });
     moveByName = map;
     if (!restored) savePendingImport("bakiye-hareket", file);
     if (info) info.textContent = `✓ ${rows.length.toLocaleString("tr-TR")} hareket · ${map.size.toLocaleString("tr-TR")} hesap yüklendi`;
-    toast("Hareket dosyası yüklendi. Farklı bir hesaba tıkla → tarih tarih.", "ok");
+    toast("Hareket dosyası yüklendi — genel tablo da bundan hesaplanıyor.", "ok");
+    refreshOverview();   // genel tabloyu hareket dosyasından (tutarlı) yeniden kur
   }
   $("#bk-move-drop", c).appendChild(fileDrop((file) => parseMoveFile(file, false), ".xlsx,.xls,.csv", true));
   (async () => {
@@ -3529,20 +3574,10 @@ async function viewBakiyeKarsilastir(c) {
       return showErr(`Sütun bulunamadı (Ad: ${adCol || "yok"}, Bakiye: ${bakCol || "yok"}). Başlıklar: ${headers.join(", ")}`);
     }
 
-    // Dosya tarafı: ada göre topla. Eşleşen (elle/ad/alias) satırlar PROGRAM anahtarına toplanır.
-    const fileByName = new Map();
-    rows.forEach((r) => {
-      const nm = String(r[adCol] || "").trim();
-      if (!nm) return;
-      const fileKey = normTr(nm);
-      const bak = parseNum(r[bakCol]);
-      const progKey = resolveProgKey(fileKey);
-      const key = progKey || fileKey;
-      let o = fileByName.get(key);
-      if (!o) { o = { name: progKey ? (progByName.get(progKey)?.name || nm) : nm, fileName: nm, bakiye: 0, count: 0 }; fileByName.set(key, o); }
-      o.bakiye += bak; o.count++;
-    });
-
+    balRows = rows; balAdCol = adCol; balBakCol = bakCol; balFileName = file.name; balRestored = restored;
+    _renderComparison = (fileByName, opts) => {
+      const res = $("#bk-result", c);
+      const restored = opts.restored, fileName = opts.fileName, source = opts.source;
     // İşaret yönünü otomatik seç: program.current ≈ s·dosya.bakiye en çok hangi s'de tutuyor
     const common = [...fileByName.keys()].filter((k) => progByName.has(k));
     const eps = 0.5;
@@ -3621,7 +3656,8 @@ async function viewBakiyeKarsilastir(c) {
 
     res.innerHTML = `
       <div class="card" style="margin-top:14px">
-        ${restored ? `<div class="notice info" style="margin:12px 14px 0">🔁 Son yüklediğin dosya geri yüklendi: <b>${esc(file.name || "dosya")}</b>. <a href="#" id="bk-pend-clear">At / temizle</a></div>` : ""}
+        ${restored ? `<div class="notice info" style="margin:12px 14px 0">🔁 Son yüklediğin dosya geri yüklendi: <b>${esc(fileName || "dosya")}</b>. <a href="#" id="bk-pend-clear">At / temizle</a></div>` : ""}
+        <div style="font-size:11.5px;padding:8px 14px 0"><b>Kaynak:</b> ${source === "hareket" ? `<span style="color:var(--ok,#137333)">Hareket dosyası (net borç−alacak) — tarih-tarih ile birebir tutarlı</span>` : "Bakiye dosyası"}</div>
         <div class="bk-summary">
           <div class="bk-stat"><span>Eşleşen hesap</span><b>${bothList.length.toLocaleString("tr-TR")}</b></div>
           <div class="bk-stat ${diffList.length ? "bad" : "good"}"><span>Farklı</span><b>${diffList.length.toLocaleString("tr-TR")}</b></div>
@@ -3666,8 +3702,7 @@ async function viewBakiyeKarsilastir(c) {
             if (!al.some((x) => normTr(x) === normTr(nm))) { al.push(nm); acc.nameAliases = al; updateDoc(doc(db, "accounts", acc.id), { nameAliases: al }).catch(() => {}); }
           }
           toast(`Eşleştirildi: ${acc.code || ""} ${acc.name}`, "ok");
-          const pend = await loadPendingImport("bakiye-karsilastir");
-          if (pend && pend.buf) onFile(pendingToFile(pend), true);
+          refreshOverview();
         },
       });
     };
@@ -3739,6 +3774,8 @@ async function viewBakiyeKarsilastir(c) {
       toast("Fark listesi indirildi.", "ok");
     };
     draw();
+    };
+    refreshOverview();
     } catch (e) {
       showErr("Karşılaştırma sırasında hata: " + (e && e.message ? e.message : e) + (e && e.stack ? " · " + String(e.stack).split("\n")[1] : ""));
     }
