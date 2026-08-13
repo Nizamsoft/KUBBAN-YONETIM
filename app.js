@@ -594,8 +594,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.181";
+const APP_VERSION = "2026.182";
 const CHANGELOG = [
+  { version: "2026.182", date: "2026-08-13", items: [
+    "🧾 Gün sonu 'faturalı' tespiti artık CARİ BAZINDA TOPLAM: bir carinin o günkü faturalarının TOPLAMI (ör. Coşkun'un 3 faturası = 6.000) gün sonu satır tutarına eşitse 'faturalı' sayılıp aktarılmaz (mükerrer cari borç oluşmaz). Hem ekranda hem kaydederken; isim benzerliğiyle cariyi bulur",
+    "🏦 Garanti POS: 'Pİ' ile başlayan satırlar da (ör. 'Pİ2685540 YICI 07/21 K:…') artık PK gibi POS olarak tanınır",
+  ]},
   { version: "2026.181", date: "2026-08-13", items: [
     "💳 YENİ: Ödeme Modu sayfası (Raporlar altında). Tedarikçi borçların büyükten küçüğe listelenir; her borç için Garanti / T.Finans'tan ödeme yazarsın → 'kalan borç' ve 'kalan banka bakiyesi' CANLI güncellenir. Tepede: Toplam Borç, Garanti bakiye, T.Finans bakiye, toplam ödeme, kalan bakiye. SADECE PLAN — muhasebe kaydı oluşturmaz; girdiğin tutarlar bu cihazda saklanır. Mobilde kart düzeni",
   ]},
@@ -2645,19 +2649,25 @@ async function viewGunSonuAktarim(c) {
     accounts.forEach((a) => { if (a.code) codeToName[String(a.code)] = a.name; });
     const money = (v) => (v === "" || v == null) ? "" : fmtNum(parseNum(v));
 
-    // Aynı tarih + aynı tutarda fatura zaten girilmişse "faturalı" say (aktarılmaz)
+    // Aynı tarih fatura(lar)ı: tekil tutarlar + CARİ BAZINDA TOPLAM
+    // (ör. Coşkun'un 3 faturası = 6000; gün sonu satırı 6000 → toplamla eşleşince "faturalı")
     const allEntries = await fetchAll(C.accountEntries).catch(() => []);
     const accByIdGs = new Map(accounts.map((a) => [a.id, a]));
     const faturaAmts = new Set();
-    const faturaByAmt = new Map();   // tutar(kuruş) → [o faturanın carisi hesap]
+    const faturaByAmt = new Map();        // tutar(kuruş) → [o faturanın carisi hesap]
+    const faturaSumByCari = new Map();    // accountId → o günkü toplam fatura borç
     allEntries.filter((e) => e.source === "fatura-import" && e.date === gsState.date).forEach((e) => {
-      const c = Math.round((parseNum(e.borc) || 0) * 100); if (!c) return;
+      const b = parseNum(e.borc) || 0;
+      const c = Math.round(b * 100); if (!c) return;
       faturaAmts.add(c);
       const acc = accByIdGs.get(e.accountId);
-      if (acc) { if (!faturaByAmt.has(c)) faturaByAmt.set(c, []); faturaByAmt.get(c).push(acc); }
+      if (acc) {
+        if (!faturaByAmt.has(c)) faturaByAmt.set(c, []);
+        faturaByAmt.get(c).push(acc);
+        faturaSumByCari.set(e.accountId, (faturaSumByCari.get(e.accountId) || 0) + b);
+      }
     });
     gsState._faturaAmts = [...faturaAmts];
-    const isFaturali = (key, r) => key === "cariIslem" && faturaAmts.has(Math.round(parseNum(r.tutar) * 100));
 
     // Cari eşleştirme — AKILLI (faturalardaki mantık): birebir → çekirdek kelime →
     // aynı tarih+tutarlı faturanın carisi (isim benzerliğiyle). Emin değilse null (boş kalır, sorulur).
@@ -2680,6 +2690,15 @@ async function viewGunSonuAktarim(c) {
       return null;
     };
     const effAcc = (r) => r.acc || byNameCari(r.sahis, r.tutar);   // sabitlenen (elle) öncelikli
+    // "Faturalı" (aktarılmaz): satır tutarı TEK faturayla ya da carinin o günkü fatura TOPLAMIYLA eşleşiyorsa
+    const isFaturali = (key, r) => {
+      if (key !== "cariIslem") return false;
+      const amt = parseNum(r.tutar);
+      if (faturaAmts.has(Math.round(amt * 100))) return true;                          // tek fatura birebir
+      const acc = effAcc(r);
+      if (acc) { const sum = faturaSumByCari.get(acc.id); if (sum != null && Math.abs(sum - amt) < 0.01) return true; }   // cari fatura toplamı
+      return false;
+    };
     async function createCariGs(name) {
       let main = accounts.find((a) => a.type === "musteri" && !a.parentId) || accounts.find((a) => a.type === "musteri");
       if (!main) {
@@ -2993,13 +3012,25 @@ async function viewGunSonuAktarim(c) {
     const accById = new Map(accounts.map((a) => [a.id, a]));
     const musteri = accounts.filter((a) => a.type === "musteri");
     const byName = new Map(musteri.map((a) => [normTr(a.name), a]));
-    // Aynı tarih + aynı tutarda fatura zaten girilmişse o cari işlem "faturalı" sayılır ve aktarılmaz
+    // "Faturalı" (aktarılmaz): satır tutarı TEK faturayla ya da carinin o günkü fatura TOPLAMIYLA eşleşiyorsa
     const faturaAmts = new Set(preEntries
       .filter((e) => e.source === "fatura-import" && e.date === date)
       .map((e) => Math.round((parseNum(e.borc) || 0) * 100))
       .filter(Boolean));
+    const faturaSumByCari = new Map();   // accountId → o günkü toplam fatura borç
+    preEntries.filter((e) => e.source === "fatura-import" && e.date === date).forEach((e) => {
+      const b = parseNum(e.borc) || 0; if (e.accountId && b) faturaSumByCari.set(e.accountId, (faturaSumByCari.get(e.accountId) || 0) + b);
+    });
+    const resolveCari = (r) => (r.acc?.id && accById.get(r.acc.id)) || byName.get(normTr(r.sahis)) ||
+      musteri.find((a) => cariNameMatch(a.name, r.sahis) || (a.nameAliases || []).some((al) => cariNameMatch(al, r.sahis))) || null;
+    const isFat = (r) => {
+      if (faturaAmts.has(Math.round(r.tutar * 100))) return true;                       // tek fatura birebir
+      const acc = resolveCari(r);
+      if (acc) { const sum = faturaSumByCari.get(acc.id); if (sum != null && Math.abs(sum - r.tutar) < 0.01) return true; }   // cari fatura toplamı
+      return false;
+    };
     const cariItems = [
-      ...cariIslem.filter((r) => !faturaAmts.has(Math.round(r.tutar * 100)))
+      ...cariIslem.filter((r) => !isFat(r))
         .map((r) => ({ name: r.sahis, tutar: r.tutar, side: "borc", accId: r.acc?.id || null })),
       ...cariTahsilat.map((r) => ({ name: r.sahis, tutar: r.tutar, side: "alacak", accId: r.acc?.id || null })),
     ].filter((it) => it.name && it.tutar);
@@ -7374,7 +7405,8 @@ function bkClassifyGaranti(aoa) {
   rows.forEach((r, seq) => {
     const dep = bkParseDate(r[ci.tarih]), desc = String(r[ci.acik] || ""), amt = parseNum(r[ci.tutar]), dekont = String(r[ci.dekont] || "");
     const bakiye = ci.bakiye >= 0 ? parseNum(r[ci.bakiye]) : null;
-    const m = desc.match(/^(PK\d+)\s+(\S+)\s+(\d{2})\/(\d{2})\s+K:\s*([\d.,]+)/);
+    // POS ön eki: PK ya da Pİ (Pİ2685540 YICI 07/21 K: … — PK ile aynı biçim)
+    const m = desc.match(/^(P[KİIı]\d+)\s+(\S+)\s+(\d{2})\/(\d{2})\s+K:\s*([\d.,]+)/);
     if (m) {
       let cek = new Date(dep.getFullYear(), +m[3] - 1, +m[4]);
       if (cek > dep) cek = new Date(dep.getFullYear() - 1, +m[3] - 1, +m[4]);
