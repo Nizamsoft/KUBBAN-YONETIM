@@ -575,8 +575,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.191";
+const APP_VERSION = "2026.192";
 const CHANGELOG = [
+  { version: "2026.192", date: "2026-08-13", items: [
+    "📊 Dashboard üst panel yenilendi: artık 'basmalı' değil — solda/sağda oklarla gün gün gezersin ya da tarihe dokunup istediğin günü seçersin. Seçilen günün 💰 Cirosu, 🎁 İkramı ve 🏷️ İskontosu birlikte görünür. Kayıt olmayan günde 'kayıt yok' yazar",
+    "📈 Ciro Grafiği sadeleşti: 30 yerine son 10 gün gösterilir ve her barın üstünde tutarı yazar (kısa biçim: 691b = 691 bin, 1,2M = 1,2 milyon; tam tutar dokun/hover ile). Hafta/Ay görünümlerinde de tutarlar yazılır",
+    "🔎 Giriş ekranındaki Güllüoğlu Kübban logosu netleşti (kaynak 320px olduğundan aşırı büyütme bulanıklaştırıyordu) ve biraz aşağı alındı",
+  ]},
   { version: "2026.191", date: "2026-08-13", items: [
     "🔎 Giriş ekranındaki Güllüoğlu Kübban logosu büyütüldü ve altındaki 'Güllüoğlu Kübban' yazısıyla arasındaki boşluk azaltıldı (sabit kare kutu kaldırıldı; logo kendi oranında, daha geniş)",
   ]},
@@ -1761,9 +1766,13 @@ async function viewDashboard(c) {
   const sumType = (t) => accounts.filter((a) => a.type === t).reduce((s, a) => s + cur(a.id), 0);
   const kasa = sumType("kasa"), banka = sumType("banka"), elde = kasa + banka;
 
-  // ---- Ciro (gün sonu) günlük toplam ----
-  const byDay = new Map();
-  records.filter((r) => r.date).forEach((r) => byDay.set(r.date, (byDay.get(r.date) || 0) + (r.total || 0)));
+  // ---- Ciro (gün sonu) günlük toplam + ikram/iskonto ----
+  const byDay = new Map(), ikramByDay = new Map(), iskontoByDay = new Map();
+  records.filter((r) => r.date).forEach((r) => {
+    byDay.set(r.date, (byDay.get(r.date) || 0) + (r.total || 0));
+    ikramByDay.set(r.date, (ikramByDay.get(r.date) || 0) + parseNum(r.ikramNet != null ? r.ikramNet : r.ikram));
+    iskontoByDay.set(r.date, (iskontoByDay.get(r.date) || 0) + parseNum(r.iskonto));
+  });
   const today = todayISO();
   // YEREL tarih formatı (toISOString UTC'ye çevirip Türkiye'de günü 1 geri kaydırıyordu)
   const ymdL = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
@@ -1790,14 +1799,15 @@ async function viewDashboard(c) {
   const addDays = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return ymdL(d); };
   const weekStart = (iso) => { const d = new Date(iso + "T00:00:00"); const wd = (d.getDay() + 6) % 7; d.setDate(d.getDate() - wd); return ymdL(d); };
   const MON = ["Oca", "Şub", "Mar", "Nis", "May", "Haz", "Tem", "Ağu", "Eyl", "Eki", "Kas", "Ara"];
-  const daySeries = []; for (let i = 29; i >= 0; i--) { const d = addDays(today, -i); daySeries.push({ x: (i % 5 === 0 ? d.slice(8, 10) : ""), full: fmtDate(d), value: byDay.get(d) || 0, now: d === today }); }
+  const daySeries = []; for (let i = 9; i >= 0; i--) { const d = addDays(today, -i); daySeries.push({ x: d.slice(8, 10), full: fmtDate(d), value: byDay.get(d) || 0, now: d === today }); }
   const weekSeries = []; { const wm = weekStart(today); for (let i = 11; i >= 0; i--) { const ws = addDays(wm, -7 * i); let s = 0; for (let k = 0; k < 7; k++) s += byDay.get(addDays(ws, k)) || 0; weekSeries.push({ x: ws.slice(8, 10) + "." + ws.slice(5, 7), full: fmtDate(ws) + " haftası", value: s, now: ws === wm }); } }
   const monthSeries = []; for (let i = 11; i >= 0; i--) { const d = new Date(today + "T00:00:00"); d.setMonth(d.getMonth() - i); const key = ymL(d); let s = 0; byDay.forEach((v, dd) => { if (dd.slice(0, 7) === key) s += v; }); monthSeries.push({ x: MON[d.getMonth()], full: MON[d.getMonth()] + " " + key.slice(0, 4), value: s, now: key === ym }); }
+  const compactTL = (v) => { if (v >= 1e6) return (v / 1e6).toFixed(v >= 1e7 ? 0 : 1).replace(".", ",") + "M"; if (v >= 1e3) return Math.round(v / 1e3) + "b"; return v ? String(Math.round(v)) : ""; };
   const barsHTML = (series) => {
     const max = Math.max(1, ...series.map((s) => s.value));
     const tot = series.reduce((a, s) => a + s.value, 0);
     const nz = series.filter((s) => s.value > 0).length || 1;
-    return `<div class="dash-bars">${series.map((s) => `<a class="dbar" href="#/gunsonu-kayitlar" title="${esc(s.full)}: ${fmtTRY(s.value)}"><div class="dbar-fill${s.now ? " now" : ""}" style="height:${Math.round(s.value / max * 100)}%"></div><span class="dbar-x">${esc(s.x || "")}</span></a>`).join("")}</div>
+    return `<div class="dash-bars">${series.map((s) => `<a class="dbar" href="#/gunsonu-kayitlar" title="${esc(s.full)}: ${fmtTRY(s.value)}"><span class="dbar-v">${s.value ? compactTL(s.value) : ""}</span><div class="dbar-fill${s.now ? " now" : ""}" style="height:${Math.round(s.value / max * 118)}px"></div><span class="dbar-x">${esc(s.x || "")}</span></a>`).join("")}</div>
       <div class="dash-chart-foot">Toplam <b>${fmtTRY(tot)}</b> · günlük ort. ${fmtTRY(tot / nz)}</div>`;
   };
 
@@ -1814,13 +1824,20 @@ async function viewDashboard(c) {
 
   c.innerHTML = `<style>
     .dash{display:flex;flex-direction:column;gap:14px;width:100%;max-width:100%}
-    .dash-hero{display:block;border-radius:22px;padding:22px 20px;color:#fff;text-decoration:none;background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28)}
-    .dash-hero.empty{background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28)}
-    .dash-hero:active{transform:scale(.99)}
-    .dh-top{font-size:13px;opacity:.92;font-weight:600;letter-spacing:.2px}
-    .dh-val{font-size:clamp(30px,9vw,42px);font-weight:800;line-height:1.05;margin:6px 0 4px}
-    .dh-sub{font-size:13px;opacity:.96}
-    .dh-sub .up{font-weight:800;color:#c9f7d7}.dh-sub .down{font-weight:800;color:#ffd9d2}
+    .dash-hero{border-radius:22px;padding:16px 12px 18px;color:#fff;background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28)}
+    .dh-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
+    .dh-arrow{flex:0 0 auto;width:34px;height:34px;border-radius:50%;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
+    .dh-arrow:disabled{opacity:.3;cursor:default}
+    .dh-date{position:relative;font-size:14px;font-weight:700;background:rgba(255,255,255,.16);padding:7px 14px;border-radius:999px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;white-space:nowrap;color:#fff}
+    .dh-date input{position:absolute;inset:0;opacity:0;cursor:pointer}
+    .dh-ciro-lb{text-align:center;font-size:12.5px;opacity:.92;font-weight:600}
+    .dh-ciro{text-align:center;font-size:clamp(28px,8.5vw,40px);font-weight:800;line-height:1.05;margin:2px 0 12px}
+    .dh-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .dh-stat{background:rgba(255,255,255,.14);border-radius:14px;padding:9px 12px;text-align:center}
+    .dh-stat .l{font-size:11.5px;opacity:.9;font-weight:600}
+    .dh-stat .v{font-size:16px;font-weight:800;margin-top:2px;white-space:nowrap}
+    .dh-empty{text-align:center;font-size:13px;opacity:.95;padding:14px 0}
+    .dh-empty a{color:#fff;text-decoration:underline;font-weight:700}
     .dash-mini{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .dmini{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:18px;padding:15px 16px;text-decoration:none;color:inherit;display:block;min-width:0}
     .dm-ic{font-size:20px}.dm-lb{font-size:12px;color:var(--ink-faint,#8b8172);margin-top:3px;font-weight:600}
@@ -1833,12 +1850,13 @@ async function viewDashboard(c) {
     .dash-seg{display:inline-flex;background:var(--bg,#f1ede3);border-radius:11px;padding:3px}
     .dash-seg button{border:0;background:transparent;padding:6px 13px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;color:var(--ink-faint,#8b8172)}
     .dash-seg button.on{background:var(--card,#fff);color:var(--ink,#241d15);box-shadow:0 1px 3px rgba(0,0,0,.12)}
-    .dash-bars{display:flex;align-items:flex-end;gap:2px;height:150px;padding-top:8px}
-    .dbar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;text-decoration:none;min-width:0}
-    .dbar-fill{width:100%;max-width:20px;background:linear-gradient(180deg,#54c97a,#2e9e52);border-radius:6px 6px 0 0;min-height:3px;transition:height .35s ease}
+    .dash-bars{display:flex;align-items:flex-end;gap:4px;height:168px;padding-top:6px}
+    .dbar{flex:1;display:flex;flex-direction:column;justify-content:flex-end;align-items:center;height:100%;gap:4px;text-decoration:none;min-width:0}
+    .dbar-v{font-size:9.5px;font-weight:700;color:var(--ink,#241d15);white-space:nowrap}
+    .dbar-fill{width:100%;max-width:26px;background:linear-gradient(180deg,#54c97a,#2e9e52);border-radius:6px 6px 0 0;min-height:3px;transition:height .35s ease}
     .dbar-fill.now{background:linear-gradient(180deg,#f3c53c,#dd9f1f)}
     .dbar:active .dbar-fill{filter:brightness(.9)}
-    .dbar-x{font-size:9px;color:var(--ink-faint,#9a9082);margin-top:4px;white-space:nowrap}
+    .dbar-x{font-size:10px;color:var(--ink-faint,#9a9082);white-space:nowrap}
     .dash-chart-foot{font-size:12px;color:var(--ink-faint,#8b8172);text-align:center;margin-top:10px}
     .dash-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .dash-list{display:flex;flex-direction:column}
@@ -1854,13 +1872,7 @@ async function viewDashboard(c) {
     @media(max-width:560px){.dash-two{grid-template-columns:1fr}.dh-val{font-size:36px}}
   </style>
   <div class="dash">
-    <a class="dash-hero${mainTotal ? "" : " empty"}" href="#/${mainTotal ? "gunsonu-kayitlar" : "gunsonu-aktarim"}">
-      <div class="dh-top">💰 ${heroLabel}${mainDay ? ` · ${fmtDate(mainDay)}` : ""}</div>
-      <div class="dh-val">${mainTotal ? fmtTRY(mainTotal) : "—"}</div>
-      <div class="dh-sub">${mainTotal
-        ? (deltaPct == null ? "Önceki güne göre kıyas yok" : `<span class="${deltaPct >= 0 ? "up" : "down"}">${deltaPct >= 0 ? "▲" : "▼"} %${Math.abs(deltaPct).toFixed(0)}</span> önceki güne göre${prevDay ? ` · ${fmtDate(prevDay)}: ${fmtTRY(prevTotal)}` : ""}`)
-        : "Henüz gün sonu kaydı yok — dokun ve aktar →"}</div>
-    </a>
+    <div class="dash-hero" id="dash-hero"></div>
 
     <div class="dash-mini">
       <a class="dmini" href="#/gunsonu-kayitlar">
@@ -1908,6 +1920,39 @@ async function viewDashboard(c) {
       </div>
     </div>
   </div>`;
+
+  // Hero: oklarla (takvim günü günü) veya tarih seçerek gezin; o günün ciro/ikram/iskonto'su
+  const heroEl = c.querySelector("#dash-hero");
+  let selDate = mainDay || today;
+  const renderHero = () => {
+    if (!heroEl) return;
+    const has = byDay.has(selDate);
+    const total = byDay.get(selDate) || 0;
+    const ikram = ikramByDay.get(selDate) || 0;
+    const iskonto = iskontoByDay.get(selDate) || 0;
+    heroEl.innerHTML = `
+      <div class="dh-nav">
+        <button class="dh-arrow" data-nav="prev" aria-label="Önceki gün">‹</button>
+        <label class="dh-date">📅 <span>${esc(fmtDate(selDate))}</span><input type="date" value="${selDate}" max="${today}"></label>
+        <button class="dh-arrow" data-nav="next" aria-label="Sonraki gün"${selDate >= today ? " disabled" : ""}>›</button>
+      </div>
+      ${has
+        ? `<div class="dh-ciro-lb">💰 Günün Cirosu</div>
+           <div class="dh-ciro">${fmtTRY(total)}</div>
+           <div class="dh-stats">
+             <div class="dh-stat"><div class="l">🎁 İkram</div><div class="v">${fmtTRY(ikram)}</div></div>
+             <div class="dh-stat"><div class="l">🏷️ İskonto</div><div class="v">${fmtTRY(iskonto)}</div></div>
+           </div>`
+        : `<div class="dh-empty">Bu güne ait gün sonu kaydı yok. <a href="#/gunsonu-aktarim">Aktar →</a></div>`}`;
+    heroEl.querySelectorAll("[data-nav]").forEach((b) => b.onclick = () => {
+      let d = addDays(selDate, b.dataset.nav === "prev" ? -1 : 1);
+      if (d > today) d = today;
+      selDate = d; renderHero();
+    });
+    const dp = heroEl.querySelector(".dh-date input");
+    if (dp) dp.onchange = (e) => { if (e.target.value) { selDate = e.target.value > today ? today : e.target.value; renderHero(); } };
+  };
+  renderHero();
 
   // Grafik gün/hafta/ay geçişi
   const wrap = c.querySelector("#dash-bars-wrap");
