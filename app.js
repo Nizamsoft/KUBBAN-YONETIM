@@ -594,8 +594,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.184";
+const APP_VERSION = "2026.185";
 const CHANGELOG = [
+  { version: "2026.185", date: "2026-08-13", items: [
+    "📊 Dashboard üstteki büyük ciro kartı artık BUGÜN yerine DÜN'ü (en son kapanan günü) gösteriyor — gün sonu genelde ertesi gün girildiği için bugün boş görünüyordu. 'Dünkü Ciro · tarih' + önceki güne göre değişim",
+  ]},
   { version: "2026.184", date: "2026-08-13", items: [
     "📅 Blokeye Aktarımlar: yemek kartı VALÖR TARİHLERİ de artık hatırlanıyor. Bir kez girdiğin tarih (Edenred, Multinet, Pluxee, Metropol, Set, Yemek Sepeti, Getir, Trendyol) o hesap için saklanır ve DEĞİŞENE KADAR her gün sonunda varsayılan gelir. (Bankalardaki +N gün zaten hatırlanıyordu.)",
     "🏦 Garanti YDK (Yurt Dışı) artık Sanal POS'u da içeriyor: YDK = (Garanti Bankası + Garanti Sanal) − Kredi − Debit",
@@ -1758,11 +1761,16 @@ async function viewDashboard(c) {
   const byDay = new Map();
   records.filter((r) => r.date).forEach((r) => byDay.set(r.date, (byDay.get(r.date) || 0) + (r.total || 0)));
   const today = todayISO();
-  const todayTotal = byDay.get(today) || 0;
+  const yesterday = (() => { const d = new Date(today + "T00:00:00"); d.setDate(d.getDate() - 1); return d.toISOString().slice(0, 10); })();
+  // Hero'da BUGÜN değil, en son KAPANAN günü göster (genelde DÜN)
   const past = [...byDay.keys()].filter((d) => d < today).sort();
-  const prevDay = past[past.length - 1] || "";
+  const mainDay = byDay.has(yesterday) ? yesterday : (past[past.length - 1] || "");
+  const mainTotal = mainDay ? (byDay.get(mainDay) || 0) : 0;
+  const before = past.filter((d) => d < mainDay);
+  const prevDay = before[before.length - 1] || "";
   const prevTotal = prevDay ? byDay.get(prevDay) : 0;
-  const deltaPct = prevTotal > 0 ? ((todayTotal - prevTotal) / prevTotal * 100) : null;
+  const deltaPct = prevTotal > 0 ? ((mainTotal - prevTotal) / prevTotal * 100) : null;
+  const heroLabel = mainDay === yesterday ? "Dünkü Ciro" : "Son Gün Sonu";
 
   // Bu ay / geçen ay ciro
   const ym = today.slice(0, 7);
@@ -1839,12 +1847,12 @@ async function viewDashboard(c) {
     @media(max-width:560px){.dash-two{grid-template-columns:1fr}.dh-val{font-size:36px}}
   </style>
   <div class="dash">
-    <a class="dash-hero${todayTotal ? "" : " empty"}" href="#/${todayTotal ? "gunsonu-kayitlar" : "gunsonu-aktarim"}">
-      <div class="dh-top">💰 Bugünkü Ciro · ${fmtDate(today)}</div>
-      <div class="dh-val">${todayTotal ? fmtTRY(todayTotal) : "—"}</div>
-      <div class="dh-sub">${todayTotal
-        ? (deltaPct == null ? "Önceki güne göre kıyas yok" : `<span class="${deltaPct >= 0 ? "up" : "down"}">${deltaPct >= 0 ? "▲" : "▼"} %${Math.abs(deltaPct).toFixed(0)}</span> düne göre${prevDay ? ` · ${fmtDate(prevDay)}: ${fmtTRY(prevTotal)}` : ""}`)
-        : "Bugün gün sonu girilmedi — dokun ve aktar →"}</div>
+    <a class="dash-hero${mainTotal ? "" : " empty"}" href="#/${mainTotal ? "gunsonu-kayitlar" : "gunsonu-aktarim"}">
+      <div class="dh-top">💰 ${heroLabel}${mainDay ? ` · ${fmtDate(mainDay)}` : ""}</div>
+      <div class="dh-val">${mainTotal ? fmtTRY(mainTotal) : "—"}</div>
+      <div class="dh-sub">${mainTotal
+        ? (deltaPct == null ? "Önceki güne göre kıyas yok" : `<span class="${deltaPct >= 0 ? "up" : "down"}">${deltaPct >= 0 ? "▲" : "▼"} %${Math.abs(deltaPct).toFixed(0)}</span> önceki güne göre${prevDay ? ` · ${fmtDate(prevDay)}: ${fmtTRY(prevTotal)}` : ""}`)
+        : "Henüz gün sonu kaydı yok — dokun ve aktar →"}</div>
     </a>
 
     <div class="dash-mini">
