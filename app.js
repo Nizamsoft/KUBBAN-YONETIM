@@ -575,8 +575,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.195";
+const APP_VERSION = "2026.196";
 const CHANGELOG = [
+  { version: "2026.196", date: "2026-08-13", items: [
+    "📲 'Ana Ekrana Ekle' rehberi WhatsApp içi tarayıcıyı da yakalıyor: WhatsApp/Instagram gibi uygulama içi tarayıcıda açılırsa 'önce Tarayıcıda/Safari'de aç, sonra ana ekrana ekle' diye yönlendirir (Android + iOS). PWA manifest eklendi — Android'de düzgün ad/simge ile kurulur, uygulama gibi tam ekran açılır",
+  ]},
   { version: "2026.195", date: "2026-08-13", items: [
     "💰 Kullanılabilir Likit Varlık kırılımı sadeleşti: 'Blokedeki (valörlü)' bölümü kaldırıldı — yalnız kullanılabilir para (Garanti · Türkiye Finans · Nakit + varsa diğer banka) gösterilir. Kart/başlık ikonu su damlası yerine 💰 oldu; 0 bakiyeli banka satırları gizlenir",
   ]},
@@ -9498,19 +9501,26 @@ function initA2HS() {
   const ua = navigator.userAgent || "";
   const isIOS = /iphone|ipad|ipod/i.test(ua);
   const isAndroid = /android/i.test(ua);
-  const isRealSafari = isIOS && /Version\/\d+/.test(ua) && /Safari/.test(ua) && !/(CriOS|FxiOS|EdgiOS|GSA)/.test(ua);
   if (!isIOS && !isAndroid) return; // masaüstünde gösterme
+  const isRealSafari = isIOS && /Version\/\d+/.test(ua) && /Safari/.test(ua) && !/(CriOS|FxiOS|EdgiOS|GSA)/.test(ua);
+  // WhatsApp / Instagram / Facebook vb. UYGULAMA İÇİ tarayıcı mı? (A2HS ancak gerçek tarayıcıda çalışır)
+  const inAppAndroid = isAndroid && (/;\s*wv[;)]/.test(ua) || /\bwv\b/.test(ua) || /(FBAN|FBAV|FB_IAB|Instagram|Line|WhatsApp|Snapchat|Twitter|MicroMessenger)/i.test(ua));
+  const inAppIOS = isIOS && !isRealSafari;
+  const inApp = inAppAndroid || inAppIOS;
 
   const el = document.createElement("div");
   el.className = "a2hs";
   const msg = isIOS
-    ? (isRealSafari
-        ? `Alttaki <b>Paylaş ⬆︎</b> → <b>“Ana Ekrana Ekle”</b>`
-        : `Sağ alttaki <b>•••</b> → <b>“Safari’de Aç”</b>, sonra <b>Paylaş</b> → <b>“Ana Ekrana Ekle”</b>`)
-    : `Menü <b>⋮</b> → <b>“Ana ekrana ekle / Uygulamayı yükle”</b>`;
+    ? (inAppIOS
+        ? `Sağ alttaki <b>•••</b> → <b>“Safari’de Aç”</b>, sonra <b>Paylaş ⬆︎</b> → <b>“Ana Ekrana Ekle”</b>`
+        : `Alttaki <b>Paylaş ⬆︎</b> → <b>“Ana Ekrana Ekle”</b>`)
+    : (inAppAndroid
+        ? `Sağ üstteki <b>⋮</b> → <b>“Tarayıcıda aç” (Chrome)</b>, sonra <b>⋮</b> → <b>“Ana ekrana ekle”</b>`
+        : `Menü <b>⋮</b> → <b>“Ana ekrana ekle / Uygulamayı yükle”</b>`);
+  const title = inApp ? "Tarayıcıda aç → ana ekrana ekle" : "Kübban’ı ana ekrana ekle";
   el.innerHTML = `
     <img class="ico" src="apple-touch-icon.jpg?v=${APP_VERSION}" alt="" />
-    <div class="txt"><b>Kübban’ı ana ekrana ekle</b><span id="a2hs-msg">${msg}</span></div>
+    <div class="txt"><b>${title}</b><span id="a2hs-msg">${msg}</span></div>
     <button class="add hidden" id="a2hs-add">Ekle</button>
     <button class="x" id="a2hs-x" aria-label="Kapat">✕</button>`;
   document.body.appendChild(el);
