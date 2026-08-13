@@ -594,8 +594,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.175";
+const APP_VERSION = "2026.176";
 const CHANGELOG = [
+  { version: "2026.176", date: "2026-08-13", items: [
+    "⚖️ Hesap Planı'nda otomatik TERS BAKİYE ayrımı (yalnız gösterim, veri taşınmaz): 320'de bir tedarikçi BORÇ bakiyeye düşerse (ona avans vermişsin) '🔄 159 Verilen Sipariş Avansları' altında; 120'de bir müşteri ALACAK bakiyeye düşerse (senden avans almış) '🔄 340 Alınan Sipariş Avansları' altında gösterilir. Bakiye değişince otomatik güncellenir",
+    "⬇️ Kontrol/inceleme ekranı artık HER ZAMAN en alta (son işlem görünür) kayar; incelenen fatura ayrıca vurgulanır. 'Son işlem görünmüyor' sorunu giderildi",
+  ]},
   { version: "2026.175", date: "2026-08-13", items: [
     "0️⃣ Hesap Planı başlığında yeni düğme: bakiyesi 0 olan ALT hesapları gizle/göster. Basınca tüm gruplardaki 0 bakiyeli alt hesaplar gizlenir (tekrar basınca geri gelir) — kalabalık gruplar sadeleşir",
   ]},
@@ -3958,28 +3962,48 @@ async function viewHesaplar(c) {
     const asc = pc === "320" || pc === "336";
     arr.sort((x, y) => (asc ? cur(x) - cur(y) : cur(y) - cur(x)) || byCode(x, y));
   });
+
+  // Ters bakiye → SANAL 159/340 (yalnız gösterim; veri taşınmaz, bakiye değişince güncellenir)
+  //   320 (satıcı) bir alt hesap BORÇ bakiyeye düşerse (avans verdin) → 159 Verilen Sipariş Avansları
+  //   120 (müşteri) bir alt hesap ALACAK bakiyeye düşerse (avans aldın) → 340 Alınan Sipariş Avansları
+  const rootByCode = (cd) => roots.find((r) => String(r.code) === cd);
+  const reclass = (grpCode, virtCode, virtName, isTers) => {
+    const g = rootByCode(grpCode); if (!g) return;
+    const arr = kids.get(g.id) || []; const keep = [], moved = [];
+    arr.forEach((a) => (isTers(cur(a)) ? moved : keep).push(a));
+    if (!moved.length) return;
+    kids.set(g.id, keep);
+    const v = { id: "virt-" + virtCode, code: virtCode, name: virtName, __virtual: true };
+    byId.set(v.id, v); kids.set(v.id, moved); roots.push(v);
+  };
+  reclass("320", "159", "Verilen Sipariş Avansları", (x) => x > 0.005);    // 320 borç bakiye
+  reclass("120", "340", "Alınan Sipariş Avansları", (x) => x < -0.005);    // 120 alacak bakiye
+  roots.sort(byCode);
+  const realRootCount = roots.filter((r) => !r.__virtual).length;
+
   const rolled = (a) => (kids.get(a.id) || []).reduce((s, ch) => s + rolled(ch), cur(a));
   const grand = roots.reduce((s, a) => s + rolled(a), 0);
 
   const childCount = (a) => (kids.get(a.id) || []).length;
 
-  const rowHtml = (a, sub) => {
+  const rowHtml = (a, sub, pid) => {
     const parent = !sub && childCount(a) > 0;
     const bal = sub ? cur(a) : rolled(a);
     const zero = sub && Math.abs(bal) < 0.005;
+    const virt = !!a.__virtual;   // sanal reclass grubu (159/340)
     const cls = (sub ? "sub" : (parent ? "parent" : "leaf")) + (zero ? " zerobal" : "");
-    return `<div class="acc-row ${cls}" data-id="${a.id}"${sub ? ` data-parent="${a.parentId}" style="display:none"` : ""}>
+    return `<div class="acc-row ${cls}" data-id="${a.id}"${sub ? ` data-parent="${pid ?? a.parentId}" style="display:none"` : ""}>
       <span class="chev">${parent ? "▸" : ""}</span>
-      <span class="acc-ico${sub ? " blank" : ""}">${sub ? "" : accEmoji(a)}</span>
+      <span class="acc-ico${sub ? " blank" : ""}">${sub ? "" : (virt ? "🔄" : accEmoji(a))}</span>
       <div class="info">
         <span class="code">${esc(a.code || "—")}</span>
-        <span class="name">${esc(a.name || "")}${parent ? ` <em>(${childCount(a)} alt)</em>` : ""}</span>
+        <span class="name">${esc(a.name || "")}${parent ? ` <em>(${childCount(a)} alt${virt ? " · ters bakiye" : ""})</em>` : ""}</span>
       </div>
       <span class="bal" style="color:${bal<0?'var(--danger)':'inherit'}">${fmtTRY(bal)}</span>
       <span class="acts">
         <span class="slot go" aria-hidden="true">${parent ? "" : "›"}</span>
-        <span class="slot add">${parent ? `<button class="ic" data-addsub="${a.id}" title="Alt hesap ekle">＋</button>` : ""}</span>
-        <span class="slot edit"><button class="ic" data-edit="${a.id}" title="Düzenle">✎</button></span>
+        <span class="slot add">${(parent && !virt) ? `<button class="ic" data-addsub="${a.id}" title="Alt hesap ekle">＋</button>` : ""}</span>
+        <span class="slot edit">${virt ? "" : `<button class="ic" data-edit="${a.id}" title="Düzenle">✎</button>`}</span>
       </span>
     </div>`;
   };
@@ -3987,7 +4011,7 @@ async function viewHesaplar(c) {
   // (3600+ satırı baştan DOM'a basmak yerine → ilk çizim çok hızlı).
   const renderMain = (a) => rowHtml(a, false);
 
-  const subCount = accounts.length - roots.length;
+  const subCount = accounts.length - realRootCount;
   c.innerHTML = `
     <div class="acc-hero">
       <div class="acc-hero-ico">💼</div>
@@ -4041,7 +4065,7 @@ async function viewHesaplar(c) {
   const injectSubs = (id) => {
     const main = $(`.acc-row.parent[data-id="${id}"]`, c);
     if (!main || main.dataset.injected === "1") return;
-    const html = (kids.get(id) || []).map((s) => rowHtml(s, true)).join("");
+    const html = (kids.get(id) || []).map((s) => rowHtml(s, true, id)).join("");
     if (html) main.insertAdjacentHTML("afterend", html);
     main.dataset.injected = "1";
     $$(`.acc-row.sub[data-parent="${id}"]`, c).forEach(bindSubRow);
@@ -6318,14 +6342,14 @@ async function viewAccountLedger(c) {
   // ÖNEMLİ: fitLedger yüksekliği kilitleyince iç kaydırma sıfırlanır — bu yüzden
   // kaydırma HER fitLedger'dan SONRA uygulanır (yoksa "en alta gidip başa dönme").
   function initScroll() {
+    // Her zaman EN ALTA (son işlem görünür). İncelenen fatura varsa yalnız vurgula (kaydırmayı bozma).
+    const tw = $(".ledger-table", c);
+    if (tw && getComputedStyle(tw).display !== "none") tw.scrollTop = tw.scrollHeight;
+    else { const cards = $$(".tx-card", c); const last = cards[cards.length - 1]; if (last) last.scrollIntoView({ block: "end" }); }
     if (focusE) {
       const el = $(`[data-edit="${focusE.id}"]`, c)?.closest("tr, .tx-card");
-      if (el) { el.scrollIntoView({ block: "center" }); el.style.outline = "2px solid var(--gold)"; el.style.outlineOffset = "-2px"; return; }
+      if (el) { el.style.outline = "2px solid var(--gold)"; el.style.outlineOffset = "-2px"; }
     }
-    const tw = $(".ledger-table", c);
-    if (tw && getComputedStyle(tw).display !== "none") { tw.scrollTop = tw.scrollHeight; return; }
-    const cards = $$(".tx-card", c); const last = cards[cards.length - 1];
-    if (last) last.scrollIntoView({ block: "end" });
   }
   requestAnimationFrame(() => { fitLedger(); initScroll(); });
   setTimeout(() => { fitLedger(); initScroll(); }, 300);   // geçiş bitince kesin ölçü + en alta
