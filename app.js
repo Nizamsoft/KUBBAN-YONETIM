@@ -575,8 +575,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.196";
+const APP_VERSION = "2026.197";
 const CHANGELOG = [
+  { version: "2026.197", date: "2026-08-13", items: [
+    "🧮 YENİ: Mali Durum & Kontrol raporu (Raporlar altında). Ay seçersin → 'ne vardı · ne girdi · ne çıktı · ne kaldı' tablosu: Kasa · Banka · Cari Alacaklar · Blokeli için Dönem Başı + Giren − Çıkan = Dönem Sonu (+ TOPLAM)",
+    "🔎 Otomatik iç kontroller: gün sonu BEYANI hesaplara doğru yansımış mı? Satış kırılımı (Brüt−İskonto−İkram=Net), Cari işlem (faturasız beyan ↔ 120 borç), Cari tahsilat, Masraflar ve Aktarım kontrolü. Tutmayan gün varsa 'hangi gün, beyan X, yazılan Y, fark Z' diye tek tek listeler (ör. 25.08 beyan 10.000 ama yazılan 15.000 → fark 5.000). Faz 1 — tam bilanço (borçlar/öz kaynak/net kâr) sonraki adımda",
+  ]},
   { version: "2026.196", date: "2026-08-13", items: [
     "📲 'Ana Ekrana Ekle' rehberi WhatsApp içi tarayıcıyı da yakalıyor: WhatsApp/Instagram gibi uygulama içi tarayıcıda açılırsa 'önce Tarayıcıda/Safari'de aç, sonra ana ekrana ekle' diye yönlendirir (Android + iOS). PWA manifest eklendi — Android'de düzgün ad/simge ile kurulur, uygulama gibi tam ekran açılır",
   ]},
@@ -1409,6 +1413,7 @@ const NAV = [
   { label: "Hesaplar", icon: "💼", path: "hesaplar" },
   { label: "Raporlar", icon: "📈", children: [
     { label: "Ödeme Modu",          icon: "💳", path: "odeme-modu" },
+    { label: "Mali Durum & Kontrol", icon: "🧮", path: "mali-durum" },
     { label: "Kâr / Zarar Durumu",  icon: "💹", path: "kar-zarar" },
     { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
     { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
@@ -1427,6 +1432,7 @@ const ROUTES = {
   "dashboard":        { title: "Dashboard", crumb: "Ana Sayfa", render: viewDashboard },
   "borc-alacak":      { title: "Borçlar / Alacaklar", crumb: "Ana Sayfa", render: viewBorcAlacak, back: "#/dashboard" },
   "odeme-modu":       { title: "Ödeme Modu", crumb: "Raporlar", render: viewOdemeModu },
+  "mali-durum":       { title: "Mali Durum & Kontrol", crumb: "Raporlar", render: viewMaliDurum },
   "gunsonu-aktarim":  { title: "Gün Sonu Aktarımı", crumb: "Veri Girişleri", render: viewGunSonuAktarim },
   "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu Aktarımı", render: viewGunSonuKayitlar },
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
@@ -8840,6 +8846,216 @@ function naOccurs(it, dom, monthOffset) {
 //  MODÜL: KÂR / ZARAR — hikâye gibi, muhasebesiz durum raporu
 // ===========================================================================
 const KZ_AYLAR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+
+// ===========================================================================
+//  MODÜL: MALİ DURUM & KONTROL (Faz 1) — para akışı + hata yakalama
+//  "Param ne kadar vardı, ne girdi, ne çıktı, ne kaldı" + gün sonu beyanının
+//  hesaplara doğru yansıyıp yansımadığının otomatik kontrolü.
+// ===========================================================================
+async function viewMaliDurum(c) {
+  c.innerHTML = `<div class="empty" style="padding:26px"><div class="spinner" style="margin:0 auto"></div><p>Hesaplanıyor…</p></div>`;
+  const [accounts, cari, bank, entries, records] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.currentMovements).catch(() => []),
+    fetchAll(C.bankTransactions).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+    fetchAll(C.dayEndRecords).catch(() => []),
+  ]);
+  const gunSonu = records.filter((r) => r.type === "gunsonu" && r.date);
+
+  // Hangi aylar seçilebilir? (gün sonu + hareket tarihlerinden)
+  const monthsSet = new Set();
+  gunSonu.forEach((r) => monthsSet.add(r.date.slice(0, 7)));
+  entries.forEach((e) => { if (e.date) monthsSet.add(String(e.date).slice(0, 7)); });
+  const months = [...monthsSet].filter((m) => /^\d{4}-\d{2}$/.test(m)).sort();
+  const nowYm = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; })();
+  let ym = months.length ? months[months.length - 1] : nowYm;
+
+  // Hesap grubu: kod önceliğiyle (100/102/108/120), yoksa tür
+  const groupOfAcc = (a) => {
+    const cd = String(a.code || "");
+    if (cd.startsWith("100") || a.type === "kasa") return "kasa";
+    if (cd.startsWith("102") || a.type === "banka") return "banka";
+    if (cd.startsWith("108")) return "bloke";
+    if (cd.startsWith("120")) return "alacak";
+    return null;
+  };
+  const byCode = new Map();
+  accounts.forEach((a) => { if (a.code) byCode.set(String(a.code).trim(), a.id); });
+
+  // Beyan (gün sonu) ↔ yazılan (hesaplara işlenen) — kaynak etiketine göre topla
+  const postedByKey = {};
+  const K = (k) => (postedByKey[k] || (postedByKey[k] = { cariBorc: 0, cariAlacak: 0, masraf: 0, nakit: 0, bloke: 0, any: false }));
+  entries.forEach((e) => {
+    const k = e.gunSonuKey; if (!k) return;
+    const o = K(k); o.any = true;
+    if (e.source === "gunsonu-cari") { o.cariBorc += parseNum(e.borc); o.cariAlacak += parseNum(e.alacak); }
+    else if (e.source === "gunsonu-masraf") o.masraf += parseNum(e.cikan);
+    else if (e.source === "gunsonu-nakit") o.nakit += parseNum(e.giren);
+    else if (e.source === "gunsonu-bloke") o.bloke += parseNum(e.borc);
+  });
+  // Faturalı tespiti (gün sonu cari işlem satırı zaten faturayla geldiyse aktarılmaz)
+  const fatByDate = {}, fatSumByAcc = {};
+  entries.filter((e) => e.source === "fatura-import").forEach((e) => {
+    const d = e.date, b = parseNum(e.borc) || 0; if (!d || !b) return;
+    (fatByDate[d] || (fatByDate[d] = new Set())).add(Math.round(b * 100));
+    const mp = fatSumByAcc[d] || (fatSumByAcc[d] = new Map());
+    if (e.accountId) mp.set(e.accountId, (mp.get(e.accountId) || 0) + b);
+  });
+  const musteriByName = new Map(accounts.filter((a) => a.type === "musteri").map((a) => [normTr(a.name), a]));
+
+  const render = () => {
+    const start = ym + "-01";
+    // Ay içi para akışı: her hesabın dönem başı / giren / çıkan / dönem sonu
+    const opening = new Map(), inflow = new Map(), outflow = new Map();
+    accounts.forEach((a) => { opening.set(a.id, a.openingBalance != null ? a.openingBalance : (a.balance || 0)); inflow.set(a.id, 0); outflow.set(a.id, 0); });
+    const bump = (accId, dISO, inA, outA) => {
+      if (!opening.has(accId)) return;
+      const m = (dISO || "").slice(0, 7);
+      if (!dISO || m < ym) opening.set(accId, opening.get(accId) + inA - outA);   // dönem başından önce → açılışa
+      else if (m === ym) { inflow.set(accId, inflow.get(accId) + inA); outflow.set(accId, outflow.get(accId) + outA); }
+      // dönem sonrası → bu dönemde yok
+    };
+    entries.forEach((e) => { if (e.accountId) bump(e.accountId, e.date, parseNum(e.giren) + parseNum(e.borc), parseNum(e.cikan) + parseNum(e.alacak)); });
+    cari.forEach((m) => { const id = byCode.get(String(m.code || "").trim()); if (id) bump(id, m.date, parseNum(m.debit), parseNum(m.credit)); });
+    bank.forEach((t) => { if (t.accountId) { const a = parseNum(t.amount); bump(t.accountId, t.date, a > 0 ? a : 0, a < 0 ? -a : 0); } });
+
+    const groups = { kasa: 0, banka: 0, alacak: 0, bloke: 0 };
+    const gOpen = { ...groups }, gIn = { ...groups }, gOut = { ...groups };
+    accounts.forEach((a) => {
+      const g = groupOfAcc(a); if (!g) return;
+      gOpen[g] += opening.get(a.id) || 0; gIn[g] += inflow.get(a.id) || 0; gOut[g] += outflow.get(a.id) || 0;
+    });
+    const GRUPLAR = [
+      { k: "kasa", ad: "Kasa", ic: "💵" },
+      { k: "banka", ad: "Banka", ic: "🏦" },
+      { k: "alacak", ad: "Cari Alacaklar", ic: "🟢" },
+      { k: "bloke", ad: "Blokeli Hesaplar", ic: "🔒" },
+    ];
+    let tOpen = 0, tIn = 0, tOut = 0;
+    const flowRows = GRUPLAR.map((g) => {
+      const o = gOpen[g.k], i = gIn[g.k], ou = gOut[g.k], s = o + i - ou;
+      tOpen += o; tIn += i; tOut += ou;
+      return `<tr>
+        <td class="md-nm">${g.ic} ${g.ad}</td>
+        <td class="num">${fmtTRY(o)}</td>
+        <td class="num md-in">${i ? fmtTRY(i) : "—"}</td>
+        <td class="num md-out">${ou ? fmtTRY(ou) : "—"}</td>
+        <td class="num"><b>${fmtTRY(s)}</b></td>
+      </tr>`;
+    }).join("");
+    const tSon = tOpen + tIn - tOut;
+
+    // ---- KONTROLLER (ay içindeki her gün sonu için beyan ↔ yazılan) ----
+    const recs = gunSonu.filter((r) => r.date.slice(0, 7) === ym).sort((a, b) => a.date.localeCompare(b.date));
+    const eps = 0.5;
+    const fails = { kirilim: [], masraf: [], tahsilat: [], cari: [], aktarim: [] };
+    recs.forEach((r) => {
+      const p = postedByKey[r.date] || { cariBorc: 0, cariAlacak: 0, masraf: 0, nakit: 0, bloke: 0, any: false };
+      const dsp = esc(fmtDate(r.date));
+      // 1) Satış kırılımı: Brüt − İskonto − İkram(net) = Net Satış
+      const ikramNet = r.ikramNet != null ? parseNum(r.ikramNet) : (parseNum(r.ikram) - (r.x === "" || r.x == null ? 0 : parseNum(r.x)));
+      const netHesap = parseNum(r.brut) - parseNum(r.iskonto) - ikramNet;
+      if (Math.abs(netHesap - parseNum(r.netSatis)) > eps)
+        fails.kirilim.push({ d: dsp, a: netHesap, b: parseNum(r.netSatis) });
+      // 2) Masraf: beyan ↔ yazılan
+      const masrafDecl = parseNum(r.masraflarTotal);
+      if (Math.abs(masrafDecl - p.masraf) > eps) fails.masraf.push({ d: dsp, a: masrafDecl, b: p.masraf });
+      // 3) Cari Tahsilat: beyan ↔ yazılan
+      const tahDecl = parseNum(r.cariTahsilatTotal);
+      if (Math.abs(tahDecl - p.cariAlacak) > eps) fails.tahsilat.push({ d: dsp, a: tahDecl, b: p.cariAlacak });
+      // 4) Cari İşlem (kredili satış): beyan (faturasız) ↔ yazılan borç
+      const nonFat = (r.cariIslem || []).reduce((s, row) => {
+        const tut = parseNum(row.tutar); if (!tut) return s;
+        const cents = Math.round(tut * 100);
+        let fat = fatByDate[r.date] && fatByDate[r.date].has(cents);
+        if (!fat) { const acc = (row.acc && row.acc.id && accounts.find((a) => a.id === row.acc.id)) || musteriByName.get(normTr(row.sahis)); const mp = acc && fatSumByAcc[r.date]; if (mp && Math.abs((mp.get(acc.id) || 0) - tut) < 0.01) fat = true; }
+        return s + (fat ? 0 : tut);
+      }, 0);
+      if (Math.abs(nonFat - p.cariBorc) > eps) fails.cari.push({ d: dsp, a: nonFat, b: p.cariBorc });
+      // 5) Aktarım eksik: beyan var ama hiçbir hareket yazılmamış
+      const declaredAny = masrafDecl > eps || tahDecl > eps || parseNum(r.cariIslemTotal) > eps;
+      if (declaredAny && !p.any) fails.aktarim.push({ d: dsp });
+    });
+
+    const chkCard = (title, desc, arr, fmtRow) => {
+      const ok = arr.length === 0;
+      return `<div class="md-chk ${ok ? "ok" : "bad"}">
+        <div class="md-chk-h"><span class="md-chk-ic">${ok ? "✅" : "⚠️"}</span><div><b>${title}</b><span>${desc}</span></div><span class="md-chk-badge">${ok ? "Tutuyor" : arr.length + " gün"}</span></div>
+        ${ok ? "" : `<div class="md-chk-list">${arr.map(fmtRow).join("")}</div>`}
+      </div>`;
+    };
+    const diffRow = (x) => `<div class="md-drow"><span>${x.d}</span><span>beyan <b>${fmtTRY(x.a)}</b> · yazılan <b>${fmtTRY(x.b)}</b> · fark <b class="md-df">${fmtTRY(x.a - x.b)}</b></span></div>`;
+
+    c.innerHTML = `<style>
+      .md{display:flex;flex-direction:column;gap:14px;max-width:920px;margin:0 auto}
+      .md-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+      .md-bar input[type=month]{padding:8px 10px;border:1px solid var(--line,#ece2d1);border-radius:10px;font-size:14px}
+      .md-bar .nav{width:34px;height:34px;border:1px solid var(--line,#ece2d1);background:#fff;border-radius:9px;font-size:18px;cursor:pointer}
+      .md-card{background:#fff;border:1px solid var(--line,#ece2d1);border-radius:16px;padding:14px 16px}
+      .md-card h3{margin:0 0 10px;font-size:15px}
+      .md-table{width:100%;border-collapse:collapse;font-size:13.5px}
+      .md-table th,.md-table td{padding:9px 8px;border-bottom:1px solid var(--line,#f0ece2);text-align:left}
+      .md-table th.num,.md-table td.num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+      .md-table thead th{font-size:12px;color:var(--ink-faint,#8b8172);background:var(--surface-2,#fbf7ef)}
+      .md-table .md-nm{font-weight:600}
+      .md-in{color:var(--ok,#2e9e52)}.md-out{color:var(--danger,#d33)}
+      .md-table tfoot td{border-top:2px solid var(--gold-light,#c9a24b);font-weight:800;background:var(--surface-2,#fbf7ef)}
+      .md-hint{font-size:12px;color:var(--ink-faint,#8b8172);margin-top:8px;line-height:1.5}
+      .md-chk{border:1px solid var(--line,#ece2d1);border-radius:14px;padding:12px 14px}
+      .md-chk.ok{background:color-mix(in srgb, #2e9e52 6%, #fff)}
+      .md-chk.bad{background:color-mix(in srgb, #d33 7%, #fff);border-color:#f0c9c4}
+      .md-chk-h{display:flex;align-items:center;gap:10px}
+      .md-chk-ic{font-size:18px}
+      .md-chk-h b{display:block;font-size:13.5px}.md-chk-h span{font-size:11.5px;color:var(--ink-faint,#8b8172)}
+      .md-chk-badge{margin-left:auto;font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px;background:#fff;border:1px solid var(--line,#ece2d1);white-space:nowrap}
+      .md-chk.bad .md-chk-badge{color:var(--danger,#d33);border-color:#f0c9c4}
+      .md-chk-list{margin-top:10px;display:flex;flex-direction:column;gap:6px}
+      .md-drow{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;background:#fff;border:1px solid var(--line,#f0ece2);border-radius:8px;padding:7px 10px;flex-wrap:wrap}
+      .md-drow>span:first-child{font-weight:700}
+      .md-df{color:var(--danger,#d33)}
+      .md-checks{display:flex;flex-direction:column;gap:10px}
+    </style>
+    <div class="md">
+      <div class="md-bar">
+        <button class="nav" id="md-prev" title="Önceki ay">‹</button>
+        <input type="month" id="md-month" value="${ym}" max="${nowYm}" />
+        <button class="nav" id="md-next" title="Sonraki ay"${ym >= nowYm ? " disabled" : ""}>›</button>
+        <div style="font-weight:700;color:var(--gold-dark,#7a5a20)">${KZ_AYLAR[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}</div>
+      </div>
+
+      <div class="md-card">
+        <h3>💰 Para Akışı — ne vardı · ne girdi · ne çıktı · ne kaldı</h3>
+        <div style="overflow-x:auto">
+          <table class="md-table">
+            <thead><tr><th>Hesap</th><th class="num">Dönem Başı</th><th class="num">Giren</th><th class="num">Çıkan</th><th class="num">Dönem Sonu</th></tr></thead>
+            <tbody>${flowRows}</tbody>
+            <tfoot><tr><td>TOPLAM</td><td class="num">${fmtTRY(tOpen)}</td><td class="num">${fmtTRY(tIn)}</td><td class="num">${fmtTRY(tOut)}</td><td class="num">${fmtTRY(tSon)}</td></tr></tfoot>
+          </table>
+        </div>
+        <div class="md-hint">Dönem Başı + Giren − Çıkan = Dönem Sonu. Rakamlar hesap hareketlerinden (gün sonu, banka, fatura, cari) otomatik hesaplanır.</div>
+      </div>
+
+      <div class="md-card">
+        <h3>🔎 Kontroller — gün sonu beyanı hesaplara doğru yansımış mı?</h3>
+        <div class="md-checks">
+          ${chkCard("Satış kırılımı", "Brüt − İskonto − İkram = Net Satış tutuyor mu?", fails.kirilim, (x) => `<div class="md-drow"><span>${x.d}</span><span>hesaplanan <b>${fmtTRY(x.a)}</b> · yazan Net Satış <b>${fmtTRY(x.b)}</b> · fark <b class="md-df">${fmtTRY(x.a - x.b)}</b></span></div>`)}
+          ${chkCard("Cari işlem (kredili satış)", "Beyan edilen faturasız cari ↔ 120 hesaplarına yazılan borç", fails.cari, diffRow)}
+          ${chkCard("Cari tahsilat", "Beyan edilen tahsilat ↔ 120 hesaplarına yazılan alacak", fails.tahsilat, diffRow)}
+          ${chkCard("Masraflar", "Beyan edilen masraf toplamı ↔ kasadan çıkan ödeme", fails.masraf, diffRow)}
+          ${chkCard("Aktarım", "Gün sonu girilmiş ama hesaplara hiç yansımamış olanlar", fails.aktarim, (x) => `<div class="md-drow"><span>${x.d}</span><span class="md-df">Bu günün gün sonu hesaplara aktarılmamış görünüyor.</span></div>`)}
+        </div>
+        <div class="md-hint">Kırmızı bir kutu, o gün <b>beyan ettiğin</b> tutar ile <b>hesaplara yazılan</b> tutarın <b>uyuşmadığını</b> gösterir — hangi gün ve ne kadar fark olduğu listelenir.</div>
+      </div>
+    </div>`;
+
+    const shiftYm = (n) => { const d = new Date(ym + "-01T00:00:00"); d.setMonth(d.getMonth() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+    $("#md-prev", c).onclick = () => { ym = shiftYm(-1); render(); };
+    const nx = $("#md-next", c); if (nx) nx.onclick = () => { if (ym < nowYm) { ym = shiftYm(1); render(); } };
+    $("#md-month", c).onchange = (e) => { if (e.target.value) { ym = e.target.value > nowYm ? nowYm : e.target.value; render(); } };
+  };
+  render();
+}
 
 async function viewKarZarar(c) {
   const [accounts, entries, settings] = await Promise.all([
