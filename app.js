@@ -594,8 +594,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.170";
+const APP_VERSION = "2026.171";
 const CHANGELOG = [
+  { version: "2026.171", date: "2026-08-13", items: [
+    "📁 Hesabı Düzenle → 'Grup / Üst Hesap · Değiştir': 321'deki bir hesabı 320'ye (ya da başka gruba) taşırken artık KOD YAZMANA GEREK YOK — sadece ana hesabı/grubu seç, sıradaki boş alt kod (ör. 320.47) otomatik verilir, hesap türü güncellenir ve hesabın cari hareketleri de yeni koda taşınır (kopuk kalmaz). Alt hesabı olan hesap taşınamaz uyarısı",
+    "🌙 Gün sonu kasa (100) nakit girişi artık dosyadaki Nakit (Sistem) + elle girilen Gerçekleşen TOPLANARAK yazılıyor. Önceden sadece elle girilen Gerçekleşen yazılıyordu (girmezsen 0 gidiyordu)",
+  ]},
   { version: "2026.170", date: "2026-08-13", items: [
     "📱 YENİ DASHBOARD — patron görünümü (Instagram tarzı, sade, mobil): en üstte kocaman BUGÜNKÜ CİRO (düne göre ▲/▼), altında Bu Ay Ciro + Elimdeki Nakit kartları, günlük ciro grafiği (Gün/Hafta/Ay düğmeli, bugünün çubuğu altın), 'Borçlarım' (en çok borçlu tedarikçiler) ve 'Yemek Kartı Alacakları' (108 bloke). Her satır/kart dokununca ilgili hesaba/kayıtlara gider",
   ]},
@@ -2878,10 +2882,12 @@ async function viewGunSonuAktarim(c) {
       };
     }).filter(Boolean);
 
-    // 100 Kasa: gerçek nakit girişi = sayılan Nakit (Gerçekleşen) + gün içi nakit ödemeler (Masraflar);
-    //           sonra her ödeme (masraf) kasadan Çıkan yapılır. Net etki = sayılan nakit.
+    // 100 Kasa: nakit girişi = dosyadan gelen Nakit (Sistem/"X") + elle girilen Gerçekleşen + gün içi
+    //           nakit ödemeler (Masraflar); sonra her ödeme (masraf) kasadan Çıkan yapılır.
     const nakitRow = (gsState.kasa || []).find((r) => normTr(r.yontem) === "nakit");
-    const nakit = nakitRow && !(nakitRow.gerceklesen === "" || nakitRow.gerceklesen == null) ? parseNum(nakitRow.gerceklesen) : 0;
+    const nakitSistem = nakitRow ? parseNum(nakitRow.sistem) : 0;   // dosyadaki nakit ("X")
+    const nakitGer = nakitRow && !(nakitRow.gerceklesen === "" || nakitRow.gerceklesen == null) ? parseNum(nakitRow.gerceklesen) : 0;   // elle girilen gerçekleşen
+    const nakit = nakitSistem + nakitGer;   // ikisini topla
     const masrafList = (masraflar || []).filter((m) => parseNum(m.tutar));
     const masrafTot = masrafList.reduce((s, m) => s + parseNum(m.tutar), 0);
     const kasaId = codeToId["100"];
@@ -4012,7 +4018,7 @@ async function viewHesaplar(c) {
     if (eb) eb.addEventListener("click", (e) => {
       e.stopPropagation();
       const a = byId.get(eb.dataset.edit);
-      accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [] });
+      accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [], allAccounts: [...byId.values()] });
     });
   };
   // Grup ilk açıldığında alt satırları üret (bir kez)
@@ -4169,7 +4175,7 @@ async function viewHesaplar(c) {
   });
   $$("[data-edit]", c).forEach((b) => b.onclick = () => {
     const a = byId.get(b.dataset.edit);
-    accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [] });
+    accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [], allAccounts: [...byId.values()] });
   });
 }
 
@@ -4319,11 +4325,23 @@ function accModal(acc, parent, opts) {
   const isSub = !!parent || !!(acc && acc.parentId);
   const fixedType = isSub ? (parent?.type || acc?.type) : null;
   const codeDefault = isNew && parent ? (opts?.nextCode || (parent.code + ".01")) : (acc?.code || "");
+  const allAcc = opts?.allAccounts || [];
+  let movedParent = null;   // grup değiştirilirse yeni üst hesap
+  const curParent = !isNew ? (allAcc.find((x) => x.id === acc.parentId) || null) : null;
+  const curParentLabel = curParent ? `${curParent.code || ""} ${curParent.name}` : (acc?.parentCode || "—");
   const body = document.createElement("div");
   body.innerHTML = `
     ${isSub ? `<div class="notice info" style="margin-bottom:14px">Alt hesap${
       parent ? " · Üst hesap: <b>" + esc((parent.code || "") + " " + parent.name) + "</b>"
              : (acc?.parentCode ? " · Üst hesap: <b>" + esc(acc.parentCode) + "</b>" : "")}</div>` : ""}
+    ${(!isNew && allAcc.length) ? `<div class="field">
+      <label>Grup / Üst Hesap</label>
+      <div style="display:flex;gap:8px;align-items:center">
+        <input id="a-group-label" value="${esc(curParentLabel)}" disabled style="flex:1;min-width:0" />
+        <button type="button" class="btn btn-sm" id="a-group-change" style="flex:0 0 auto">📁 Değiştir</button>
+      </div>
+      <div style="font-size:11px;color:var(--ink-faint);margin-top:4px">Başka gruba taşı (ör. 321→320): sadece grubu seç, yeni kodu (320.NN) otomatik verir. Hesabın hareketleri de yeni koda taşınır.</div>
+    </div>` : ""}
     <div class="form-row">
       <div class="field"><label>Hesap Kodu</label><input id="a-code" value="${esc(codeDefault)}" placeholder="${isSub ? (parent?.code || "102") + ".01" : "100"}" /></div>
       <div class="field"><label>Tür</label>
@@ -4364,6 +4382,10 @@ function accModal(acc, parent, opts) {
     if (isNew) {
       payload.parentId = parent ? parent.id : null;
       payload.parentCode = parent ? parent.code : null;
+    } else if (movedParent) {
+      payload.parentId = movedParent.id;
+      payload.parentCode = movedParent.code;
+      payload.type = movedParent.type || payload.type;
     }
     if (!payload.name) return toast("Hesap adı gerekli.", "err");
     try {
@@ -4372,7 +4394,21 @@ function accModal(acc, parent, opts) {
         await logAction("Ekleme", "Hesap", `${payload.code || ""} ${payload.name}`);
       } else {
         await updateDoc(doc(db, "accounts", acc.id), payload);
-        await logAction("Düzenleme", "Hesap", `${payload.code || ""} ${payload.name}`);
+        // Grup değişti + kod değişti → cari hareketler (koda bağlı) yeni koda taşınır
+        const oldCode = String(acc.code || "").trim(), newCode = String(payload.code || "").trim();
+        if (movedParent && oldCode && newCode && oldCode !== newCode) {
+          toast("Hareketler yeni koda taşınıyor…", "info");
+          const all = await fetchAll(C.currentMovements).catch(() => []);
+          const mine = all.filter((mv) => String(mv.code || "").trim() === oldCode);
+          for (let i = 0; i < mine.length; i += 150) {
+            const b = writeBatch(db);
+            mine.slice(i, i + 150).forEach((x) => b.update(doc(db, "currentMovements", x.id), { code: newCode }));
+            await b.commit();
+          }
+          await logAction("Taşıma", "Hesap", `${oldCode} → ${newCode} ${payload.name} (${mine.length} hareket)`);
+        } else {
+          await logAction("Düzenleme", "Hesap", `${payload.code || ""} ${payload.name}`);
+        }
       }
       m.close(); toast("Kaydedildi.", "ok"); route();
     } catch (e) { toast("Hata: " + e.message, "err"); }
@@ -4382,6 +4418,25 @@ function accModal(acc, parent, opts) {
     body,
     footer,
   });
+  // Grup / Üst hesap değiştir → yeni kodu otomatik ver, hareketleri sonra taşı
+  const groupBtn = $("#a-group-change", body);
+  if (groupBtn) groupBtn.onclick = () => {
+    if ((opts?.children || []).length) return toast("Alt hesabı olan hesap taşınamaz; önce alt hesapları taşıyın.", "err");
+    const groups = allAcc.filter((x) => !x.parentId && x.id !== acc.id);   // ana hesaplar
+    openAccountPicker({
+      accounts: groups, title: "Grup / Üst Hesap Seç", allowNew: false, query: "",
+      onPick: (r) => {
+        const g = r.acc; if (!g) return;
+        movedParent = g;
+        const code = nextSubCode(g, allAcc);
+        const ci = $("#a-code", body); if (ci) ci.value = code;
+        const ti = $("#a-type", body); if (ti) ti.value = g.type || "";
+        const ts = ti?.previousElementSibling; if (ts && ts.tagName === "INPUT" && ts.disabled) ts.value = accTypeLabel(g.type);
+        const gl = $("#a-group-label", body); if (gl) gl.value = `${g.code || ""} ${g.name}`;
+        toast(`Yeni kod: ${code} · ${accTypeLabel(g.type)}`, "ok");
+      },
+    });
+  };
 }
 
 // ===========================================================================
