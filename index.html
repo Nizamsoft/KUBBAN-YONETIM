@@ -12,7 +12,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="theme-color" content="#241d15" />
-  <link rel="stylesheet" href="style.css?v=2026.186" />
+  <link rel="stylesheet" href="style.css?v=2026.187" />
 </head>
 <body>
 
@@ -44,21 +44,15 @@
           <label for="password">Parola</label>
           <input type="password" id="password" autocomplete="current-password" placeholder="••••••••" required />
         </div>
-        <div class="field hidden" id="name-field">
-          <label for="displayName">Ad Soyad</label>
-          <input type="text" id="displayName" autocomplete="name" placeholder="Adınız Soyadınız" />
-        </div>
         <div class="auth-error" id="auth-error"></div>
         <button type="submit" class="btn btn-primary btn-block" id="auth-submit">Giriş Yap</button>
       </form>
 
-      <div class="auth-toggle">
-        <span id="toggle-text">Hesabınız yok mu?</span>
-        <a id="toggle-mode">Kayıt olun</a>
-      </div>
-      <div style="margin-top:16px;font-size:11px;color:#9c8e78;line-height:1.5">
-        💾 Yerel mod: veriler bu tarayıcıda saklanır. İlk kez giriyorsanız
-        <b>Kayıt olun</b> ile hesap oluşturun.
+      <div class="login-foot" style="margin-top:24px;text-align:center;border-top:1px solid #eee6d8;padding-top:16px">
+        <img src="nizamsoft-logo.png?v=1" alt="Nizam Soft" onerror="this.style.display='none'" style="max-height:38px;max-width:150px;opacity:.92;margin-bottom:8px" />
+        <div style="font-size:11px;color:#9c8e78;line-height:1.7">
+          Bu program <b>Nizam Soft — Kerem Güllü</b> tarafından yazılmıştır.<br>© Tüm hakları saklıdır.
+        </div>
       </div>
     </div>
   </div>
@@ -72,7 +66,7 @@
         <div class="name">Güllüoğlu Kübban<small>Gaziantep Mutfağı</small></div>
       </div>
       <nav class="nav" id="nav"><!-- JS ile doldurulur --></nav>
-      <div class="sidebar-foot">v0.1 · Yerel Mod (tarayıcı)</div>
+      <div class="sidebar-foot">© Nizam Soft — Kerem Güllü</div>
     </aside>
 
     <!-- İçerik -->
@@ -105,6 +99,6 @@
   <div id="modal-root"></div>
   <div id="toasts"></div>
 
-  <script type="module" src="app.js?v=2026.186"></script>
+  <script type="module" src="app.js?v=2026.187"></script>
 </body>
 </html>

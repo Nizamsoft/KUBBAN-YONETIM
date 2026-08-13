@@ -325,31 +325,19 @@ function finishReview() {   // "Bitir": incelemeyi bırak, varsa son adıma (blo
 // ---------------------------------------------------------------------------
 //  KİMLİK DOĞRULAMA (AUTH)
 // ---------------------------------------------------------------------------
-let signupMode = false;
 function setupAuthUI() {
   const form = $("#login-form");
   const errEl = $("#auth-error");
-  const nameField = $("#name-field");
   const submit = $("#auth-submit");
-  const toggleText = $("#toggle-text");
-  const toggle = $("#toggle-mode");
 
   if (!CONFIG_READY) {
     errEl.innerHTML =
-      "⚠️ <b>Firebase yapılandırması eksik.</b><br>Lütfen <code>config.js</code> " +
-      "dosyasına kendi Firebase proje bilgilerinizi girin.";
+      "⚠️ <b>Yapılandırma eksik.</b><br>Lütfen <code>config.js</code> dosyasını kontrol edin.";
     submit.disabled = true;
   }
 
-  toggle.addEventListener("click", () => {
-    signupMode = !signupMode;
-    nameField.classList.toggle("hidden", !signupMode);
-    submit.textContent = signupMode ? "Kayıt Ol" : "Giriş Yap";
-    toggleText.textContent = signupMode ? "Zaten hesabınız var mı?" : "Hesabınız yok mu?";
-    toggle.textContent = signupMode ? "Giriş yapın" : "Kayıt olun";
-    errEl.textContent = "";
-  });
-
+  // Yalnız GİRİŞ — kayıt (signup) uygulamadan kaldırıldı. Yeni kullanıcıyı
+  // yönetici Supabase panelinden ekler (güvenlik için).
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     errEl.textContent = "";
@@ -357,14 +345,7 @@ function setupAuthUI() {
     const email = $("#email").value.trim();
     const pass  = $("#password").value;
     try {
-      if (signupMode) {
-        const name = $("#displayName").value.trim();
-        const cred = await createUserWithEmailAndPassword(auth, email, pass);
-        if (name) await updateProfile(cred.user, { displayName: name });
-        await ensureUserDoc(cred.user, name);
-      } else {
-        await signInWithEmailAndPassword(auth, email, pass);
-      }
+      await signInWithEmailAndPassword(auth, email, pass);
     } catch (err) {
       errEl.textContent = authErrorTR(err.code || err.message);
       submit.disabled = false;
@@ -594,8 +575,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.186";
+const APP_VERSION = "2026.187";
 const CHANGELOG = [
+  { version: "2026.187", date: "2026-08-13", items: [
+    "🔒 Giriş ekranından 'Kayıt olun' kaldırıldı (güvenlik) — yeni kullanıcı artık yalnız yönetici tarafından Supabase panelinden eklenir. Yanıltıcı 'Yerel mod / tarayıcıda saklanır' notları kaldırıldı",
+    "©️ Giriş ekranı ve yan menüye 'Nizam Soft — Kerem Güllü · Tüm hakları saklıdır' telif satırı eklendi (logo yeri hazır)",
+  ]},
   { version: "2026.186", date: "2026-08-13", items: [
     "🐛 Dashboard 'Dünkü Ciro' yanlış günü (2 gün öncesini) gösteriyordu — saat dilimi (UTC) kaymasıydı; yerel tarihle düzeltildi, artık doğru dünü gösterir. Grafik gün/hafta/ay tarihleri de aynı kaymadan arındırıldı",
     "🎨 Dashboard üstteki ciro kartı yeşil yerine altın/kahve (temayla uyumlu)",
