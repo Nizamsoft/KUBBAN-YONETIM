@@ -594,8 +594,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.172";
+const APP_VERSION = "2026.173";
 const CHANGELOG = [
+  { version: "2026.173", date: "2026-08-13", items: [
+    "🌙 Düzeltme: Gün sonu kasa (100) nakit girişi = elle girilen Nakit (Gerçekleşen) + 'X' (İkram'dan düşülür alanı) toplanarak yazılıyor. (Önceki sürümdeki 'Sistem' değeri yanlıştı — doğrusu ekranda elle girdiğin X alanı)",
+  ]},
   { version: "2026.172", date: "2026-08-13", items: [
     "🗂️ Tüm Kayıtlar artık TOPLU AKTARIMLARI gruplar: bir seferde yaptığın aktarım (ör. 10 alış faturası, banka aktarımı) tek satırda '🗂️ Kaynak · N kayıt · zaman' olarak görünür — üstüne dokun aç/kapa, sağdaki '🗑️ Toplu Sil' ile o aktarımın tamamını sil, grup kutusuyla toplu seç. ARAMA ya da TARİH filtresi yaparsan yine tüm hareketler tek tek (düz liste) açılır. Aynı kaynak + yakın kayıt zamanı (3 dk) bir aktarım sayılır",
   ]},
@@ -2885,12 +2888,12 @@ async function viewGunSonuAktarim(c) {
       };
     }).filter(Boolean);
 
-    // 100 Kasa: nakit girişi = dosyadan gelen Nakit (Sistem/"X") + elle girilen Gerçekleşen + gün içi
-    //           nakit ödemeler (Masraflar); sonra her ödeme (masraf) kasadan Çıkan yapılır.
+    // 100 Kasa: nakit girişi = elle girilen Nakit (Gerçekleşen) + "X" (İkram'dan düşülür alanı, elle)
+    //           + gün içi nakit ödemeler (Masraflar); sonra her ödeme (masraf) kasadan Çıkan yapılır.
     const nakitRow = (gsState.kasa || []).find((r) => normTr(r.yontem) === "nakit");
-    const nakitSistem = nakitRow ? parseNum(nakitRow.sistem) : 0;   // dosyadaki nakit ("X")
     const nakitGer = nakitRow && !(nakitRow.gerceklesen === "" || nakitRow.gerceklesen == null) ? parseNum(nakitRow.gerceklesen) : 0;   // elle girilen gerçekleşen
-    const nakit = nakitSistem + nakitGer;   // ikisini topla
+    const xNakit = (gsState.x === "" || gsState.x == null) ? 0 : parseNum(gsState.x);   // "X — İkram'dan düşülür" alanı
+    const nakit = nakitGer + xNakit;   // gerçekleşen + X toplanır
     const masrafList = (masraflar || []).filter((m) => parseNum(m.tutar));
     const masrafTot = masrafList.reduce((s, m) => s + parseNum(m.tutar), 0);
     const kasaId = codeToId["100"];
