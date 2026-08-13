@@ -594,8 +594,14 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.177";
+const APP_VERSION = "2026.178";
 const CHANGELOG = [
+  { version: "2026.178", date: "2026-08-13", items: [
+    "📱 Mobil dashboard yerleşim bug'ı DÜZELTİLDİ: mini kartlarda min-width:0 olmadığı için içerik ekrandan taşıyıp yerleşimi bozuyordu. Artık her şey ekrana tam sığar (kayma/taşma yok)",
+    "✂️ Dashboard Borçlarım/Alacaklarım listesinde hesap adının yalnız İLK 2 KELİMESİ gösterilir (ad + tutar yan yana sığar); tam ad için satıra dokun",
+    "📄 '+N daha' artık Hesaplar'a atmıyor: yeni 'Borçlar / Alacaklar' SEKMELİ sayfasına gider — aramalı, tam liste, tam ad. Satıra tıkla → hesap defteri",
+    "↩️ Dashboard'dan (veya Borçlar/Alacaklar sayfasından) bir hesaba girince GERİ butonu artık geldiğin yere döner (Hesaplar'a değil); defter en alttaki (son) kayıtta açılır",
+  ]},
   { version: "2026.177", date: "2026-08-13", items: [
     "🔗 Fatura & Banka kontrolünde carisi/hesabı OLMAYAN satırlar için 'Eşleştir / Ekle' penceresi artık KENDİLİĞİNDEN açılır — sırayla gelir, hepsini bağlayınca biter, 'Vazgeç' ile durur. (Fatura önizlemesinde eşleşmeyen cari; bankada boş POS-dışı hesap satırları)",
   ]},
@@ -1370,6 +1376,7 @@ const NAV = [
 
 const ROUTES = {
   "dashboard":        { title: "Dashboard", crumb: "Ana Sayfa", render: viewDashboard },
+  "borc-alacak":      { title: "Borçlar / Alacaklar", crumb: "Ana Sayfa", render: viewBorcAlacak, back: "#/dashboard" },
   "gunsonu-aktarim":  { title: "Gün Sonu Aktarımı", crumb: "Veri Girişleri", render: viewGunSonuAktarim },
   "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu Aktarımı", render: viewGunSonuKayitlar },
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
@@ -1465,7 +1472,10 @@ async function route(opts = {}) {
   $("#crumb").textContent = r.crumb;
   const backEl = $("#page-back");
   if (backEl) {
-    if (r.back) { backEl.style.display = ""; backEl.onclick = () => { location.hash = r.back; }; }
+    // Geldiğin yere dön: hash'te ?from=... varsa oraya (ör. dashboard / borc-alacak), yoksa sabit r.back
+    const fromParam = new URLSearchParams(location.hash.split("?")[1] || "").get("from");
+    const backTarget = fromParam ? ("#/" + fromParam) : (r.back || null);
+    if (backTarget) { backEl.style.display = ""; backEl.onclick = () => { location.hash = backTarget; }; }
     else { backEl.style.display = "none"; backEl.onclick = null; }
   }
   const c = $("#view-container");
@@ -1760,6 +1770,7 @@ async function viewDashboard(c) {
   const alacakGroups = new Set(["108", "120"]);   // bloke + müşteri/veresiye
   const firms = leaves.filter((a) => alacakGroups.has(groupOf(a.code))).map((a) => ({ a, val: cur(a.id) })).filter((x) => x.val > 0.5).sort((x, y) => y.val - x.val);
   const firmTotal = firms.reduce((s, x) => s + x.val, 0);
+  const first2 = (nm) => { const w = String(nm || "").trim().split(/\s+/); return w.slice(0, 2).join(" ") || String(nm || ""); };
 
   c.innerHTML = `<style>
     .dash{display:flex;flex-direction:column;gap:14px;width:100%;max-width:100%}
@@ -1771,11 +1782,11 @@ async function viewDashboard(c) {
     .dh-sub{font-size:13px;opacity:.96}
     .dh-sub .up{font-weight:800;color:#c9f7d7}.dh-sub .down{font-weight:800;color:#ffd9d2}
     .dash-mini{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .dmini{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:18px;padding:15px 16px;text-decoration:none;color:inherit;display:block}
+    .dmini{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:18px;padding:15px 16px;text-decoration:none;color:inherit;display:block;min-width:0}
     .dm-ic{font-size:20px}.dm-lb{font-size:12px;color:var(--ink-faint,#8b8172);margin-top:3px;font-weight:600}
     .dm-vl{font-size:clamp(16px,4.8vw,23px);font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dm-dl{font-size:11px;color:var(--ink-faint,#8b8172);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .dm-dl.up{color:var(--ok,#2e9e52)}.dm-dl.down{color:var(--danger,#d33)}
-    .dash-card{border-radius:18px}
+    .dash-card{border-radius:18px;min-width:0}
     .dash-card-head{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 12px;gap:10px}
     .dash-card-head h3{margin:0;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .dash-tot{font-weight:800;font-size:16px;flex:0 0 auto;white-space:nowrap}.dash-tot.green{color:var(--ok,#2e9e52)}.dash-tot.red{color:var(--danger,#d33)}
@@ -1835,13 +1846,13 @@ async function viewDashboard(c) {
       <div class="card dash-card">
         <div class="dash-card-head"><h3>🔴 Borçlarım</h3><span class="dash-tot red">${fmtTRY(supTotal)}</span></div>
         ${suppliers.length
-          ? `<div class="dash-list">${suppliers.slice(0, 6).map((x) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}"><span class="dli-nm">${esc(x.a.name)}</span><span class="dli-vl red">${fmtTRY(x.debt)}</span></a>`).join("")}</div>${suppliers.length > 6 ? `<a class="dash-more" href="#/hesaplar">+${suppliers.length - 6} tedarikçi daha →</a>` : ""}`
+          ? `<div class="dash-list">${suppliers.slice(0, 6).map((x) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}&from=dashboard" title="${esc(x.a.name)}"><span class="dli-nm">${esc(first2(x.a.name))}</span><span class="dli-vl red">${fmtTRY(x.debt)}</span></a>`).join("")}</div>${suppliers.length > 6 ? `<a class="dash-more" href="#/borc-alacak?t=borc">+${suppliers.length - 6} tedarikçi daha →</a>` : ""}`
           : `<div class="dash-empty">Tedarikçi borcu yok 🎉</div>`}
       </div>
       <div class="card dash-card">
         <div class="dash-card-head"><h3>🟢 Alacaklarım</h3><span class="dash-tot green">${fmtTRY(firmTotal)}</span></div>
         ${firms.length
-          ? `<div class="dash-list">${firms.slice(0, 6).map((x) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}"><span class="dli-nm">${esc(x.a.name)}</span><span class="dli-vl ${x.val >= 0 ? "green" : "red"}">${fmtTRY(x.val)}</span></a>`).join("")}</div>${firms.length > 6 ? `<a class="dash-more" href="#/hesaplar">+${firms.length - 6} hesap daha →</a>` : ""}`
+          ? `<div class="dash-list">${firms.slice(0, 6).map((x) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}&from=dashboard" title="${esc(x.a.name)}"><span class="dli-nm">${esc(first2(x.a.name))}</span><span class="dli-vl ${x.val >= 0 ? "green" : "red"}">${fmtTRY(x.val)}</span></a>`).join("")}</div>${firms.length > 6 ? `<a class="dash-more" href="#/borc-alacak?t=alacak">+${firms.length - 6} hesap daha →</a>` : ""}`
           : `<div class="dash-empty">Bekleyen alacak yok</div>`}
       </div>
     </div>
@@ -1867,6 +1878,75 @@ async function viewDashboard(c) {
     if (wrap) wrap.innerHTML = barsHTML(seriesMap[b.dataset.k] || daySeries);
   }));
 }
+
+// Borçların/Alacakların TAM listesi — sekmeli tek sayfa (dashboard '+N daha' buraya gelir)
+async function viewBorcAlacak(c) {
+  const [accounts, cari, bank, entries] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.currentMovements).catch(() => []),
+    fetchAll(C.bankTransactions).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  const bal = computeBalances(accounts, cari, bank, entries);
+  const cur = (id) => bal.get(id)?.current || 0;
+  const hasChild = new Set(accounts.map((a) => a.parentId).filter(Boolean));
+  const leaves = accounts.filter((a) => !hasChild.has(a.id) && a.code);
+  const groupOf = (cd) => String(cd || "").split(".")[0];
+  const suppliers = leaves.filter((a) => groupOf(a.code) === "320").map((a) => ({ a, amt: -cur(a.id) })).filter((x) => x.amt > 0.5).sort((x, y) => y.amt - x.amt);
+  const alacakGroups = new Set(["108", "120"]);
+  const receiv = leaves.filter((a) => alacakGroups.has(groupOf(a.code))).map((a) => ({ a, amt: cur(a.id) })).filter((x) => x.amt > 0.5).sort((x, y) => y.amt - x.amt);
+  const supTotal = suppliers.reduce((s, x) => s + x.amt, 0), recTotal = receiv.reduce((s, x) => s + x.amt, 0);
+
+  let tab = new URLSearchParams(location.hash.split("?")[1] || "").get("t") === "alacak" ? "alacak" : "borc";
+  let query = "";
+  c.innerHTML = `<style>
+    .ba{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+    .ba-tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .ba-tabs button{border:1px solid var(--line,#ece7dc);background:var(--card,#fff);border-radius:14px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;color:var(--ink,#241d15);display:flex;flex-direction:column;gap:3px;min-width:0}
+    .ba-tabs button b{font-size:17px}
+    .ba-tabs button.on[data-t=borc]{border-color:var(--danger,#d33);box-shadow:0 0 0 2px rgba(211,51,51,.15)}
+    .ba-tabs button.on[data-t=alacak]{border-color:var(--ok,#2e9e52);box-shadow:0 0 0 2px rgba(46,158,82,.15)}
+    .ba-q{width:100%;padding:11px 13px;border:1px solid var(--line,#ece7dc);border-radius:12px;font-size:14px}
+    .ba-list{display:flex;flex-direction:column;background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:16px;overflow:hidden}
+    .ba-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border-bottom:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit}
+    .ba-row:last-child{border-bottom:0}
+    .ba-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+    .ba-code{color:var(--ink-faint,#9a9082);font-size:12px;margin-left:8px}
+    .ba-vl{flex:0 0 auto;font-weight:800;white-space:nowrap}.ba-vl.red{color:var(--danger,#d33)}.ba-vl.green{color:var(--ok,#2e9e52)}
+    .ba-empty{padding:22px;text-align:center;color:var(--ink-faint,#9a9082)}
+    .ba-count{font-size:12px;color:var(--ink-faint,#8b8172);padding:2px 4px}
+  </style>
+  <div class="ba">
+    <div class="ba-tabs">
+      <button data-t="borc" class="${tab === "borc" ? "on" : ""}"><span>🔴 Borçlar</span><b class="red-t">${fmtTRY(supTotal)}</b></button>
+      <button data-t="alacak" class="${tab === "alacak" ? "on" : ""}"><span>🟢 Alacaklar</span><b>${fmtTRY(recTotal)}</b></button>
+    </div>
+    <input class="ba-q" type="search" placeholder="🔍 Ara — hesap adı / kod" autocomplete="off" />
+    <div class="ba-count"></div>
+    <div class="ba-list"></div>
+  </div>`;
+
+  const listEl = $(".ba-list", c), countEl = $(".ba-count", c);
+  const draw = () => {
+    const src = tab === "borc" ? suppliers : receiv;
+    const nq = normTr(query);
+    const rows = nq ? src.filter((x) => normTr(x.a.name).includes(nq) || normTr(x.a.code).includes(nq)) : src;
+    const cls = tab === "borc" ? "red" : "green";
+    const from = encodeURIComponent("borc-alacak?t=" + tab);
+    listEl.innerHTML = rows.length
+      ? rows.map((x) => `<a class="ba-row" href="#/hesap-detay?id=${x.a.id}&from=${from}"><span class="ba-nm">${esc(x.a.name)}<span class="ba-code">${esc(x.a.code)}</span></span><span class="ba-vl ${cls}">${fmtTRY(x.amt)}</span></a>`).join("")
+      : `<div class="ba-empty">Kayıt yok.</div>`;
+    countEl.textContent = `${rows.length.toLocaleString("tr-TR")} hesap · toplam ${fmtTRY(rows.reduce((s, x) => s + x.amt, 0))}`;
+  };
+  $$(".ba-tabs button", c).forEach((b) => b.onclick = () => {
+    tab = b.dataset.t;
+    $$(".ba-tabs button", c).forEach((x) => x.classList.toggle("on", x.dataset.t === tab));
+    draw();
+  });
+  $(".ba-q", c).addEventListener("input", (e) => { query = e.target.value; draw(); });
+  draw();
+}
+
 function monthlyEquivalent(item) {
   const amt = item.amount || 0;
   switch (item.period) {
