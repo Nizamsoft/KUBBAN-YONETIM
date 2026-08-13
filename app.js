@@ -594,8 +594,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.179";
+const APP_VERSION = "2026.180";
 const CHANGELOG = [
+  { version: "2026.180", date: "2026-08-13", items: [
+    "🔄 Ters bakiye grupları sıralaması: 159 Verilen Sipariş Avansları BÜYÜKTEN küçüğe (en büyük avans üstte), 340 Alınan Sipariş Avansları KÜÇÜKTEN büyüğe",
+  ]},
   { version: "2026.179", date: "2026-08-13", items: [
     "🧾 Gün sonu cari eşleştirme AKILLANDI: birebir ad tutmasa bile çekirdek kelimeyle (A.Ş./Ltd/Şti/San/Tic eklerini atarak) ve aynı tarih+tutarlı faturanın carisi + isim benzerliğiyle doğru hesabı bulur. Emin değilse yanlış atamaz — boş bırakıp '⚠️ Eşleştir/Ekle' ile sorar",
     "🔵 T.Finans kart → hesap eşleştirme artık SADECE kesin eşleşme (öğrenilmiş hafıza + birebir ad/kod). Bulamazsa hesap BOŞ kalır (yanlış hesaba ya da gereksiz yeni hesaba yazmaz); sen seçersin",
@@ -4092,17 +4095,19 @@ async function viewHesaplar(c) {
   //   320 (satıcı) bir alt hesap BORÇ bakiyeye düşerse (avans verdin) → 159 Verilen Sipariş Avansları
   //   120 (müşteri) bir alt hesap ALACAK bakiyeye düşerse (avans aldın) → 340 Alınan Sipariş Avansları
   const rootByCode = (cd) => roots.find((r) => String(r.code) === cd);
-  const reclass = (grpCode, virtCode, virtName, isTers) => {
+  const reclass = (grpCode, virtCode, virtName, isTers, cmp) => {
     const g = rootByCode(grpCode); if (!g) return;
     const arr = kids.get(g.id) || []; const keep = [], moved = [];
     arr.forEach((a) => (isTers(cur(a)) ? moved : keep).push(a));
     if (!moved.length) return;
+    moved.sort(cmp);
     kids.set(g.id, keep);
     const v = { id: "virt-" + virtCode, code: virtCode, name: virtName, __virtual: true };
     byId.set(v.id, v); kids.set(v.id, moved); roots.push(v);
   };
-  reclass("320", "159", "Verilen Sipariş Avansları", (x) => x > 0.005);    // 320 borç bakiye
-  reclass("120", "340", "Alınan Sipariş Avansları", (x) => x < -0.005);    // 120 alacak bakiye
+  // 159 Verilen: BÜYÜKTEN küçüğe (en büyük avans üstte). 340 Alınan: KÜÇÜKTEN büyüğe.
+  reclass("320", "159", "Verilen Sipariş Avansları", (x) => x > 0.005, (a, b) => cur(b) - cur(a));
+  reclass("120", "340", "Alınan Sipariş Avansları", (x) => x < -0.005, (a, b) => cur(a) - cur(b));
   roots.sort(byCode);
   const realRootCount = roots.filter((r) => !r.__virtual).length;
 
