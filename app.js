@@ -594,8 +594,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.182";
+const APP_VERSION = "2026.183";
 const CHANGELOG = [
+  { version: "2026.183", date: "2026-08-13", items: [
+    "💳 Ödeme Modu iyileştirmeleri: (1) üst özet (Toplam Borç · Garanti · T.Finans · Kalan Bakiye) artık ilgili SÜTUNLARLA HİZALI (masaüstünde tablo başlığında yapışkan; mobilde kart). (2) Hesap adına dokununca o hesabın hareketlerine gider, geri basınca Ödeme Modu'na döner. (3) Ödeme kutusunda Enter → alt satırın aynı sütununa iner. (4) Tutar yazarken binlik nokta canlı eklenir (1.000 gibi)",
+  ]},
   { version: "2026.182", date: "2026-08-13", items: [
     "🧾 Gün sonu 'faturalı' tespiti artık CARİ BAZINDA TOPLAM: bir carinin o günkü faturalarının TOPLAMI (ör. Coşkun'un 3 faturası = 6.000) gün sonu satır tutarına eşitse 'faturalı' sayılıp aktarılmaz (mükerrer cari borç oluşmaz). Hem ekranda hem kaydederken; isim benzerliğiyle cariyi bulur",
     "🏦 Garanti POS: 'Pİ' ile başlayan satırlar da (ör. 'Pİ2685540 YICI 07/21 K:…') artık PK gibi POS olarak tanınır",
@@ -1994,27 +1997,38 @@ async function viewOdemeModu(c) {
     return;
   }
 
+  // Türkçe-farkında parse (nokta=binlik, virgül=ondalık) + binlik gruplu gösterim (,00 gizli)
+  const pnum = (v) => { let s = String(v).replace(/[^\d,\-]/g, "").replace(",", "."); const n = parseFloat(s); return isFinite(n) ? n : 0; };
+  const gfmt = (n) => { if (!n) return ""; return fmtNum(n).replace(/,00$/, ""); };
+
+  const shCell = (l, vCls, v, sPre, sCls, sVal) => `<th><span class="sh-l">${l}</span><span class="sh-v ${vCls}">${v}</span><span class="sh-s">${sPre}<span class="${sCls}">${sVal}</span></span></th>`;
   c.innerHTML = `<style>
-    .om{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
-    .om-sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;position:sticky;top:0;z-index:5}
+    .om{max-width:1000px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
     .om-tile{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:14px;padding:12px 14px;min-width:0}
     .om-tile .l{font-size:11px;color:var(--ink-faint,#8b8172);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .om-tile .v{font-size:19px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .om-tile .s{font-size:11px;color:var(--ink-faint,#9a9082);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
     .om-tile.borc{border-left:4px solid var(--danger,#d33)} .om-tile.gar{border-left:4px solid #1f7a3d} .om-tile.tf{border-left:4px solid #2f6db0} .om-tile.ode{border-left:4px solid var(--gold,#b8952e)}
-    .om-tile .v.red{color:var(--danger,#d33)} .om-tile .v.green{color:var(--ok,#2e9e52)}
+    .om-sum{display:none}
     .om-tbl{width:100%;border-collapse:collapse;background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:14px;overflow:hidden}
-    .om-tbl th,.om-tbl td{padding:10px 12px;border-bottom:1px solid var(--line,#f0ece2);text-align:right;font-size:13px;white-space:nowrap}
-    .om-tbl th{font-size:11px;color:var(--ink-faint,#8b8172);background:var(--bg,#f6f2e9);position:sticky;top:0}
-    .om-tbl td.nm,.om-tbl th.nm{text-align:left;max-width:0;width:40%;overflow:hidden;text-overflow:ellipsis}
-    .om-tbl tr:last-child td{border-bottom:0}
-    .om-in{width:110px;max-width:34vw;text-align:right;padding:7px 9px;border:1px solid var(--line,#ddd4c2);border-radius:8px;font-size:14px;font-variant-numeric:tabular-nums}
+    .om-tbl th,.om-tbl td{padding:9px 12px;border-bottom:1px solid var(--line,#f0ece2);text-align:right;font-size:13px;white-space:nowrap}
+    .om-tbl td.nm,.om-tbl th.nm{text-align:left;max-width:0;width:38%;overflow:hidden;text-overflow:ellipsis}
+    /* Üst özet, sütunlarla hizalı (aynı tablonun thead'i) + yapışkan */
+    .om-shrow th{position:sticky;top:0;z-index:3;background:var(--card,#fff);border-bottom:1px solid var(--line,#ece7dc);vertical-align:top}
+    .om-shrow .sh-l{display:block;font-size:10px;color:var(--ink-faint,#8b8172);font-weight:600}
+    .om-shrow .sh-v{display:block;font-size:16px;font-weight:800}
+    .om-shrow .sh-s{display:block;font-size:10px;color:var(--ink-faint,#9a9082)}
+    .om-shrow th.nm .sh-v{font-size:13px}
+    .om-lbl th{position:sticky;top:54px;z-index:2;font-size:11px;color:var(--ink-faint,#8b8172);background:var(--bg,#f6f2e9)}
+    .om-in{width:112px;max-width:34vw;text-align:right;padding:7px 9px;border:1px solid var(--line,#ddd4c2);border-radius:8px;font-size:14px;font-variant-numeric:tabular-nums}
     .om-in.gar:focus{outline:2px solid #1f7a3d55} .om-in.tf:focus{outline:2px solid #2f6db055}
     .om-borc{color:var(--danger,#d33);font-weight:700} .om-kalan.red{color:var(--danger,#d33);font-weight:700} .om-kalan.ok{color:var(--ok,#2e9e52);font-weight:700}
+    .om-nm{color:inherit;text-decoration:none;font-weight:600} .om-nm:hover{text-decoration:underline} .om-nm .arw{color:var(--ink-faint,#b8ad98);margin-left:4px}
     .om-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch}
     .om-hint{font-size:12px;color:var(--ink-faint,#8b8172);padding:0 2px}
     .om-tools{display:flex;gap:8px;align-items:center}
     @media(max-width:640px){
+      .om-sum{display:grid;grid-template-columns:1fr 1fr;gap:10px;position:sticky;top:0;z-index:5}
       .om-wrap{overflow:visible}
       .om-tbl,.om-tbl tbody{display:block;border:0;background:transparent}
       .om-tbl thead{display:none}
@@ -2022,36 +2036,46 @@ async function viewOdemeModu(c) {
       .om-tbl td{display:flex;justify-content:space-between;align-items:center;gap:12px;border:0;padding:7px 0;text-align:right;white-space:nowrap}
       .om-tbl td::before{content:attr(data-label);font-size:12px;color:var(--ink-faint,#8b8172);font-weight:600;text-align:left}
       .om-tbl td.nm{max-width:none;width:auto;font-weight:800;font-size:15px;border-bottom:1px solid var(--line,#f0ece2);padding:8px 0}
-      .om-tbl td.nm::before{content:""}
+      .om-tbl td.nm::before{content:""} .om-tbl td.nm .om-nm{font-size:15px;font-weight:800}
       .om-in{width:160px;max-width:56vw}
     }
   </style>
   <div class="om">
     <div class="om-sum">
-      <div class="om-tile borc"><div class="l">Toplam Borç</div><div class="v">${fmtTRY(toplamBorc)}</div><div class="s" id="om-kalanborc">kalan ${fmtTRY(toplamBorc)}</div></div>
-      <div class="om-tile gar"><div class="l">🟢 Garanti Bakiye</div><div class="v" id="om-gark">${fmtTRY(garantiBal)}</div><div class="s">başlangıç ${fmtTRY(garantiBal)}</div></div>
-      <div class="om-tile tf"><div class="l">🔵 T.Finans Bakiye</div><div class="v" id="om-tfk">${fmtTRY(tfinBal)}</div><div class="s">başlangıç ${fmtTRY(tfinBal)}</div></div>
-      <div class="om-tile ode"><div class="l">Toplam Ödeme</div><div class="v" id="om-ode">${fmtTRY(0)}</div><div class="s" id="om-kalanbank">kalan bakiye ${fmtTRY(garantiBal + tfinBal)}</div></div>
+      <div class="om-tile borc"><div class="l">Toplam Borç</div><div class="v">${fmtTRY(toplamBorc)}</div><div class="s">kalan <span class="omv-kborc">${fmtTRY(toplamBorc)}</span></div></div>
+      <div class="om-tile gar"><div class="l">🟢 Garanti kalan</div><div class="v omv-gar">${fmtTRY(garantiBal)}</div><div class="s">bakiye ${fmtTRY(garantiBal)}</div></div>
+      <div class="om-tile tf"><div class="l">🔵 T.Finans kalan</div><div class="v omv-tf">${fmtTRY(tfinBal)}</div><div class="s">bakiye ${fmtTRY(tfinBal)}</div></div>
+      <div class="om-tile ode"><div class="l">Toplam Ödeme</div><div class="v"><span class="omv-ode">${fmtTRY(0)}</span></div><div class="s">kalan bakiye <span class="omv-kbank">${fmtTRY(garantiBal + tfinBal)}</span></div></div>
     </div>
-    <div class="om-tools"><span class="om-hint">💡 Sadece plan — kayıt oluşturmaz. Girdiğin tutarlar bu cihazda saklanır.</span><div class="grow" style="flex:1"></div><button class="btn btn-sm" id="om-clear">Planı Temizle</button></div>
+    <div class="om-tools"><span class="om-hint">💡 Sadece plan — kayıt oluşturmaz. Tutarları yazarken binlik nokta eklenir.</span><div class="grow" style="flex:1"></div><button class="btn btn-sm" id="om-clear">Planı Temizle</button></div>
     <div class="om-wrap"><table class="om-tbl">
-      <thead><tr><th class="nm">Hesap</th><th>Güncel Borç</th><th>🟢 Garanti Öde</th><th>🔵 T.Finans Öde</th><th>Kalan Borç</th></tr></thead>
+      <thead>
+        <tr class="om-shrow">
+          <th class="nm"><span class="sh-l">Toplam</span><span class="sh-v">${suppliers.length} borç</span></th>
+          ${shCell("Toplam Borç", "", fmtTRY(toplamBorc), "kalan ", "omv-kborc", fmtTRY(toplamBorc))}
+          ${shCell("🟢 Garanti kalan", "omv-gar", fmtTRY(garantiBal), "bakiye ", "", fmtTRY(garantiBal))}
+          ${shCell("🔵 T.Finans kalan", "omv-tf", fmtTRY(tfinBal), "bakiye ", "", fmtTRY(tfinBal))}
+          ${shCell("Kalan Bakiye", "omv-kbank", fmtTRY(garantiBal + tfinBal), "ödeme ", "omv-ode", fmtTRY(0))}
+        </tr>
+        <tr class="om-lbl"><th class="nm">Hesap</th><th>Güncel Borç</th><th>🟢 Garanti Öde</th><th>🔵 T.Finans Öde</th><th>Kalan Borç</th></tr>
+      </thead>
       <tbody>${suppliers.map((x) => `<tr data-acc="${x.a.id}">
-        <td class="nm" title="${esc(x.a.name)}">${esc(first2(x.a.name))}</td>
+        <td class="nm"><a class="om-nm" href="#/hesap-detay?id=${x.a.id}&from=odeme-modu" title="${esc(x.a.name)}">${esc(first2(x.a.name))}<span class="arw">›</span></a></td>
         <td class="om-borc" data-label="Güncel Borç" data-debt="${x.debt}">${fmtTRY(x.debt)}</td>
-        <td data-label="🟢 Garanti Öde"><input class="om-in gar" inputmode="decimal" data-acc="${x.a.id}" data-src="g" value="${pg(x.a.id) ? fmtNum(pg(x.a.id)) : ""}" placeholder="0,00" /></td>
-        <td data-label="🔵 T.Finans Öde"><input class="om-in tf" inputmode="decimal" data-acc="${x.a.id}" data-src="t" value="${pt(x.a.id) ? fmtNum(pt(x.a.id)) : ""}" placeholder="0,00" /></td>
+        <td data-label="🟢 Garanti Öde"><input class="om-in gar" inputmode="decimal" data-acc="${x.a.id}" data-src="g" value="${esc(gfmt(pg(x.a.id)))}" placeholder="0" /></td>
+        <td data-label="🔵 T.Finans Öde"><input class="om-in tf" inputmode="decimal" data-acc="${x.a.id}" data-src="t" value="${esc(gfmt(pt(x.a.id)))}" placeholder="0" /></td>
         <td class="om-kalan" data-label="Kalan Borç">${fmtTRY(x.debt)}</td>
       </tr>`).join("")}</tbody>
     </table></div>
   </div>`;
 
   const save = () => { try { localStorage.setItem("odeme-plan", JSON.stringify(plan)); } catch (_) {} };
+  const setTxt = (cls, txt) => $$("." + cls, c).forEach((el) => el.textContent = txt);
+  const setCol = (cls, val) => $$("." + cls, c).forEach((el) => el.style.color = val < -0.005 ? "var(--danger,#d33)" : val > 0.005 ? "var(--ok,#2e9e52)" : "");
   const recompute = () => {
     let gSum = 0, tSum = 0;
     $$("tr[data-acc]", c).forEach((tr) => {
-      const gi = $(".om-in.gar", tr), ti = $(".om-in.tf", tr);
-      const g = parseNum(gi.value), t = parseNum(ti.value);
+      const g = pnum($(".om-in.gar", tr).value), t = pnum($(".om-in.tf", tr).value);
       gSum += g; tSum += t;
       const debt = parseNum($(".om-borc", tr).dataset.debt);
       const kalan = debt - g - t;
@@ -2059,21 +2083,41 @@ async function viewOdemeModu(c) {
       kc.textContent = fmtTRY(kalan);
       kc.className = "om-kalan " + (Math.abs(kalan) < 0.005 ? "ok" : "red");
     });
-    const ode = gSum + tSum;
-    $("#om-ode", c).textContent = fmtTRY(ode);
-    const garK = garantiBal - gSum, tfK = tfinBal - tSum;
-    const ge = $("#om-gark", c); ge.textContent = fmtTRY(garK); ge.className = "v " + (garK < -0.005 ? "red" : garK > 0.005 ? "green" : "");
-    const te = $("#om-tfk", c); te.textContent = fmtTRY(tfK); te.className = "v " + (tfK < -0.005 ? "red" : tfK > 0.005 ? "green" : "");
-    $("#om-kalanbank", c).textContent = `kalan bakiye ${fmtTRY((garantiBal + tfinBal) - ode)}`;
-    $("#om-kalanborc", c).textContent = `kalan ${fmtTRY(toplamBorc - ode)}`;
+    const ode = gSum + tSum, garK = garantiBal - gSum, tfK = tfinBal - tSum;
+    setTxt("omv-kborc", fmtTRY(toplamBorc - ode));
+    setTxt("omv-gar", fmtTRY(garK)); setCol("omv-gar", garK);
+    setTxt("omv-tf", fmtTRY(tfK)); setCol("omv-tf", tfK);
+    setTxt("omv-ode", fmtTRY(ode));
+    setTxt("omv-kbank", fmtTRY((garantiBal + tfinBal) - ode));
   };
-  $$(".om-in", c).forEach((inp) => {
-    inp.addEventListener("input", rafThrottle(() => {
+  // Yazarken canlı binlik nokta (imleç korunur)
+  const liveGroup = (inp) => {
+    const old = inp.value, pos = inp.selectionStart ?? old.length;
+    const digitsBefore = old.slice(0, pos).replace(/[^\d]/g, "").length;
+    const cleaned = old.replace(/[^\d,]/g, ""), ci = cleaned.indexOf(",");
+    let ip = (ci >= 0 ? cleaned.slice(0, ci) : cleaned).replace(/\D/g, "").replace(/^0+(?=\d)/, "");
+    const dp = ci >= 0 ? "," + cleaned.slice(ci + 1).replace(/\D/g, "").slice(0, 2) : "";
+    const nv = ip.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + dp;
+    inp.value = nv;
+    let k = 0, seen = 0; while (k < nv.length && seen < digitsBefore) { if (/\d/.test(nv[k])) seen++; k++; }
+    try { inp.setSelectionRange(k, k); } catch (_) {}
+  };
+  const allIns = $$(".om-in", c);
+  const garIns = allIns.filter((i) => i.classList.contains("gar")), tfIns = allIns.filter((i) => i.classList.contains("tf"));
+  const recomputeT = rafThrottle(recompute);
+  allIns.forEach((inp) => {
+    inp.addEventListener("input", () => {
+      liveGroup(inp);
       const id = inp.dataset.acc, src = inp.dataset.src;
-      plan[id] = plan[id] || {}; plan[id][src] = inp.value.trim() === "" ? "" : parseNum(inp.value);
-      save(); recompute();
-    }));
-    inp.addEventListener("blur", () => { if (inp.value.trim() !== "") inp.value = fmtNum(parseNum(inp.value)); });
+      plan[id] = plan[id] || {}; plan[id][src] = inp.value.trim() === "" ? "" : pnum(inp.value);
+      save(); recomputeT();
+    });
+    inp.addEventListener("keydown", (e) => {   // Enter → alt satırın AYNI sütun kutusu
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      const arr = inp.classList.contains("gar") ? garIns : tfIns, nx = arr[arr.indexOf(inp) + 1];
+      if (nx) { nx.focus(); nx.select && nx.select(); } else inp.blur();
+    });
   });
   $("#om-clear", c).onclick = () => confirmDialog("Ödeme planı temizlensin mi? (Girdiğin tutarlar silinir; muhasebe etkilenmez.)", () => { plan = {}; save(); route(); });
   recompute();
