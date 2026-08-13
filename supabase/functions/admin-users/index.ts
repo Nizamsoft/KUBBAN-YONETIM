@@ -79,6 +79,10 @@ Deno.serve(async (req) => {
         id: uid,
         doc: { email: data.user.email, displayName, role, createdAt: new Date().toISOString() },
       });
+      // ÖNEMLİ: Güvenlik (RLS) 'approved_users' listesine bağlı. Yeni kullanıcı
+      // bu listeye eklenmezse giriş yapar ama HİÇBİR veri göremez. Otomatik ekle.
+      const { error: apErr } = await admin.from("approved_users").upsert({ uid, email: data.user.email });
+      if (apErr) return json({ ok: true, id: uid, warn: "Kullanıcı oluşturuldu fakat onaylı listeye (approved_users) eklenemedi: " + apErr.message + " — SQL ile elle ekleyin, yoksa veri göremez." });
       return json({ ok: true, id: uid });
     }
 
@@ -89,6 +93,7 @@ Deno.serve(async (req) => {
       const { error } = await admin.auth.admin.deleteUser(id);
       if (error) return json({ error: error.message });
       await admin.from("users").delete().eq("id", id);
+      await admin.from("approved_users").delete().eq("uid", id);   // onaylı listesinden de çıkar
       return json({ ok: true });
     }
 

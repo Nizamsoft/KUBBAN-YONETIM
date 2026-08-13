@@ -575,8 +575,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.192";
+const APP_VERSION = "2026.193";
 const CHANGELOG = [
+  { version: "2026.193", date: "2026-08-13", items: [
+    "👥 Yeni kullanıcı ekleme düzeltildi: Sistem → Kullanıcılar → '+ Yeni Kullanıcı' ile eklenen kişi artık OTOMATİK olarak onaylı listeye (approved_users) de ekleniyor — böylece giriş yapıp verileri görebiliyor. (Güvenlik sıkılaştırmasından sonra sadece Auth'ta oluşturmak yetmiyordu; kullanıcı giriş yapıp boş ekran görüyordu.) Kullanıcı silinince onaylı listeden de çıkarılır. ⚠️ Bu düzeltmenin etkinleşmesi için 'admin-users' Edge Function'ı yeniden deploy edilmeli",
+  ]},
   { version: "2026.192", date: "2026-08-13", items: [
     "📊 Dashboard üst panel yenilendi: artık 'basmalı' değil — solda/sağda oklarla gün gün gezersin ya da tarihe dokunup istediğin günü seçersin. Seçilen günün 💰 Cirosu, 🎁 İkramı ve 🏷️ İskontosu birlikte görünür. Kayıt olmayan günde 'kayıt yok' yazar",
     "📈 Ciro Grafiği sadeleşti: 30 yerine son 10 gün gösterilir ve her barın üstünde tutarı yazar (kısa biçim: 691b = 691 bin, 1,2M = 1,2 milyon; tam tutar dokun/hover ile). Hafta/Ay görünümlerinde de tutarlar yazılır",
@@ -9267,7 +9270,7 @@ async function viewUsers(c) {
         if (!email || password.length < 6) return toast("E-posta ve en az 6 karakterli şifre gerekli.", "err");
         m.close();
         const lb = loadingBar("Kullanıcı oluşturuluyor…");
-        try { await adminUsers("create", { email, password, displayName, role }); lb.finish(() => { toast("Kullanıcı oluşturuldu.", "ok"); route(); }); }
+        try { const r = await adminUsers("create", { email, password, displayName, role }); lb.finish(() => { toast(r && r.warn ? r.warn : "Kullanıcı oluşturuldu ve onaylandı — giriş yapıp verileri görebilir.", r && r.warn ? "err" : "ok"); route(); }); }
         catch (e) { lb.finish(() => toast("Hata: " + e.message, "err")); }
       }),
     ]});
