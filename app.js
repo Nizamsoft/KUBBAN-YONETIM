@@ -575,8 +575,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.188";
+const APP_VERSION = "2026.189";
 const CHANGELOG = [
+  { version: "2026.189", date: "2026-08-13", items: [
+    "🎨 Giriş ekranındaki Nizam Software logosu yenilendi: koyu kare kaldırıldı, yerine çerçevesiz/şeffaf 3B 'N' işareti (vektörel — her ekranda net) kondu ve temaya (krem/altın) oturdu",
+    "✨ Logo açılışta 'patlama' animasyonuyla belirir (arkadan kısa bir ışık halkası + hafif zıplayan büyüme). Hareketi kapalı tercih eden cihazlarda (reduced-motion) animasyon otomatik devre dışı",
+  ]},
   { version: "2026.188", date: "2026-08-13", items: [
     "🚫 Bakiye Karşılaştır: her hesap satırına '🚫 Yoksay' düğmesi eklendi. Basınca o hesap kontrolden çıkar — 'Farklı', 'Toplam fark' ve listede artık görünmez (kabul ettiğin/bilinen farkları gizlemek için). Özete 'Yoksayılan' sayacı eklendi",
     "⚙️ Yoksayılanlar yönetimi: araç çubuğundaki '⚙️ Yoksayılanlar (N)' düğmesi yoksaydığın hesapları listeler; tek tek '↩︎ Geri aç' ya da 'Tümünü geri aç' ile kontrolü geri açarsın. Seçim cihazda kalıcı saklanır",
