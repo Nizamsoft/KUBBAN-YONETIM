@@ -119,28 +119,51 @@ button { font-family: inherit; }
 .login-card .sub { color: var(--ink-faint); font-size: 12px; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 22px; }
 .login-card form { text-align: left; }
 
-/* ===== Nizam Software footer — çerçevesiz logo + patlama animasyonu ===== */
+/* ===== Nizam Software footer — çerçevesiz logo + teknolojik ışık patlaması ===== */
 .login-foot { margin-top: 26px; padding-top: 18px; border-top: 1px solid var(--line); text-align: center; }
-.ns-logo { position: relative; width: 62px; height: 62px; margin: 0 auto 8px; display: flex; align-items: center; justify-content: center;
-  animation: nsPop .72s cubic-bezier(.18,1.5,.4,1) both; animation-delay: .15s; }
-.ns-logo svg { width: 100%; height: 100%; position: relative; z-index: 2; display: block; }
-.ns-logo::before { content: ""; position: absolute; inset: 0; border-radius: 50%; z-index: 1;
-  background: radial-gradient(circle, rgba(224,40,30,.35) 0%, rgba(201,162,75,.25) 45%, transparent 70%);
-  animation: nsBurst .7s ease-out both; animation-delay: .15s; }
-@keyframes nsPop {
-  0%   { transform: scale(.2) rotate(-12deg); opacity: 0; }
-  55%  { transform: scale(1.14) rotate(3deg); opacity: 1; }
-  75%  { transform: scale(.95) rotate(-1deg); }
-  100% { transform: scale(1) rotate(0); }
-}
-@keyframes nsBurst {
-  0%   { transform: scale(.2); opacity: 0; }
-  30%  { opacity: .9; }
-  100% { transform: scale(2.6); opacity: 0; }
-}
+.ns-logo { position: relative; width: 66px; height: 66px; margin: 0 auto 10px; display: flex; align-items: center; justify-content: center; }
+.ns-logo .ns-art { width: 100%; height: 100%; position: relative; z-index: 5; display: block; object-fit: contain; border-radius: 14px;
+  animation: nsPop .8s cubic-bezier(.15,1.6,.4,1) both; animation-delay: .1s; }
+/* çekirdek parlaması */
+.ns-logo .core { position: absolute; inset: -6px; border-radius: 50%; z-index: 2; pointer-events: none;
+  background: radial-gradient(circle, rgba(255,255,255,.95) 0%, rgba(255,220,180,.6) 30%, rgba(224,40,30,.3) 55%, transparent 72%);
+  animation: nsCore .75s ease-out both; animation-delay: .1s; }
+/* ışık huzmeleri (spokes) */
+.ns-logo .rays { position: absolute; inset: -40px; z-index: 1; border-radius: 50%; pointer-events: none;
+  background: conic-gradient(from 0deg,
+    transparent 0deg, rgba(201,162,75,.55) 4deg, transparent 8deg,
+    transparent 40deg, rgba(224,40,30,.5) 44deg, transparent 48deg,
+    transparent 85deg, rgba(255,255,255,.6) 89deg, transparent 93deg,
+    transparent 130deg, rgba(201,162,75,.55) 134deg, transparent 138deg,
+    transparent 175deg, rgba(224,40,30,.5) 179deg, transparent 183deg,
+    transparent 220deg, rgba(255,255,255,.6) 224deg, transparent 228deg,
+    transparent 265deg, rgba(201,162,75,.55) 269deg, transparent 273deg,
+    transparent 310deg, rgba(224,40,30,.5) 314deg, transparent 318deg,
+    transparent 350deg, rgba(255,255,255,.55) 354deg, transparent 358deg);
+  -webkit-mask: radial-gradient(circle, transparent 30%, #000 42%, #000 60%, transparent 72%);
+          mask: radial-gradient(circle, transparent 30%, #000 42%, #000 60%, transparent 72%);
+  animation: nsRays .85s cubic-bezier(.1,.7,.3,1) both; animation-delay: .12s; }
+/* genişleyen halkalar */
+.ns-logo .ring { position: absolute; inset: 0; z-index: 2; border-radius: 50%; pointer-events: none;
+  border: 2px solid rgba(201,162,75,.7); animation: nsRing .8s cubic-bezier(.15,.7,.3,1) both; animation-delay: .14s; }
+.ns-logo .ring.r2 { border-color: rgba(224,40,30,.55); animation-delay: .22s; animation-duration: .85s; }
+/* parçacıklar */
+.ns-logo .p { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px; border-radius: 50%; z-index: 3; margin: -2px 0 0 -2px; pointer-events: none;
+  animation: nsPart .8s cubic-bezier(.12,.7,.25,1) both; animation-delay: .14s; }
+/* tarama parıltısı */
+.ns-logo .glint { position: absolute; inset: 0; z-index: 6; overflow: hidden; border-radius: 8px; pointer-events: none; }
+.ns-logo .glint::after { content: ""; position: absolute; top: -30%; left: -60%; width: 40%; height: 160%;
+  background: linear-gradient(105deg, transparent, rgba(255,255,255,.85), transparent); transform: skewX(-18deg);
+  animation: nsGlint .9s ease-out both; animation-delay: .5s; }
+@keyframes nsPop { 0%{transform:scale(.1) rotate(-16deg);opacity:0} 55%{transform:scale(1.16) rotate(3deg);opacity:1} 75%{transform:scale(.95)} 100%{transform:scale(1) rotate(0)} }
+@keyframes nsCore { 0%{transform:scale(.1);opacity:0} 25%{opacity:1} 100%{transform:scale(2.3);opacity:0} }
+@keyframes nsRays { 0%{transform:scale(.2) rotate(-30deg);opacity:0} 25%{opacity:1} 100%{transform:scale(1.6) rotate(18deg);opacity:0} }
+@keyframes nsRing { 0%{transform:scale(.2);opacity:0} 20%{opacity:.9} 100%{transform:scale(2.9);opacity:0} }
+@keyframes nsPart { 0%{transform:translate(0,0) scale(1);opacity:0} 20%{opacity:1} 100%{transform:translate(var(--dx),var(--dy)) scale(.2);opacity:0} }
+@keyframes nsGlint { 0%{left:-60%;opacity:0} 30%{opacity:1} 100%{left:130%;opacity:0} }
 @media (prefers-reduced-motion: reduce) {
-  .ns-logo { animation: none; }
-  .ns-logo::before { animation: none; opacity: 0; }
+  .ns-logo .ns-art { animation: none; }
+  .ns-logo .core, .ns-logo .rays, .ns-logo .ring, .ns-logo .p, .ns-logo .glint { display: none; }
 }
 .ns-cred { font-size: 11px; color: var(--ink-faint); line-height: 1.7; }
 .ns-cred b { color: var(--gold-dark); }

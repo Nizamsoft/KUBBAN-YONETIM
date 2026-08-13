@@ -575,8 +575,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.189";
+const APP_VERSION = "2026.190";
 const CHANGELOG = [
+  { version: "2026.190", date: "2026-08-13", items: [
+    "✨ Giriş ekranı logosu artık GÖRSEL (nizamsoft-logo.png) olarak gösteriliyor — kendi logo dosyanı koyabilirsin. Dosya yüklenene kadar yedek vektörel işaret görünür",
+    "💥 Logo açılışında 'teknolojik ışık patlaması' animasyonu: çekirdek parlaması + dışa fırlayan ışık huzmeleri + genişleyen çift halka + renkli parçacıklar + logoda tarama parıltısı. reduced-motion'da kapanır",
+  ]},
   { version: "2026.189", date: "2026-08-13", items: [
     "🎨 Giriş ekranındaki Nizam Software logosu yenilendi: koyu kare kaldırıldı, yerine çerçevesiz/şeffaf 3B 'N' işareti (vektörel — her ekranda net) kondu ve temaya (krem/altın) oturdu",
     "✨ Logo açılışta 'patlama' animasyonuyla belirir (arkadan kısa bir ışık halkası + hafif zıplayan büyüme). Hareketi kapalı tercih eden cihazlarda (reduced-motion) animasyon otomatik devre dışı",
