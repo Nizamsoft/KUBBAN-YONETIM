@@ -575,8 +575,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.194";
+const APP_VERSION = "2026.195";
 const CHANGELOG = [
+  { version: "2026.195", date: "2026-08-13", items: [
+    "💰 Kullanılabilir Likit Varlık kırılımı sadeleşti: 'Blokedeki (valörlü)' bölümü kaldırıldı — yalnız kullanılabilir para (Garanti · Türkiye Finans · Nakit + varsa diğer banka) gösterilir. Kart/başlık ikonu su damlası yerine 💰 oldu; 0 bakiyeli banka satırları gizlenir",
+  ]},
   { version: "2026.194", date: "2026-08-13", items: [
     "📅 Dashboard: 'Bu Ay Ciro' kartı artık ay adını yazıyor — ör. 'Ağustos · şimdiye kadarki ciro' (o ayın bugüne dek toplam cirosu)",
     "💧 'Elimdeki Nakit' → 'Kullanılabilir Likit Varlık' oldu. Karta dokununca kırılım açılır: solda 🟢 Garanti · 🔵 Türkiye Finans · 💵 Nakit (kullanılabilir), sağda 🔒 valörlü blokedeki paralar (Garanti/T.Finans blokesi + Edenred, Multinet, Pluxee, Metropol… yemek kartları). Her satır dokununca o hesabın hareketlerine gider",
@@ -1890,7 +1893,7 @@ async function viewDashboard(c) {
         <div class="dm-dl ${ayPct == null ? "" : (ayPct >= 0 ? "up" : "down")}">${ayPct == null ? "geçen ay kaydı yok" : `${ayPct >= 0 ? "▲" : "▼"} %${Math.abs(ayPct).toFixed(0)} · geçen ay ${fmtTRY(gecenAy)}`}</div>
       </a>
       <a class="dmini" id="dm-likit" href="#/hesaplar">
-        <div class="dm-ic">💧</div><div class="dm-lb">Kullanılabilir Likit Varlık</div>
+        <div class="dm-ic">💰</div><div class="dm-lb">Kullanılabilir Likit Varlık</div>
         <div class="dm-vl">${fmtTRY(elde)}</div>
         <div class="dm-dl">Banka ${fmtTRY(banka)} · Nakit ${fmtTRY(kasa)} · dokun → kırılım</div>
       </a>
@@ -1976,12 +1979,8 @@ async function viewDashboard(c) {
       { ic: "🔵", nm: "Türkiye Finans", val: tfA.reduce((s, a) => s + cur(a.id), 0), id: tfA[0]?.id },
       { ic: "💵", nm: "Nakit (Kasa)", val: kasa, id: kasaAcc?.id },
     ];
-    otA.forEach((a) => likit.push({ ic: accEmoji(a), nm: a.name, val: cur(a.id), id: a.id }));
-    const bloke = leaves.filter((a) => groupOf(a.code) === "108")
-      .map((a) => ({ ic: accEmoji(a), nm: a.name, val: cur(a.id), id: a.id }))
-      .filter((x) => Math.abs(x.val) > 0.5).sort((x, y) => y.val - x.val);
+    otA.forEach((a) => { const v = cur(a.id); if (Math.abs(v) > 0.5) likit.push({ ic: accEmoji(a), nm: a.name, val: v, id: a.id }); });
     const likitTot = likit.reduce((s, r) => s + r.val, 0);
-    const blokeTot = bloke.reduce((s, r) => s + r.val, 0);
     const rowH = (r) => `<a class="lkr" data-id="${r.id || ""}" href="${r.id ? `#/hesap-detay?id=${r.id}&from=dashboard` : "#"}"><span class="lkr-n">${r.ic} ${esc(r.nm)}</span><b class="lkr-v">${fmtTRY(r.val)}</b></a>`;
     const body = document.createElement("div");
     body.innerHTML = `<style>
@@ -1996,11 +1995,8 @@ async function viewDashboard(c) {
       .lkr-v{flex:0 0 auto;font-weight:800;white-space:nowrap}
       .lk-note{font-size:12px;color:var(--ink-faint,#8b8172);margin-top:14px;line-height:1.5}
     </style>
-    <div class="lk-grid">
-      <div class="lk-col"><h4>💧 Kullanılabilir <b>${fmtTRY(likitTot)}</b></h4>${likit.map(rowH).join("")}</div>
-      <div class="lk-col"><h4>🔒 Blokedeki (valörlü) <b>${fmtTRY(blokeTot)}</b></h4>${bloke.length ? bloke.map(rowH).join("") : `<div style="font-size:13px;color:var(--ink-faint,#8b8172);padding:9px 4px">Blokede para yok.</div>`}</div>
-    </div>
-    <div class="lk-note">💡 <b>Kullanılabilir</b> = bugün elindeki para (banka + nakit). <b>Blokedeki</b> = valör tarihinde çözülüp bankana geçecek para (yemek kartları + banka blokesi).</div>`;
+    <div class="lk-col"><h4>💰 Kullanılabilir <b>${fmtTRY(likitTot)}</b></h4>${likit.map(rowH).join("")}</div>
+    <div class="lk-note">💡 <b>Kullanılabilir</b> = bugün elindeki para (banka + nakit).</div>`;
     const m = openModal({ title: "Kullanılabilir Likit Varlık", body, footer: [mkBtn("Kapat", "btn-primary", () => m.close())] });
     body.querySelectorAll(".lkr").forEach((el) => el.addEventListener("click", (e) => {
       const id = el.dataset.id; if (id) { e.preventDefault(); m.close(); location.hash = `#/hesap-detay?id=${id}&from=dashboard`; }
