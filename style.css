@@ -1125,7 +1125,14 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 }
 
 /* Hesap defteri üst kartı — Altın Banner (tek kart) */
-/* Defter ekrana kilitli: üst kısım sabit, yalnız tablo içi kayar */
+/* Defter ekrana kilitli: üst kısım sabit, yalnız tablo içi kayar.
+   Kilit tamamen CSS (dvh + flex) — JS ölçüm YOK. Sayfa bir bütün olarak KAYMAZ:
+   .main tam viewport yüksekliği, .content taşmayı gizler, .ledger-view onu doldurur;
+   yalnız içteki liste (masaüstünde tablo, mobilde .ledger-cards) kendi içinde kayar.
+   dvh sayesinde iOS'ta URL çubuğu açılıp kapanınca yükseklik kendiliğinden düzelir. */
+body.route-ledger .main { height: 100vh; height: 100dvh; }
+body.route-ledger .content { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+body.route-ledger .ledger-view { height: 100%; }
 .ledger-view { display: flex; flex-direction: column; }
 .ledger-view .ledger-card { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; margin: 0; }
 .ledger-view .ledger-card > .table-wrap.ledger-table { flex: 1 1 auto; min-height: 0; max-height: none; }

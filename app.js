@@ -614,8 +614,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.227";
+const APP_VERSION = "2026.228";
 const CHANGELOG = [
+  { version: "2026.228", date: "2026-08-14", items: [
+    "📖 Hesap defterinde sayfa artık bir bütün olarak AŞAĞI İNMİYOR: üst (altın hesap kartı + 'Hareketler' başlığı + sütun başlığı) SABİT kalır, yalnızca hareket listesi kendi içinde kayar. Kilit tamamen CSS ile (dvh + flex) yapıldı — JS ile yükseklik ölçülmüyor; iOS'ta URL çubuğu açılıp kapanınca yükseklik kendiliğinden düzeliyor, 'hero yukarı kaçması' / 'açılışta zıplama' sorunu bitti",
+  ]},
   { version: "2026.227", date: "2026-08-14", items: [
     "📖 Hesap defteri mobil tablosu sadeleşti: 'İşlem' sütunu kaldırıldı, 'Tutar' ve 'Güncel Bakiye' tek sütunda ALT ALTA (tutar kalın/renkli üstte, bakiye altta gri). Böylece Açıklama sütununa çok daha fazla yer kaldı — kayıtların açıklaması artık tam okunuyor",
   ]},
@@ -1847,6 +1850,9 @@ async function route(opts = {}) {
   $$("#nav .nav-group").forEach((g) =>
     g.classList.toggle("open", Array.isArray(g._paths) && g._paths.includes(navPath)));
   updateBottomNav(navPath);   // mobil alt çubukta aktif sekmeyi işaretle
+  // Defter ekranı: sayfayı viewport'a kilitle (üst sabit, yalnız tablo kayar).
+  // Ölçüm YOK — CSS dvh + flex; iOS'ta URL çubuğu açılıp kapanınca tarayıcı kendi ayarlar.
+  document.body.classList.toggle("route-ledger", path === "hesap-detay");
   $("#page-title").textContent = r.title;
   $("#crumb").textContent = r.crumb;
   const backEl = $("#page-back");
@@ -7434,24 +7440,11 @@ async function viewAccountLedger(c) {
   });
   renderPage();
 
-  // Defteri ekrana kilitle: yalnız tablo içi kayar, sayfa kaymaz (masaüstü).
-  // Mobilde tablo gizli (kartlar akar) → kilit uygulanmaz.
-  // Defteri ekrana kilitle: üst (özet + başlık + araçlar) SABİT; masaüstünde tablo, mobilde
-  // kartlar kendi içinde kayar. Yükseklik KAYDIRMADAN BAĞIMSIZ ölçülür (topbar yüksekliği) →
-  // iOS'ta açılışta 'yukarı gelip sonra aşağı oturma' zıplaması olmaz. Giriş animasyonu da kapalı.
-  const ledgerRoot = $(".ledger-view", c);
-  function fitLedger() {
-    if (!ledgerRoot) return;
-    ledgerRoot.style.height = ""; ledgerRoot.style.overflow = "";
-    const content = c.closest(".content");
-    if (!content) return;
-    const cs = getComputedStyle(content);
-    const padT = parseFloat(cs.paddingTop) || 0, padB = parseFloat(cs.paddingBottom) || 0;
-    const topbar = document.querySelector(".topbar");
-    const tbH = topbar ? topbar.offsetHeight : 0;                 // sabit; scroll'dan bağımsız
-    const h = window.innerHeight - tbH - padT - padB - 4;
-    if (h > 240) { ledgerRoot.style.height = h + "px"; ledgerRoot.style.overflow = "hidden"; }
-  }
+  // Defter ekrana kilitli: üst (özet + başlık + araçlar) SABİT; yalnız hareket listesi kendi
+  // içinde kayar. Kilit tamamen CSS ile (body.route-ledger → .main 100dvh + flex, iç kapsayıcı
+  // overflow:auto). JS ile yükseklik ÖLÇÜLMEZ — iOS'ta URL çubuğu açılıp kapanınca tarayıcı
+  // yüksekliği kendi düzeltir; 'yukarı gelip aşağı oturma' ya da 'hero yukarı kaçması' olmaz.
+  const fitLedger = () => {};                 // CSS hallediyor; filtre/pencere geri çağrıları için no-op
   // Açılışta EN ALTA (son işlemler görünür). İncelenen fatura varsa yalnız vurgula.
   function initScroll() {
     const tw = $(".ledger-table", c);
@@ -7462,9 +7455,7 @@ async function viewAccountLedger(c) {
       if (el) { el.style.outline = "2px solid var(--gold)"; el.style.outlineOffset = "-2px"; }
     }
   }
-  fitLedger(); initScroll();                 // senkron: ilk boyamadan önce kilitle + en alta → zıplamaz
-  ledgerFitHandler = fitLedger;
-  window.addEventListener("resize", fitLedger);
+  requestAnimationFrame(initScroll);          // yerleşim oturduktan sonra en alta in
 
   // İnceleme turu: Sonraki / Bitir / Taşı + Enter kısayolu
   if (inReview) {
