@@ -613,8 +613,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.219";
+const APP_VERSION = "2026.220";
 const CHANGELOG = [
+  { version: "2026.220", date: "2026-08-14", items: [
+    "📒 Tüm hesap defterlerinde (hesap detay) artık üst kısım SABİT, yalnız hareketler kendi içinde kayıyor — mobilde de (önceden sadece bilgisayarda böyleydi; telefonda tüm sayfa kayıp hesap özeti yukarı gidiyordu). Açılış Borçlar/Alacaklar'daki gibi pürüzsüz: kaydırmadan bağımsız yükseklik + giriş animasyonu kapalı → zıplama yok, son işlemler görünür açılır",
+  ]},
   { version: "2026.219", date: "2026-08-14", items: [
     "🎯 Borçlar/Alacaklar açılışındaki 'önce yukarıda gelip sonra aşağı oturma' kayması giderildi: yükseklik artık kaydırma konumundan BAĞIMSIZ (topbar yüksekliğinden) hesaplanıyor ve bu ekranda giriş animasyonu kapatıldı → içerik direkt, sabit, zıplamadan geliyor. Üst kısım yine sabit, liste içeride kayar",
   ]},
@@ -1559,7 +1562,7 @@ const ROUTES = {
   "cari-gecmis-import": { title: "Cari Geçmişi İçe Aktar", crumb: "Hesaplar", render: viewCariGecmisImport, admin: true, back: "#/hesaplar" },
   "tum-kayitlar":     { title: "Tüm Kayıtlar", crumb: "Hesaplar", render: viewTumKayitlar, admin: true, back: "#/hesaplar" },
   "bakiye-karsilastir": { title: "Bakiye Karşılaştır", crumb: "Hesaplar", render: viewBakiyeKarsilastir, admin: true, back: "#/hesaplar" },
-  "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger, back: "#/hesaplar" },
+  "hesap-detay":      { title: "Hesap Hareketleri", crumb: "Hesaplar", render: viewAccountLedger, back: "#/hesaplar", noAnim: true },
   "cari-hareket":     { title: "Fatura Aktarımı", crumb: "Veri Girişleri", render: viewCariHareket },
   "banka":            { title: "Banka Aktarımı", crumb: "Veri Girişleri", render: viewBanka },
   "kar-zarar":        { title: "Kâr / Zarar Durumu", crumb: "Raporlar", render: viewKarZarar },
@@ -7150,7 +7153,7 @@ async function viewAccountLedger(c) {
     });
     page = 0;                                 // filtre değişince başa dön
     renderPage();
-    const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0;
+    const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0; const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = 0;
   }
 
   let deb;
@@ -7165,38 +7168,39 @@ async function viewAccountLedger(c) {
     const k = b.dataset.pg;
     page = k === "first" ? 0 : k === "last" ? tp() - 1 : k === "prev" ? page - 1 : page + 1;
     renderPage();
-    const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0;
+    const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0; const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = 0;
   });
   renderPage();
 
   // Defteri ekrana kilitle: yalnız tablo içi kayar, sayfa kaymaz (masaüstü).
   // Mobilde tablo gizli (kartlar akar) → kilit uygulanmaz.
-  const ledgerRoot = $(".ledger-view", c), twFit = $(".ledger-table", c);
+  // Defteri ekrana kilitle: üst (özet + başlık + araçlar) SABİT; masaüstünde tablo, mobilde
+  // kartlar kendi içinde kayar. Yükseklik KAYDIRMADAN BAĞIMSIZ ölçülür (topbar yüksekliği) →
+  // iOS'ta açılışta 'yukarı gelip sonra aşağı oturma' zıplaması olmaz. Giriş animasyonu da kapalı.
+  const ledgerRoot = $(".ledger-view", c);
   function fitLedger() {
     if (!ledgerRoot) return;
     ledgerRoot.style.height = ""; ledgerRoot.style.overflow = "";
-    if (!twFit || getComputedStyle(twFit).display === "none") return;
     const content = c.closest(".content");
-    const padB = content ? (parseFloat(getComputedStyle(content).paddingBottom) || 0) : 0;
-    const h = window.innerHeight - ledgerRoot.getBoundingClientRect().top - padB - 4;
+    if (!content) return;
+    const cs = getComputedStyle(content);
+    const padT = parseFloat(cs.paddingTop) || 0, padB = parseFloat(cs.paddingBottom) || 0;
+    const topbar = document.querySelector(".topbar");
+    const tbH = topbar ? topbar.offsetHeight : 0;                 // sabit; scroll'dan bağımsız
+    const h = window.innerHeight - tbH - padT - padB - 4;
     if (h > 240) { ledgerRoot.style.height = h + "px"; ledgerRoot.style.overflow = "hidden"; }
   }
-  // Her hesap açılışında defter EN ALTA (son işlemler) kaydırılmış başlar.
-  // İnceleme adımında o faturaya odaklanılır (varsa onu görünür yap + vurgula).
-  // ÖNEMLİ: fitLedger yüksekliği kilitleyince iç kaydırma sıfırlanır — bu yüzden
-  // kaydırma HER fitLedger'dan SONRA uygulanır (yoksa "en alta gidip başa dönme").
+  // Açılışta EN ALTA (son işlemler görünür). İncelenen fatura varsa yalnız vurgula.
   function initScroll() {
-    // Her zaman EN ALTA (son işlem görünür). İncelenen fatura varsa yalnız vurgula (kaydırmayı bozma).
     const tw = $(".ledger-table", c);
     if (tw && getComputedStyle(tw).display !== "none") tw.scrollTop = tw.scrollHeight;
-    else { const cards = $$(".tx-card", c); const last = cards[cards.length - 1]; if (last) last.scrollIntoView({ block: "end" }); }
+    else { const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = cw.scrollHeight; }
     if (focusE) {
       const el = $(`[data-edit="${focusE.id}"]`, c)?.closest("tr, .tx-card");
       if (el) { el.style.outline = "2px solid var(--gold)"; el.style.outlineOffset = "-2px"; }
     }
   }
-  requestAnimationFrame(() => { fitLedger(); initScroll(); });
-  setTimeout(() => { fitLedger(); initScroll(); }, 300);   // geçiş bitince kesin ölçü + en alta
+  fitLedger(); initScroll();                 // senkron: ilk boyamadan önce kilitle + en alta → zıplamaz
   ledgerFitHandler = fitLedger;
   window.addEventListener("resize", fitLedger);
 

@@ -754,6 +754,9 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 @media (max-width: 820px) {
   .ledger-cards { display: flex; flex-direction: column; gap: 10px; }
   .ledger-table { display: none; }
+  /* Defter mobilde de ekrana kilitli: üst (hesap özeti + başlık + araçlar) sabit,
+     yalnız hareket KARTLARI kendi içinde kayar */
+  .ledger-view .ledger-card > .ledger-cards { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 }
 
 .empty { text-align: center; color: var(--ink-faint); padding: 40px 20px; }
