@@ -575,8 +575,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.200";
+const APP_VERSION = "2026.201";
 const CHANGELOG = [
+  { version: "2026.201", date: "2026-08-13", items: [
+    "🧹 Hesap Hareketleri (defter) sadeleşti: 'İşlem No', 'Cari No' ve 'Şahıs' sütunları kaldırıldı (tek hesabın defterinde şahıs = hesabın kendisi, No'lar iç sıra numarası — gereksizdi). Mobil kartta da başlık artık açıklama/işlem adı. Arama yine şahıs/no dahil her şeyde çalışır",
+  ]},
   { version: "2026.200", date: "2026-08-13", items: [
     "🗓️ Mali Durum: tarih seçici yenilendi ve güzelleşti — 'Ay' (‹ › ile ay ay) veya 'Tarih Aralığı' (ör. 01.08.2026–10.08.2026) modu. Aralıkta 'Son 7 gün / Son 30 gün / Bu ay' hızlı düğmeleri. Seçilen dönem sağ üstte net yazar",
     "🔍 Mali Durum: Para Akışı ve Borçlar tablosunda bir hesabın GİREN ya da ÇIKAN tutarına dokun → o dönemdeki hareketleri basit ve sade listeler (tarih · kaynak · tutar + toplam). Ör. Kasa Giren'e bas → tüm nakit girişlerini gör",
@@ -6638,10 +6641,8 @@ async function viewAccountLedger(c) {
   const kasaCard = ({ e, bakiye }) => `
     <button class="tx-card${isHl(e) ? " tx-hl" : ""}" data-edit="${e.id}">
       <div class="tx-left">
-        <div class="tx-title">${esc(e.sahis || e.islemAdi || "Hareket")}</div>
-        ${e.sahis
-          ? `<div class="tx-desc">${esc(e.islemAdi || "Hareket")}</div>`
-          : (e.aciklama ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : "")}
+        <div class="tx-title">${esc(e.islemAdi || e.aciklama || "Hareket")}</div>
+        ${(e.aciklama && e.islemAdi) ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : ""}
         <div class="tx-sub">${fmtDate(e.date)}${e.rapor ? " · " + esc(e.rapor) : ""}</div>
       </div>
       <div class="tx-right">
@@ -6653,8 +6654,7 @@ async function viewAccountLedger(c) {
   const cariCard = ({ e, bakiye }) => `
     <button class="tx-card${isHl(e) ? " tx-hl" : ""}" data-edit="${e.id}">
       <div class="tx-left">
-        <div class="tx-title">${esc(e.sahis || e.aciklama || "Hareket")}</div>
-        ${e.aciklama && e.sahis ? `<div class="tx-desc">${esc(e.aciklama)}</div>` : ""}
+        <div class="tx-title">${esc(e.aciklama || "Hareket")}</div>
         ${(e.faturaTuru || e.faturaNo) ? `<div class="tx-tag">🧾 ${esc(e.faturaTuru || "")}${e.faturaNo ? " · " + esc(e.faturaNo) : ""}</div>` : ""}
         <div class="tx-sub">${fmtDate(e.date)}</div>
       </div>
@@ -6687,10 +6687,7 @@ async function viewAccountLedger(c) {
 
   // Tablo satırı üreticileri (sayfalama için ayrı)
   const cariRowHtml = ({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
-    <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
-    <td>${esc(String(e.cariNo ?? "—"))}</td>
     <td>${fmtDate(e.date)}</td>
-    <td>${esc(e.sahis || "")}</td>
     <td class="tdwrap">${esc(e.aciklama || "")}</td>
     <td class="num">${e.borc ? fmtTRY(parseNum(e.borc)) : "—"}</td>
     <td class="num">${e.alacak ? fmtTRY(parseNum(e.alacak)) : "—"}</td>
@@ -6700,10 +6697,8 @@ async function viewAccountLedger(c) {
     <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
   </tr>`;
   const kasaRowHtml = ({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
-    <td><b>${esc(String(e.islemNo ?? "—"))}</b></td>
     <td>${fmtDate(e.date)}</td>
     <td>${esc(e.islemAdi || "")}</td>
-    <td>${esc(e.sahis || "")}</td>
     <td class="tdwrap">${esc(e.aciklama || "")}</td>
     <td>${esc(e.rapor || "")}</td>
     <td class="num" style="color:var(--ok)">${e.giren ? fmtTRY(parseNum(e.giren)) : "—"}</td>
@@ -6731,16 +6726,16 @@ async function viewAccountLedger(c) {
         <div class="lh-bal"><div class="lbl">Güncel Bakiye</div><div class="val" ${run < 0 ? 'style="color:#ffd9d0"' : ""}>${fmtTRY(run)}</div></div>
       </div>`;
   const thead = cari
-    ? `<tr><th>İşlem No</th><th>Cari No</th><th>Tarih</th><th>Şahıs</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th><th>Fatura Türü</th><th>Fatura No</th><th></th></tr>`
-    : `<tr><th>İşlem No</th><th>Tarih</th><th>İşlem Adı</th><th>Şahıs</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th></tr>`;
-  const colCount = cari ? 11 : 10;
+    ? `<tr><th>Tarih</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th><th>Fatura Türü</th><th>Fatura No</th><th></th></tr>`
+    : `<tr><th>Tarih</th><th>İşlem Adı</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th></tr>`;
+  const colCount = 8;
   // Sabit sütun genişlikleri — sayfalar arası "başlık daralması" olmasın (Açıklama esner/wrap)
   const colgroup = cari
-    ? `<colgroup><col style="width:66px"><col style="width:70px"><col style="width:92px"><col style="width:150px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:120px"><col style="width:110px"><col style="width:96px"></colgroup>`
-    : `<colgroup><col style="width:66px"><col style="width:92px"><col style="width:120px"><col style="width:150px"><col><col style="width:130px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:96px"></colgroup>`;
+    ? `<colgroup><col style="width:92px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:120px"><col style="width:110px"><col style="width:96px"></colgroup>`
+    : `<colgroup><col style="width:92px"><col style="width:120px"><col><col style="width:130px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:96px"></colgroup>`;
   const tfoot = !rows.length ? "" : (cari
-    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="7">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
-    : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="8">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
+    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
+    : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
 
   // Arama için her satıra metin torbası (bir kez hesaplanır — 27.000'de bile hızlı)
   rows.forEach((r) => {
