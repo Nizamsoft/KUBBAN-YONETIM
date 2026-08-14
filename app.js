@@ -593,8 +593,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.202";
+const APP_VERSION = "2026.203";
 const CHANGELOG = [
+  { version: "2026.203", date: "2026-08-13", items: [
+    "🎴 'Günün Cirosu' kartına arka plan görseli: Sistem → Sayfa Ayarları → Görseller'e 'Günün Cirosu Kartı Arka Planı' slotu eklendi. Görsel üstüne otomatik ALTTAN KOYU DEGRADE perde iner + yazılara gölge verilir → tarih, ciro ve ikram/iskonto her görselde net okunur",
+  ]},
   { version: "2026.202", date: "2026-08-13", items: [
     "🖼️ YENİ: Sistem → Sayfa Ayarları (yalnız yönetici) → Görseller. Buradan 'Dashboard Üst Görseli (Banner)' yükleyebilirsin — Dashboard'ın en üstünde geniş, şık bir kart olarak görünür. Görsel otomatik küçültülür (~1400px) ve ayarlarda saklanır; 'Kaldır' ile silinir",
   ]},
@@ -1817,7 +1820,9 @@ async function viewDashboard(c) {
     fetchAll(C.accountEntries).catch(() => []),
     fetchAll(C.settings).catch(() => []),
   ]);
-  const pageBanner = (settings.find((s) => s.id === "pageImages") || {}).dashboardBanner || "";
+  const pageImg = settings.find((s) => s.id === "pageImages") || {};
+  const pageBanner = pageImg.dashboardBanner || "";
+  const pageHeroBg = pageImg.heroBg || "";
   const bal = computeBalances(accounts, cari, bank, entries);
   const cur = (id) => bal.get(id)?.current || 0;
   const sumType = (t) => accounts.filter((a) => a.type === t).reduce((s, a) => s + cur(a.id), 0);
@@ -1885,7 +1890,11 @@ async function viewDashboard(c) {
     .dash{display:flex;flex-direction:column;gap:14px;width:100%;max-width:100%}
     .dash-banner{border-radius:20px;overflow:hidden;box-shadow:0 8px 22px rgba(51,41,28,.15);line-height:0}
     .dash-banner img{width:100%;max-height:220px;object-fit:cover;display:block}
-    .dash-hero{border-radius:22px;padding:16px 12px 18px;color:#fff;background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28)}
+    .dash-hero{position:relative;border-radius:22px;padding:16px 12px 18px;color:#fff;background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28);overflow:hidden}
+    .dash-hero.has-bg{background-size:cover;background-position:center}
+    .dash-hero.has-bg::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.14),rgba(0,0,0,.68));z-index:0}
+    .dash-hero.has-bg>*{position:relative;z-index:1}
+    .dash-hero.has-bg .dh-ciro,.dash-hero.has-bg .dh-ciro-lb,.dash-hero.has-bg .dh-date,.dash-hero.has-bg .dh-arrow,.dash-hero.has-bg .dh-empty{text-shadow:0 1px 4px rgba(0,0,0,.6)}
     .dh-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
     .dh-arrow{flex:0 0 auto;width:34px;height:34px;border-radius:50%;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
     .dh-arrow:disabled{opacity:.3;cursor:default}
@@ -1985,6 +1994,7 @@ async function viewDashboard(c) {
 
   // Hero: oklarla (takvim günü günü) veya tarih seçerek gezin; o günün ciro/ikram/iskonto'su
   const heroEl = c.querySelector("#dash-hero");
+  if (heroEl && pageHeroBg) { heroEl.classList.add("has-bg"); heroEl.style.backgroundImage = `url("${pageHeroBg}")`; }
   let selDate = mainDay || today;
   const renderHero = () => {
     if (!heroEl) return;
@@ -9853,8 +9863,12 @@ async function viewSayfaAyarlari(c) {
   if (!isAdmin()) { c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`; return; }
   const settings = await fetchAll(C.settings).catch(() => []);
   const cfg = settings.find((s) => s.id === "pageImages") || {};
-  const imgs = { dashboardBanner: cfg.dashboardBanner || "" };
+  const imgs = { dashboardBanner: cfg.dashboardBanner || "", heroBg: cfg.heroBg || "" };
   const save = async () => { await setDoc(doc(db, "settings", "pageImages"), { ...imgs, updatedAt: serverTimestamp() }); };
+  const SLOTS = [
+    { k: "dashboardBanner", ad: "Dashboard Üst Görseli (Banner)", desc: "Dashboard'ın en üstünde geniş bir kart olarak görünür. En iyi sonuç için <b>yatay/geniş</b> bir görsel seç." },
+    { k: "heroBg", ad: "Günün Cirosu Kartı Arka Planı", desc: "Ciro kartının arka planı olur; üzerine otomatik <b>koyu degrade perde</b> iner, yazılar net okunur. <b>Yatay</b> görsel önerilir." },
+  ];
 
   const render = () => {
     c.innerHTML = `<style>
@@ -9868,32 +9882,29 @@ async function viewSayfaAyarlari(c) {
     <div class="card">
       <div class="card-head"><h3>🖼️ Görseller</h3><span class="hint">Yalnız yönetici · Dashboard görünümü</span></div>
       <div style="padding:14px 16px">
-        <div class="sa-slot">
-          <div class="sa-info"><b>Dashboard Üst Görseli (Banner)</b><span>Dashboard'ın en üstünde geniş bir kart olarak görünür. En iyi sonuç için <b>yatay/geniş</b> bir görsel seç. Otomatik küçültülür (~1400px).</span></div>
-          <div class="sa-prev" id="sa-prev">${imgs.dashboardBanner ? `<img src="${imgs.dashboardBanner}" alt="banner" />` : `<div class="sa-empty">Henüz görsel yok</div>`}</div>
+        ${SLOTS.map((s) => `<div class="sa-slot">
+          <div class="sa-info"><b>${esc(s.ad)}</b><span>${s.desc} Otomatik küçültülür (~1400px).</span></div>
+          <div class="sa-prev">${imgs[s.k] ? `<img src="${imgs[s.k]}" alt="" />` : `<div class="sa-empty">Henüz görsel yok</div>`}</div>
           <div class="sa-tools">
-            <button class="btn btn-primary btn-sm" id="sa-pick">📁 Görsel Seç</button>
-            <button class="btn btn-sm" id="sa-rm" ${imgs.dashboardBanner ? "" : "disabled"}>Kaldır</button>
+            <button class="btn btn-primary btn-sm" data-pick="${s.k}">📁 Görsel Seç</button>
+            <button class="btn btn-sm" data-rm="${s.k}" ${imgs[s.k] ? "" : "disabled"}>Kaldır</button>
           </div>
-          <input type="file" accept="image/*" id="sa-file" hidden />
-        </div>
-        <div class="notice info" style="margin:0">💡 Değişiklik anında kaydedilir. Dashboard'ı açınca (gerekirse yenileyince) görsel görünür.</div>
+          <input type="file" accept="image/*" data-file="${s.k}" hidden />
+        </div>`).join("")}
+        <div class="notice info" style="margin:0">💡 Değişiklik anında kaydedilir. Dashboard'ı açınca (gerekirse yenileyince) görünür.</div>
       </div>
     </div>`;
 
-    $("#sa-pick", c).onclick = () => $("#sa-file", c).click();
-    $("#sa-file", c).onchange = async (e) => {
+    c.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => c.querySelector(`[data-file="${b.dataset.pick}"]`).click());
+    c.querySelectorAll("[data-file]").forEach((inp) => inp.onchange = async (e) => {
       const file = e.target.files && e.target.files[0]; if (!file) return;
       const lb = loadingBar("Görsel hazırlanıyor…");
-      try {
-        imgs.dashboardBanner = await imageToDataURL(file, 1400, 0.8);
-        await save();
-        lb.finish(() => { toast("Görsel kaydedildi.", "ok"); render(); });
-      } catch (err) { lb.finish(() => toast("Hata: " + err.message, "err")); }
-    };
-    $("#sa-rm", c).onclick = () => confirmDialog("Banner görseli kaldırılsın mı?", async () => {
-      imgs.dashboardBanner = ""; try { await save(); toast("Kaldırıldı.", "ok"); render(); } catch (err) { toast("Hata: " + err.message, "err"); }
+      try { imgs[inp.dataset.file] = await imageToDataURL(file, 1400, 0.8); await save(); lb.finish(() => { toast("Görsel kaydedildi.", "ok"); render(); }); }
+      catch (err) { lb.finish(() => toast("Hata: " + err.message, "err")); }
     });
+    c.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => confirmDialog("Görsel kaldırılsın mı?", async () => {
+      imgs[b.dataset.rm] = ""; try { await save(); toast("Kaldırıldı.", "ok"); render(); } catch (err) { toast("Hata: " + err.message, "err"); }
+    }));
   };
   render();
 }
