@@ -575,8 +575,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.197";
+const APP_VERSION = "2026.198";
 const CHANGELOG = [
+  { version: "2026.198", date: "2026-08-13", items: [
+    "🔍 Mali Durum & Kontrol: kırmızı fark satırına DOKUN → 'Fark Analizi' penceresi açılır. O günün BEYAN (gün sonu) ↔ YAZILAN (hesaba) kalemlerini yan yana gösterir, toplamları ve farkı verir; ayrıca o günkü hareketlerde farkı BİREBİR veren işlemi bulup işaretler (ör. cariye yazılmayan tahsilat aynı gün bankada çıkmış). Farkın nereden geldiğini tek bakışta gösterir",
+  ]},
   { version: "2026.197", date: "2026-08-13", items: [
     "🧮 YENİ: Mali Durum & Kontrol raporu (Raporlar altında). Ay seçersin → 'ne vardı · ne girdi · ne çıktı · ne kaldı' tablosu: Kasa · Banka · Cari Alacaklar · Blokeli için Dönem Başı + Giren − Çıkan = Dönem Sonu (+ TOPLAM)",
     "🔎 Otomatik iç kontroller: gün sonu BEYANI hesaplara doğru yansımış mı? Satış kırılımı (Brüt−İskonto−İkram=Net), Cari işlem (faturasız beyan ↔ 120 borç), Cari tahsilat, Masraflar ve Aktarım kontrolü. Tutmayan gün varsa 'hangi gün, beyan X, yazılan Y, fark Z' diye tek tek listeler (ör. 25.08 beyan 10.000 ama yazılan 15.000 → fark 5.000). Faz 1 — tam bilanço (borçlar/öz kaynak/net kâr) sonraki adımda",
@@ -8903,6 +8906,92 @@ async function viewMaliDurum(c) {
     if (e.accountId) mp.set(e.accountId, (mp.get(e.accountId) || 0) + b);
   });
   const musteriByName = new Map(accounts.filter((a) => a.type === "musteri").map((a) => [normTr(a.name), a]));
+  const isFatRow = (date, row) => {
+    const tut = parseNum(row.tutar); if (!tut) return false;
+    if (fatByDate[date] && fatByDate[date].has(Math.round(tut * 100))) return true;
+    const acc = (row.acc && row.acc.id && accounts.find((a) => a.id === row.acc.id)) || musteriByName.get(normTr(row.sahis));
+    const mp = acc && fatSumByAcc[date];
+    return !!(mp && Math.abs((mp.get(acc.id) || 0) - tut) < 0.01);
+  };
+
+  // Bir farkın "ne olduğunu" bul: o günün beyan (gün sonu) ↔ yazılan (hesaba) kalemlerini
+  // yan yana göster, eşleşmeyeni işaretle; farkı verebilecek o günkü işlemleri ara.
+  const openFarkDetay = (type, iso) => {
+    const rec = gunSonu.find((r) => r.date === iso) || {};
+    const posted = entries.filter((e) => e.gunSonuKey === iso);
+    const dsp = esc(fmtDate(iso));
+    let title = "", beyan = [], yaz = [], note = "";
+    if (type === "tahsilat") {
+      title = "Cari Tahsilat";
+      beyan = (rec.cariTahsilat || []).map((r) => ({ n: r.sahis || "—", v: parseNum(r.tutar) }));
+      yaz = posted.filter((e) => e.source === "gunsonu-cari" && parseNum(e.alacak) > 0).map((e) => ({ n: e.sahis || e.aciklama || "—", v: parseNum(e.alacak) }));
+    } else if (type === "cari") {
+      title = "Cari İşlem (kredili satış)";
+      beyan = (rec.cariIslem || []).filter((r) => parseNum(r.tutar)).map((r) => ({ n: r.sahis || "—", v: parseNum(r.tutar), fat: isFatRow(iso, r) }));
+      yaz = posted.filter((e) => e.source === "gunsonu-cari" && parseNum(e.borc) > 0).map((e) => ({ n: e.sahis || e.aciklama || "—", v: parseNum(e.borc) }));
+      note = "“Faturalı” işaretli satırlar zaten faturayla geldiği için hesaba yeniden yazılmaz (beyandan düşülür).";
+    } else if (type === "masraf") {
+      title = "Masraflar";
+      beyan = (rec.masraflar || []).filter((r) => parseNum(r.tutar)).map((r) => ({ n: r.ad || r.rapor || "Ödeme", v: parseNum(r.tutar) }));
+      yaz = posted.filter((e) => e.source === "gunsonu-masraf").map((e) => ({ n: e.aciklama || "Ödeme", v: parseNum(e.cikan) }));
+    } else if (type === "kirilim") {
+      title = "Satış Kırılımı";
+      const ikramNet = rec.ikramNet != null ? parseNum(rec.ikramNet) : (parseNum(rec.ikram) - (rec.x === "" || rec.x == null ? 0 : parseNum(rec.x)));
+      beyan = [{ n: "Brüt Satış", v: parseNum(rec.brut) }, { n: "− İskonto", v: -parseNum(rec.iskonto) }, { n: "− İkram (net)", v: -ikramNet }];
+      yaz = [{ n: "Yazan Net Satış", v: parseNum(rec.netSatis) }];
+      note = "Brüt − İskonto − İkram, yazan Net Satış'a eşit olmalı.";
+    } else if (type === "aktarim") {
+      title = "Aktarım Eksik";
+      beyan = [
+        { n: "Cari İşlem (beyan)", v: parseNum(rec.cariIslemTotal) },
+        { n: "Cari Tahsilat (beyan)", v: parseNum(rec.cariTahsilatTotal) },
+        { n: "Masraflar (beyan)", v: parseNum(rec.masraflarTotal) },
+      ].filter((x) => Math.abs(x.v) > 0.5);
+      yaz = [];
+      note = "Bu güne ait gün sonu girilmiş ama hesaplara HİÇ hareket yazılmamış. Gün Sonu Kayıtları'ndan aç → yeniden 'Kaydet' ile aktar.";
+    }
+    const bTot = beyan.reduce((s, x) => s + (x.fat ? 0 : x.v), 0);
+    const yTot = yaz.reduce((s, x) => s + x.v, 0);
+    const fark = bTot - yTot;
+
+    // Farkı verebilecek o günkü işlemler (tek işlem birebir)
+    const F = Math.round(Math.abs(fark) * 100);
+    const dayItems = [];
+    entries.filter((e) => e.date === iso).forEach((e) => {
+      const amt = parseNum(e.giren) - parseNum(e.cikan) + parseNum(e.borc) - parseNum(e.alacak);
+      if (Math.abs(amt) > 0.005) dayItems.push({ n: e.sahis || e.aciklama || e.accountCode || "—", v: amt, src: e.source || "" });
+    });
+    cari.filter((m) => m.date === iso).forEach((m) => { const amt = parseNum(m.debit) - parseNum(m.credit); if (Math.abs(amt) > 0.005) dayItems.push({ n: m.description || m.aciklama || "Cari hareket", v: amt, src: "cari-hareket" }); });
+    const hits = F > 0 ? dayItems.filter((it) => Math.round(Math.abs(it.v) * 100) === F) : [];
+
+    const rowHtml = (x, hi) => `<div class="fd-row${hi ? " hi" : ""}"><span class="fd-n">${x.fat ? "🧾 " : ""}${esc(x.n)}${x.fat ? " <i>(faturalı)</i>" : ""}</span><b class="fd-v">${fmtTRY(x.v)}</b></div>`;
+    const body = document.createElement("div");
+    body.innerHTML = `<style>
+      .fd-grid{display:grid;grid-template-columns:1fr;gap:14px}
+      @media(min-width:520px){.fd-grid{grid-template-columns:1fr 1fr}}
+      .fd-col h4{margin:0 0 6px;font-size:12px;color:var(--ink-faint,#8b8172);font-weight:700;display:flex;flex-direction:column;gap:1px;border-bottom:2px solid var(--line,#eee);padding-bottom:6px}
+      .fd-col h4 b{font-size:15px;color:var(--ink,#241d15)}
+      .fd-row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:7px 4px;border-bottom:1px solid var(--line,#f0ece2);font-size:13px}
+      .fd-row.hi{background:color-mix(in srgb,#dd9f1f 16%,transparent);border-radius:6px}
+      .fd-n{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.fd-n i{color:var(--ink-faint,#8b8172);font-style:normal;font-size:11px}
+      .fd-v{flex:0 0 auto;font-weight:700;white-space:nowrap}
+      .fd-fark{margin:14px 0 4px;padding:10px 12px;border-radius:10px;background:color-mix(in srgb,#d33 8%,#fff);border:1px solid #f0c9c4;font-size:13.5px;display:flex;justify-content:space-between;gap:10px;font-weight:700}
+      .fd-note{font-size:12px;color:var(--ink-faint,#8b8172);margin-top:10px;line-height:1.5}
+      .fd-hits{margin-top:12px}.fd-hits h5{margin:0 0 6px;font-size:12.5px}
+    </style>
+    <div class="fd-grid">
+      <div class="fd-col"><h4>Beyan (gün sonu)<b>${fmtTRY(bTot)}</b></h4>${beyan.length ? beyan.map((x) => rowHtml(x, false)).join("") : `<div style="font-size:13px;color:var(--ink-faint,#8b8172);padding:8px 4px">Kayıt yok.</div>`}</div>
+      <div class="fd-col"><h4>Yazılan (hesaba)<b>${fmtTRY(yTot)}</b></h4>${yaz.length ? yaz.map((x) => rowHtml(x, false)).join("") : `<div style="font-size:13px;color:var(--danger,#d33);padding:8px 4px">Hiçbir kayıt yazılmamış.</div>`}</div>
+    </div>
+    <div class="fd-fark"><span>Fark</span><span>${fmtTRY(fark)}</span></div>
+    ${hits.length ? `<div class="fd-hits"><h5>🔍 Bu farkı birebir verebilecek o günkü işlem${hits.length > 1 ? "ler" : ""}:</h5>${hits.map((x) => `<div class="fd-row hi"><span class="fd-n">${esc(x.n)} <i style="font-size:11px;color:var(--ink-faint,#8b8172)">${esc(srcLabel(x.src))}</i></span><b class="fd-v">${fmtTRY(x.v)}</b></div>`).join("")}</div>` : (F > 0 ? `<div class="fd-note">Bu farkı birebir veren tek işlem bulunamadı — birden çok satırın toplamı ya da eksik/mükerrer bir kayıt olabilir. Yukarıda beyan ile yazılanı satır satır kıyasla.</div>` : "")}
+    ${note ? `<div class="fd-note">💡 ${esc(note)}</div>` : ""}`;
+    const m = openModal({ title: `${title} — ${dsp}`, body, footer: [
+      mkBtn("Gün Sonunu Aç", "btn", () => { m.close(); location.hash = "#/gunsonu-kayitlar"; }),
+      mkBtn("Kapat", "btn-primary", () => m.close()),
+    ] });
+  };
+  const srcLabel = (s) => (typeof TK_SRC_LABELS !== "undefined" && TK_SRC_LABELS[s]) || ({ "gunsonu-cari": "Gün Sonu Cari", "gunsonu-masraf": "Gün Sonu Masraf", "gunsonu-nakit": "Gün Sonu Nakit", "gunsonu-bloke": "Gün Sonu Bloke", "cari-hareket": "Cari Hareket", "banka": "Banka", "fatura-import": "Fatura" }[s]) || (s || "Diğer");
 
   const render = () => {
     const start = ym + "-01";
@@ -8957,35 +9046,29 @@ async function viewMaliDurum(c) {
       const ikramNet = r.ikramNet != null ? parseNum(r.ikramNet) : (parseNum(r.ikram) - (r.x === "" || r.x == null ? 0 : parseNum(r.x)));
       const netHesap = parseNum(r.brut) - parseNum(r.iskonto) - ikramNet;
       if (Math.abs(netHesap - parseNum(r.netSatis)) > eps)
-        fails.kirilim.push({ d: dsp, a: netHesap, b: parseNum(r.netSatis) });
+        fails.kirilim.push({ d: dsp, iso: r.date, a: netHesap, b: parseNum(r.netSatis) });
       // 2) Masraf: beyan ↔ yazılan
       const masrafDecl = parseNum(r.masraflarTotal);
-      if (Math.abs(masrafDecl - p.masraf) > eps) fails.masraf.push({ d: dsp, a: masrafDecl, b: p.masraf });
+      if (Math.abs(masrafDecl - p.masraf) > eps) fails.masraf.push({ d: dsp, iso: r.date, a: masrafDecl, b: p.masraf });
       // 3) Cari Tahsilat: beyan ↔ yazılan
       const tahDecl = parseNum(r.cariTahsilatTotal);
-      if (Math.abs(tahDecl - p.cariAlacak) > eps) fails.tahsilat.push({ d: dsp, a: tahDecl, b: p.cariAlacak });
+      if (Math.abs(tahDecl - p.cariAlacak) > eps) fails.tahsilat.push({ d: dsp, iso: r.date, a: tahDecl, b: p.cariAlacak });
       // 4) Cari İşlem (kredili satış): beyan (faturasız) ↔ yazılan borç
-      const nonFat = (r.cariIslem || []).reduce((s, row) => {
-        const tut = parseNum(row.tutar); if (!tut) return s;
-        const cents = Math.round(tut * 100);
-        let fat = fatByDate[r.date] && fatByDate[r.date].has(cents);
-        if (!fat) { const acc = (row.acc && row.acc.id && accounts.find((a) => a.id === row.acc.id)) || musteriByName.get(normTr(row.sahis)); const mp = acc && fatSumByAcc[r.date]; if (mp && Math.abs((mp.get(acc.id) || 0) - tut) < 0.01) fat = true; }
-        return s + (fat ? 0 : tut);
-      }, 0);
-      if (Math.abs(nonFat - p.cariBorc) > eps) fails.cari.push({ d: dsp, a: nonFat, b: p.cariBorc });
+      const nonFat = (r.cariIslem || []).reduce((s, row) => s + (isFatRow(r.date, row) ? 0 : parseNum(row.tutar)), 0);
+      if (Math.abs(nonFat - p.cariBorc) > eps) fails.cari.push({ d: dsp, iso: r.date, a: nonFat, b: p.cariBorc });
       // 5) Aktarım eksik: beyan var ama hiçbir hareket yazılmamış
       const declaredAny = masrafDecl > eps || tahDecl > eps || parseNum(r.cariIslemTotal) > eps;
-      if (declaredAny && !p.any) fails.aktarim.push({ d: dsp });
+      if (declaredAny && !p.any) fails.aktarim.push({ d: dsp, iso: r.date });
     });
 
-    const chkCard = (title, desc, arr, fmtRow) => {
+    const chkCard = (title, desc, type, arr, innerFn) => {
       const ok = arr.length === 0;
       return `<div class="md-chk ${ok ? "ok" : "bad"}">
-        <div class="md-chk-h"><span class="md-chk-ic">${ok ? "✅" : "⚠️"}</span><div><b>${title}</b><span>${desc}</span></div><span class="md-chk-badge">${ok ? "Tutuyor" : arr.length + " gün"}</span></div>
-        ${ok ? "" : `<div class="md-chk-list">${arr.map(fmtRow).join("")}</div>`}
+        <div class="md-chk-h"><span class="md-chk-ic">${ok ? "✅" : "⚠️"}</span><div><b>${title}</b><span>${desc}</span></div><span class="md-chk-badge">${ok ? "Tutuyor" : arr.length + " gün ›"}</span></div>
+        ${ok ? "" : `<div class="md-chk-list">${arr.map((x) => `<div class="md-drow md-click" data-type="${type}" data-iso="${esc(x.iso)}">${innerFn(x)}</div>`).join("")}</div>`}
       </div>`;
     };
-    const diffRow = (x) => `<div class="md-drow"><span>${x.d}</span><span>beyan <b>${fmtTRY(x.a)}</b> · yazılan <b>${fmtTRY(x.b)}</b> · fark <b class="md-df">${fmtTRY(x.a - x.b)}</b></span></div>`;
+    const diffInner = (x) => `<span>${x.d}</span><span>beyan <b>${fmtTRY(x.a)}</b> · yazılan <b>${fmtTRY(x.b)}</b> · fark <b class="md-df">${fmtTRY(x.a - x.b)}</b> <span class="md-go">🔍</span></span>`;
 
     c.innerHTML = `<style>
       .md{display:flex;flex-direction:column;gap:14px;max-width:920px;margin:0 auto}
@@ -9013,6 +9096,8 @@ async function viewMaliDurum(c) {
       .md-chk-list{margin-top:10px;display:flex;flex-direction:column;gap:6px}
       .md-drow{display:flex;justify-content:space-between;gap:10px;font-size:12.5px;background:#fff;border:1px solid var(--line,#f0ece2);border-radius:8px;padding:7px 10px;flex-wrap:wrap}
       .md-drow>span:first-child{font-weight:700}
+      .md-click{cursor:pointer}.md-click:hover{background:#fffdf8;border-color:var(--gold-light,#c9a24b)}
+      .md-go{opacity:.55;font-size:11px}
       .md-df{color:var(--danger,#d33)}
       .md-checks{display:flex;flex-direction:column;gap:10px}
     </style>
@@ -9039,13 +9124,13 @@ async function viewMaliDurum(c) {
       <div class="md-card">
         <h3>🔎 Kontroller — gün sonu beyanı hesaplara doğru yansımış mı?</h3>
         <div class="md-checks">
-          ${chkCard("Satış kırılımı", "Brüt − İskonto − İkram = Net Satış tutuyor mu?", fails.kirilim, (x) => `<div class="md-drow"><span>${x.d}</span><span>hesaplanan <b>${fmtTRY(x.a)}</b> · yazan Net Satış <b>${fmtTRY(x.b)}</b> · fark <b class="md-df">${fmtTRY(x.a - x.b)}</b></span></div>`)}
-          ${chkCard("Cari işlem (kredili satış)", "Beyan edilen faturasız cari ↔ 120 hesaplarına yazılan borç", fails.cari, diffRow)}
-          ${chkCard("Cari tahsilat", "Beyan edilen tahsilat ↔ 120 hesaplarına yazılan alacak", fails.tahsilat, diffRow)}
-          ${chkCard("Masraflar", "Beyan edilen masraf toplamı ↔ kasadan çıkan ödeme", fails.masraf, diffRow)}
-          ${chkCard("Aktarım", "Gün sonu girilmiş ama hesaplara hiç yansımamış olanlar", fails.aktarim, (x) => `<div class="md-drow"><span>${x.d}</span><span class="md-df">Bu günün gün sonu hesaplara aktarılmamış görünüyor.</span></div>`)}
+          ${chkCard("Satış kırılımı", "Brüt − İskonto − İkram = Net Satış tutuyor mu?", "kirilim", fails.kirilim, (x) => `<span>${x.d}</span><span>hesaplanan <b>${fmtTRY(x.a)}</b> · yazan <b>${fmtTRY(x.b)}</b> · fark <b class="md-df">${fmtTRY(x.a - x.b)}</b> <span class="md-go">🔍</span></span>`)}
+          ${chkCard("Cari işlem (kredili satış)", "Beyan edilen faturasız cari ↔ 120 hesaplarına yazılan borç", "cari", fails.cari, diffInner)}
+          ${chkCard("Cari tahsilat", "Beyan edilen tahsilat ↔ 120 hesaplarına yazılan alacak", "tahsilat", fails.tahsilat, diffInner)}
+          ${chkCard("Masraflar", "Beyan edilen masraf toplamı ↔ kasadan çıkan ödeme", "masraf", fails.masraf, diffInner)}
+          ${chkCard("Aktarım", "Gün sonu girilmiş ama hesaplara hiç yansımamış olanlar", "aktarim", fails.aktarim, (x) => `<span>${x.d}</span><span class="md-df">Aktarılmamış görünüyor. <span class="md-go">🔍</span></span>`)}
         </div>
-        <div class="md-hint">Kırmızı bir kutu, o gün <b>beyan ettiğin</b> tutar ile <b>hesaplara yazılan</b> tutarın <b>uyuşmadığını</b> gösterir — hangi gün ve ne kadar fark olduğu listelenir.</div>
+        <div class="md-hint">Kırmızı kutudaki bir güne <b>dokun</b> → o günün <b>beyanı</b> ile <b>hesaplara yazılanı</b> yan yana gösterir ve farkı hangi kaydın oluşturduğunu bulur.</div>
       </div>
     </div>`;
 
@@ -9053,6 +9138,7 @@ async function viewMaliDurum(c) {
     $("#md-prev", c).onclick = () => { ym = shiftYm(-1); render(); };
     const nx = $("#md-next", c); if (nx) nx.onclick = () => { if (ym < nowYm) { ym = shiftYm(1); render(); } };
     $("#md-month", c).onchange = (e) => { if (e.target.value) { ym = e.target.value > nowYm ? nowYm : e.target.value; render(); } };
+    c.querySelectorAll(".md-click").forEach((el) => el.onclick = () => openFarkDetay(el.dataset.type, el.dataset.iso));
   };
   render();
 }
