@@ -614,8 +614,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.226";
+const APP_VERSION = "2026.227";
 const CHANGELOG = [
+  { version: "2026.227", date: "2026-08-14", items: [
+    "📖 Hesap defteri mobil tablosu sadeleşti: 'İşlem' sütunu kaldırıldı, 'Tutar' ve 'Güncel Bakiye' tek sütunda ALT ALTA (tutar kalın/renkli üstte, bakiye altta gri). Böylece Açıklama sütununa çok daha fazla yer kaldı — kayıtların açıklaması artık tam okunuyor",
+  ]},
   { version: "2026.226", date: "2026-08-14", items: [
     "📊 Hesap defteri mobilde artık kart yerine KOMPAKT TABLO: Tarih · İşlem · Açıklama · Tutar · Güncel Bakiye (5 sütun, ekrana tam sığar, yatay kaydırma yok). Uzun metinler kısaltılır; satıra dokununca tam detay/düzenleme açılır",
     "🔍 Arama ve tarih filtresi artık üst karttaki küçük büyüteç ikonunda: dokununca arama + tarih aralığı + Temizle paneli açılır (üst sabit kalır). Sayfalama başlığa taşındı",
@@ -7262,13 +7265,14 @@ async function viewAccountLedger(c) {
   const mInt = (v) => Math.round(parseNum(v)).toLocaleString("tr-TR");   // kuruşsuz, gruplu (mobilde sığsın)
   const miniRowHtml = ({ e, bakiye }) => {
     const delta = cari ? (parseNum(e.borc) - parseNum(e.alacak)) : (parseNum(e.giren) - parseNum(e.cikan));
-    const islem = cari ? (e.faturaTuru || e.sahis || "") : (e.islemAdi || "");
+    const aciklama = e.aciklama || (cari ? (e.faturaTuru || e.sahis || "") : (e.islemAdi || ""));
     return `<tr class="${isHl(e) ? "hl-row" : ""}" data-edit="${e.id}">
       <td class="lm-d">${esc(dmy(e.date))}</td>
-      <td class="lm-t">${esc(islem)}</td>
-      <td class="lm-a">${esc(e.aciklama || "")}</td>
-      <td class="num lm-v ${delta < -0.005 ? "red" : delta > 0.005 ? "grn" : ""}">${delta ? (delta < 0 ? "−" : "") + mInt(Math.abs(delta)) : "—"}</td>
-      <td class="num lm-b" style="${bakiye < 0 ? "color:var(--danger)" : ""}">${mInt(bakiye)}</td>
+      <td class="lm-a">${esc(aciklama)}</td>
+      <td class="num lm-amt">
+        <div class="lm-v ${delta < -0.005 ? "red" : delta > 0.005 ? "grn" : ""}">${delta ? (delta < 0 ? "−" : "+") + mInt(Math.abs(delta)) : "—"}</div>
+        <div class="lm-b"${bakiye < 0 ? ' style="color:var(--danger)"' : ""}>${mInt(bakiye)}</div>
+      </td>
     </tr>`;
   };
 
@@ -7340,8 +7344,8 @@ async function viewAccountLedger(c) {
     <button class="btn btn-sm" data-pg="next" aria-label="Sonraki">›</button>
   </div>`;
   const miniHtml = `<table class="ledger-mini">
-    <colgroup><col style="width:58px"><col style="width:58px"><col><col style="width:80px"><col style="width:86px"></colgroup>
-    <thead><tr><th>Tarih</th><th>İşlem</th><th>Açıklama</th><th class="num">Tutar</th><th class="num">Bakiye</th></tr></thead>
+    <colgroup><col style="width:62px"><col><col style="width:104px"></colgroup>
+    <thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Tutar / Bakiye</th></tr></thead>
     <tbody></tbody>
   </table>`;
 
@@ -7371,7 +7375,7 @@ async function viewAccountLedger(c) {
     page = Math.max(0, Math.min(totalPages - 1, page));
     if (!view.length) {
       const msg = rows.length ? "Eşleşen hareket yok." : "Henüz hareket yok.";
-      if (miniBody) miniBody.innerHTML = `<tr><td colspan="5" class="lm-empty">🔍 ${msg}</td></tr>`;
+      if (miniBody) miniBody.innerHTML = `<tr><td colspan="3" class="lm-empty">🔍 ${msg}</td></tr>`;
       else cardsEl.innerHTML = `<div class="empty" style="padding:28px"><div class="ico">🔍</div><p>${msg}</p></div>`;
       tbodyEl.innerHTML = `<tr><td colspan="${colCount}"><div class="empty"><div class="ico">🔍</div><p>${msg}</p></div></td></tr>`;
     } else {

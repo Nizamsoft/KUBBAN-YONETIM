@@ -797,14 +797,15 @@ table.data input.num { text-align: right; }
 .ledger-mini { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
 .ledger-mini thead th { position: sticky; top: 0; z-index: 1; background: var(--bg); font-size: 9.5px; letter-spacing: .2px; color: var(--ink-faint); font-weight: 700; text-align: left; padding: 8px 4px; border-bottom: 1px solid var(--line); }
 .ledger-mini th.num { text-align: right; }
-.ledger-mini td { padding: 9px 4px; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-mini td { padding: 8px 4px; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ledger-mini td.num { text-align: right; font-variant-numeric: tabular-nums; }
-.ledger-mini .lm-d { color: var(--ink-soft); }
-.ledger-mini .lm-t { font-weight: 600; color: var(--ink); }
-.ledger-mini .lm-a { color: var(--ink-soft); }
-.ledger-mini .lm-v.red { color: var(--danger); font-weight: 700; }
-.ledger-mini .lm-v.grn { color: var(--ok); font-weight: 700; }
-.ledger-mini .lm-b { font-weight: 600; color: var(--ink); }
+.ledger-mini .lm-d { color: var(--ink-soft); white-space: nowrap; }
+.ledger-mini .lm-a { color: var(--ink); }
+.ledger-mini .lm-amt { white-space: nowrap; line-height: 1.15; }
+.ledger-mini .lm-v { font-weight: 800; }
+.ledger-mini .lm-v.red { color: var(--danger); }
+.ledger-mini .lm-v.grn { color: var(--ok); }
+.ledger-mini .lm-b { font-size: 10px; color: var(--ink-faint); margin-top: 1px; }
 .ledger-mini tbody tr:active { background: var(--surface-2); }
 .ledger-mini .lm-empty { text-align: center; color: var(--ink-faint); padding: 26px; white-space: normal; }
 
