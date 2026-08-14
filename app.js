@@ -639,8 +639,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.230";
+const APP_VERSION = "2026.231";
 const CHANGELOG = [
+  { version: "2026.231", date: "2026-08-14", items: [
+    "🐞 Hesap grubu (ör. 102 Bankalar, 108 Blokeler) sayfasında bakiyeler hep 0,00 çıkıyordu — düzeltildi. Bakiye hesap KİMLİĞİ yerine yanlışlıkla hesap NESNESİ ile aranıyordu; artık Garanti/Türkiye Finans ve tüm alt hesaplar doğru bakiyeyi gösteriyor",
+    "📖 Hesap defterinde sayfanın bir bütün olarak sürüklenmesi/kayması (iOS'ta 'lastik gibi' esneme dahil) tamamen kaldırıldı: kilit artık <html>+<body>+#app-view seviyesinde — üst (hesap kartı + başlık + sütun başlığı) taş gibi SABİT, yalnız hareket listesi kendi içinde kayar. İç listede aşağı/yukarı akış korunur (overscroll sızmaz)",
+    "💼 Hesaplar'daki Borçlar (320) ve Alacaklar (120) kartları artık —diğer kartlar gibi— kendi grup/alt hesap listesini açıyor (Bankalar gibi), dashboard'daki Borç/Alacak sayfasına yönlendirmiyor. 'Geri' ile Hesaplar'a dönülür",
+  ]},
   { version: "2026.230", date: "2026-08-14", items: [
     "↩️ Bir sayfaya HER dönüşte (menüden, karttan, bağlantıdan ya da ← tuşuyla) sayfa artık BIRAKILDIĞI yerden açılıyor — tepeye/başa sıfırlanmıyor. Örn. Hesaplar/Borçlar listesinde aşağı inip başka yere gidip tekrar açınca liste yine aynı konumda. Hem normal sayfa kaydırması hem de defter/borç-alacak iç liste kaydırması hatırlanıyor (her sayfa kendi parametresiyle ayrı ayrı: farklı hesaplar karışmaz). Yalnızca inceleme turunda (rev) ilgili kayda odaklanmak için en alttan açılır",
   ]},
@@ -1803,7 +1808,7 @@ async function viewHesapGrup(c) {
   ]);
   applyBankLogos(settings);
   const bal = computeBalances(accounts, cari, bank, entries);
-  const cur = (x) => bal.get(x)?.current || 0;
+  const cur = (a) => bal.get(a.id)?.current || 0;   // a: hesap NESNESİ → bakiye id ile alınır (yoksa hep 0 çıkardı)
   const parent = accounts.find((a) => a.id === id);
   if (!parent) { c.innerHTML = `<div class="notice warn">Hesap bulunamadı. <a href="#/hesaplar">← Hesaplar</a></div>`; return; }
   const childrenOf = (pid) => accounts.filter((a) => a.parentId === pid);
@@ -1887,7 +1892,8 @@ async function route(opts = {}) {
   updateBottomNav(navPath);   // mobil alt çubukta aktif sekmeyi işaretle
   // Defter ekranı: sayfayı viewport'a kilitle (üst sabit, yalnız tablo kayar).
   // Ölçüm YOK — CSS dvh + flex; iOS'ta URL çubuğu açılıp kapanınca tarayıcı kendi ayarlar.
-  document.body.classList.toggle("route-ledger", path === "hesap-detay");
+  // Sınıf <html>'e konur ki html+body+#app-view hepsi kilitlensin (iOS sayfa sürüklemesi/rubber-band bitsin).
+  document.documentElement.classList.toggle("route-ledger", path === "hesap-detay");
   $("#page-title").textContent = r.title;
   $("#crumb").textContent = r.crumb;
   const backEl = $("#page-back");
@@ -5215,14 +5221,12 @@ async function viewHesaplar(c) {
     });
   });
 
-  // 5 büyük kart → tıklayınca: 320→Borçlar, 120→Alacaklar sayfası; diğerleri tree'de grubu aç + kaydır
+  // 5 büyük kart → tıklayınca o hesabın grup listesi (alt hesaplar; Bankalar gibi); alt yoksa → defter.
+  // Borçlar(320)/Alacaklar(120) da dahil: dashboard Borç/Alacak sayfasına DEĞİL, kendi grup listesine gider.
   $$(".hcard", c).forEach((card) => card.addEventListener("click", (e) => {
     e.preventDefault();
     const code = card.dataset.code, id = card.dataset.id;
-    if (code === "320") { location.hash = "#/borc-alacak?t=borc"; return; }
-    if (code === "120") { location.hash = "#/borc-alacak?t=alacak"; return; }
     if (!id) { toast(`${code} hesabı yok.`, "err"); return; }
-    // Alt hesabı varsa → grup listesi (borç/alacak gibi); yoksa → doğrudan defter
     location.hash = (kids.get(id) || []).length ? ("#/hesap-grup?id=" + id) : ("#/hesap-detay?id=" + id);
   }));
 
@@ -7486,7 +7490,7 @@ async function viewAccountLedger(c) {
   renderPage();
 
   // Defter ekrana kilitli: üst (özet + başlık + araçlar) SABİT; yalnız hareket listesi kendi
-  // içinde kayar. Kilit tamamen CSS ile (body.route-ledger → .main 100dvh + flex, iç kapsayıcı
+  // içinde kayar. Kilit tamamen CSS ile (html.route-ledger → html/body/#app-view 100dvh + flex, iç kapsayıcı
   // overflow:auto). JS ile yükseklik ÖLÇÜLMEZ — iOS'ta URL çubuğu açılıp kapanınca tarayıcı
   // yüksekliği kendi düzeltir; 'yukarı gelip aşağı oturma' ya da 'hero yukarı kaçması' olmaz.
   const fitLedger = () => {};                 // CSS hallediyor; filtre/pencere geri çağrıları için no-op
