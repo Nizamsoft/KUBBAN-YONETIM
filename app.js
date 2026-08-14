@@ -613,8 +613,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.216";
+const APP_VERSION = "2026.217";
 const CHANGELOG = [
+  { version: "2026.217", date: "2026-08-14", items: [
+    "🧮 Aylık Ciro Dökümü'nde Net Satış düzeltildi: artık gösterilen Ciro'dan İkram ve İskonto ÇIKARILARAK hesaplanıyor (Net = Ciro − İkram − İskonto). Önceden ayrı 'brüt' alanından gelen değer ciro'dan yüksek çıkıp toplama gibi görünüyordu. Not: diğer raporlarda (Gün Sonu Raporu, Mali Durum) net zaten Brüt − İskonto − İkram olarak doğru hesaplanıyor",
+  ]},
   { version: "2026.216", date: "2026-08-14", items: [
     "📱 Aylık Ciro Dökümü tablosu artık gerçekten tam sığıyor (Kasa Farkı sütunu kırpılmıyordu): Ciro ve Net sütunları grafikteki gibi kısa gösteriliyor (691b / 2,25M), İkram/İskonto/Kasa Farkı tam rakam. Ciro/Net'in tam aylık toplamı zaten üstteki kutularda; günlük tam tutar Gün Sonu Raporu'nda",
   ]},
@@ -2185,6 +2188,8 @@ async function viewCiroAylik(c) {
   let ym = curYm;
 
   const ikramOf = (r) => parseNum(r.ikramNet != null ? r.ikramNet : r.ikram);
+  // Net Satış = Ciro − İkram − İskonto (gösterilen ciro tabanından ÇIKARILIR)
+  const netOf = (r) => parseNum(r.total) - ikramOf(r) - parseNum(r.iskonto);
   const kasaFarkOf = (r) => {
     let any = false, s = 0;
     (r.kasa || []).forEach((m) => { if (m.fark !== "" && m.fark != null) { any = true; s += parseNum(m.fark); } });
@@ -2206,7 +2211,7 @@ async function viewCiroAylik(c) {
       .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
     const T = { ciro: 0, ikram: 0, iskonto: 0, net: 0, fark: 0, farkAny: false };
     recs.forEach((r) => {
-      T.ciro += parseNum(r.total); T.ikram += ikramOf(r); T.iskonto += parseNum(r.iskonto); T.net += parseNum(r.netSatis);
+      T.ciro += parseNum(r.total); T.ikram += ikramOf(r); T.iskonto += parseNum(r.iskonto); T.net += netOf(r);
       const kf = kasaFarkOf(r); if (kf != null) { T.fark += kf; T.farkAny = true; }
     });
     c.innerHTML = `<style>
@@ -2253,7 +2258,7 @@ async function viewCiroAylik(c) {
           <td class="num">${cTL(r.total)}</td>
           <td class="num">${n0(ikramOf(r))}</td>
           <td class="num">${n0(r.iskonto)}</td>
-          <td class="num">${cTL(r.netSatis)}</td>
+          <td class="num">${cTL(netOf(r))}</td>
           ${farkTd(kasaFarkOf(r))}
         </tr>`).join("")}</tbody>
         <tfoot><tr>
