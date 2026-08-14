@@ -593,8 +593,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.203";
+const APP_VERSION = "2026.204";
 const CHANGELOG = [
+  { version: "2026.204", date: "2026-08-13", items: [
+    "🎴 Günün Cirosu kartında görsel arka plan varken sayıların arkasındaki kutular (İkram/İskonto + tarih) koyulaştırıldı (siyah %44) — rakamlar görsel üstünde daha net öne çıkar. Görselsiz (altın) kartta eski açık kutular korunur",
+  ]},
   { version: "2026.203", date: "2026-08-13", items: [
     "🎴 'Günün Cirosu' kartına arka plan görseli: Sistem → Sayfa Ayarları → Görseller'e 'Günün Cirosu Kartı Arka Planı' slotu eklendi. Görsel üstüne otomatik ALTTAN KOYU DEGRADE perde iner + yazılara gölge verilir → tarih, ciro ve ikram/iskonto her görselde net okunur",
   ]},
@@ -1895,6 +1898,8 @@ async function viewDashboard(c) {
     .dash-hero.has-bg::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.14),rgba(0,0,0,.68));z-index:0}
     .dash-hero.has-bg>*{position:relative;z-index:1}
     .dash-hero.has-bg .dh-ciro,.dash-hero.has-bg .dh-ciro-lb,.dash-hero.has-bg .dh-date,.dash-hero.has-bg .dh-arrow,.dash-hero.has-bg .dh-empty{text-shadow:0 1px 4px rgba(0,0,0,.6)}
+    .dash-hero.has-bg .dh-date,.dash-hero.has-bg .dh-stat{background:rgba(0,0,0,.44)}
+    .dash-hero.has-bg .dh-arrow{background:rgba(0,0,0,.32)}
     .dh-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
     .dh-arrow{flex:0 0 auto;width:34px;height:34px;border-radius:50%;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
     .dh-arrow:disabled{opacity:.3;cursor:default}
