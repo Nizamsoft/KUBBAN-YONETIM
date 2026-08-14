@@ -613,8 +613,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.215";
+const APP_VERSION = "2026.216";
 const CHANGELOG = [
+  { version: "2026.216", date: "2026-08-14", items: [
+    "📱 Aylık Ciro Dökümü tablosu artık gerçekten tam sığıyor (Kasa Farkı sütunu kırpılmıyordu): Ciro ve Net sütunları grafikteki gibi kısa gösteriliyor (691b / 2,25M), İkram/İskonto/Kasa Farkı tam rakam. Ciro/Net'in tam aylık toplamı zaten üstteki kutularda; günlük tam tutar Gün Sonu Raporu'nda",
+  ]},
   { version: "2026.215", date: "2026-08-14", items: [
     "📊 Ciro Grafiği'ne (çubuklara) basınca da Aylık Ciro Dökümü ekranı açılıyor",
     "🔢 Dashboard özet kartlarındaki rakamlar biraz küçültüldü — 'Kullanılabilir Likit Varlık' ve 'şimdiye kadarki ciro' artık tam sığıyor (kırpılmıyor)",
@@ -2187,7 +2190,11 @@ async function viewCiroAylik(c) {
     (r.kasa || []).forEach((m) => { if (m.fark !== "" && m.fark != null) { any = true; s += parseNum(m.fark); } });
     return any ? s : null;
   };
-  const n0 = (v) => Math.round(parseNum(v)).toLocaleString("tr-TR");          // tam sayı, gruplu, ₺ yok (mobilde sığsın)
+  const n0 = (v) => Math.round(parseNum(v)).toLocaleString("tr-TR");          // tam sayı, gruplu, ₺ yok
+  const cTL = (v) => { v = parseNum(v); const a = Math.abs(v);                 // büyük sütunlar: grafikteki gibi kısa (691b / 2,25M)
+    if (a >= 1e6) return (v / 1e6).toFixed(a >= 1e7 ? 0 : 1).replace(".", ",") + "M";
+    if (a >= 1e3) return Math.round(v / 1e3) + "b";
+    return v ? String(Math.round(v)) : "0"; };
   const dM = (iso) => (iso || "").slice(8, 10) + "." + (iso || "").slice(5, 7); // gün.ay (yıl/ay başlıkta)
   const farkTd = (v) => v == null
     ? `<td class="num dim">—</td>`
@@ -2212,7 +2219,7 @@ async function viewCiroAylik(c) {
       .ca-tile{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:14px;padding:12px 14px}
       .ca-tile .l{font-size:12px;color:var(--ink-faint,#8b8172);font-weight:600}
       .ca-tile .v{font-size:19px;font-weight:800;white-space:nowrap}
-      .ca-wrap{border:1px solid var(--line,#ece7dc);border-radius:14px;background:var(--card,#fff);overflow:hidden}
+      .ca-wrap{border:1px solid var(--line,#ece7dc);border-radius:14px;background:var(--card,#fff);overflow-x:auto;-webkit-overflow-scrolling:touch}
       table.ca-tbl{width:100%;border-collapse:collapse;font-size:13px}
       .ca-tbl th,.ca-tbl td{padding:9px 6px;border-bottom:1px solid var(--line,#f0ece2);white-space:nowrap;text-align:right}
       .ca-tbl th{font-size:11px;color:var(--ink-faint,#8b8172);background:var(--bg,#f6f2e9);font-weight:700}
@@ -2223,9 +2230,9 @@ async function viewCiroAylik(c) {
       .ca-cap{font-size:11px;color:var(--ink-faint,#9a9082);text-align:center;margin-top:-4px}
       .ca-empty{padding:26px;text-align:center;color:var(--ink-faint,#9a9082)}
       @media(max-width:560px){
-        .ca-tbl{font-size:11px}
+        .ca-tbl{font-size:10px}
         .ca-tbl th,.ca-tbl td{padding:8px 4px}
-        .ca-tbl th{font-size:9.5px}
+        .ca-tbl th{font-size:9px}
         .ca-tbl th:first-child,.ca-tbl td:first-child{padding-left:6px}
       }
     </style>
@@ -2240,25 +2247,25 @@ async function viewCiroAylik(c) {
         <div class="ca-tile"><div class="l">🧾 Net Satış</div><div class="v">${fmtTRY(T.net)}</div></div>
       </div>
       ${recs.length ? `<div class="ca-wrap"><table class="ca-tbl">
-        <thead><tr><th>Tarih</th><th>Ciro</th><th>İkram</th><th>İskonto</th><th>Net Satış</th><th>Kasa Farkı</th></tr></thead>
+        <thead><tr><th>Tarih</th><th>Ciro</th><th>İkram</th><th>İskonto</th><th>Net</th><th>Kasa F.</th></tr></thead>
         <tbody>${recs.map((r) => `<tr>
           <td>${esc(dM(r.date))}</td>
-          <td class="num">${n0(r.total)}</td>
+          <td class="num">${cTL(r.total)}</td>
           <td class="num">${n0(ikramOf(r))}</td>
           <td class="num">${n0(r.iskonto)}</td>
-          <td class="num">${n0(r.netSatis)}</td>
+          <td class="num">${cTL(r.netSatis)}</td>
           ${farkTd(kasaFarkOf(r))}
         </tr>`).join("")}</tbody>
         <tfoot><tr>
           <td>Top.</td>
-          <td class="num">${n0(T.ciro)}</td>
+          <td class="num">${cTL(T.ciro)}</td>
           <td class="num">${n0(T.ikram)}</td>
           <td class="num">${n0(T.iskonto)}</td>
-          <td class="num">${n0(T.net)}</td>
+          <td class="num">${cTL(T.net)}</td>
           ${T.farkAny ? farkTd(T.fark) : `<td class="num dim">—</td>`}
         </tr></tfoot>
       </table></div>
-      <div class="ca-cap">${recs.length} gün · tutarlar ₺, kuruş yuvarlanmıştır · tam tutar için Gün Sonu Raporu</div>` : `<div class="ca-wrap"><div class="ca-empty">Bu ay için gün sonu kaydı yok.</div></div>`}
+      <div class="ca-cap">${recs.length} gün · Ciro/Net kısa gösterilir (b=bin, M=milyon) · tam tutar üstteki kutularda & Gün Sonu Raporu'nda</div>` : `<div class="ca-wrap"><div class="ca-empty">Bu ay için gün sonu kaydı yok.</div></div>`}
     </div>`;
     c.querySelectorAll("[data-nav]").forEach((b) => b.onclick = () => {
       const d = new Date(ym + "-01T00:00:00");
