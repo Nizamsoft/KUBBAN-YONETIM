@@ -396,9 +396,12 @@ table.data input.num { text-align: right; }
 /* Hesaplar üst kartı — Dashboard hero'su gibi (marka + Genel Toplam, opsiyonel görsel) */
 .acc-hero.brand { flex-direction: column; align-items: center; text-align: center; gap: 3px; padding: 16px 14px 18px; }
 .acc-hero.brand.has-bg { background: none; background-size: cover; background-position: center; }
-.acc-hero.brand.has-bg::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.14), rgba(0,0,0,.66)); z-index: 0; }
+.acc-hero.brand.has-bg::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.40), rgba(0,0,0,.60)); z-index: 0; }
 .acc-hero.brand.has-bg::after { display: none; }
 .acc-hero.brand > * { position: relative; z-index: 1; }
+/* Görselli kartta yazıların arkasına koyu panel (Dashboard'daki gibi) */
+.ah-panel { display: inline-flex; flex-direction: column; align-items: center; }
+.acc-hero.brand.has-bg .ah-panel { background: rgba(0,0,0,.42); border-radius: 16px; padding: 8px 20px 10px; margin-top: 2px; }
 .ah-brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 6px; }
 .ah-brand img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #fff; padding: 2px; flex: 0 0 auto; }
 .ah-brand-nm { font-family: Georgia, "Times New Roman", serif; font-size: 19px; font-weight: 700; line-height: 1.05; }

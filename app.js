@@ -614,8 +614,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.223";
+const APP_VERSION = "2026.224";
 const CHANGELOG = [
+  { version: "2026.224", date: "2026-08-14", items: [
+    "🔝 Mobilde sayfa geçişlerinde artık her sayfa EN TEPEDEN başlıyor — bir sayfada aşağı kaydırıp başka sayfaya geçince eskiden aşağıda başlıyordu, düzeldi",
+    "🖼️ Hesaplar üst kartında (görsel arka planlıyken) yazıların arkasına Dashboard'daki gibi koyu panel eklendi + perde koyulaştırıldı → Genel Toplam ve alt bilgi görselin üstünde net okunuyor",
+  ]},
   { version: "2026.223", date: "2026-08-14", items: [
     "📂 Hesap kartına basınca artık o hesap açılıyor: alt hesabı varsa (ör. 102 Bankalar → Garanti/T.Finans/Ziraat, 108 Blokeler) Dashboard'daki Borçlar/Alacaklar gibi şık bir liste çıkar (sıra no + logo/ikon + bakiye, tıkla → o hesabın defteri). Alt hesabı yoksa (100 Kasa) doğrudan deftere gider. Açılış sağdan kayan animasyonla gelir",
     "🖼️ Hesaplar sayfasının üst kartı Dashboard'daki gibi tasarlandı (marka logosu + 'Güllüoğlu Kübban' + Genel Toplam). Sistem → Sayfa Ayarları → Görseller'e 'Hesaplar Üst Kartı Arka Planı' slotu eklendi — görsel koyarsan otomatik koyu perdeyle net durur",
@@ -1850,6 +1854,7 @@ async function route(opts = {}) {
   const loadTimer = silent ? null : setTimeout(showViewLoader, 130);
   try {
     await r.render(c);
+    if (!silent) window.scrollTo(0, 0);   // yeni sayfa TEPEDEN başlasın (önceki kaydırma kalmasın)
     if (!silent && !r.noAnim) {
       // Yumuşak sayfa geçişi (GPU: opacity + transform) — belirgin ama hızlı
       c.style.animation = "none";
@@ -5075,9 +5080,11 @@ async function viewHesaplar(c) {
   c.innerHTML = `
     <div class="acc-hero brand${accHeroBg ? " has-bg" : ""}"${accHeroBg ? ` style="background-image:url('${accHeroBg}')"` : ""}>
       <div class="ah-brand"><img src="${esc(COMPANY.logo || "")}" alt="" onerror="this.style.display='none'" /><div><div class="ah-brand-nm">${esc(COMPANY.name || "")}</div>${COMPANY.subtitle ? `<div class="ah-brand-sub">${esc(COMPANY.subtitle)}</div>` : ""}</div></div>
-      <div class="ah-label">GENEL TOPLAM</div>
-      <div class="ah-total" style="${grand < 0 ? "color:#ffd9d0" : ""}">${fmtTRY(grand)}</div>
-      <div class="ah-sub">🗂️ ${roots.length} ana hesap · 🧾 ${accounts.length} hesap${subCount ? ` · 🔖 ${subCount} alt` : ""}</div>
+      <div class="ah-panel">
+        <div class="ah-label">GENEL TOPLAM</div>
+        <div class="ah-total" style="${grand < 0 ? "color:#ffd9d0" : ""}">${fmtTRY(grand)}</div>
+        <div class="ah-sub">🗂️ ${roots.length} ana hesap · 🧾 ${accounts.length} hesap${subCount ? ` · 🔖 ${subCount} alt` : ""}</div>
+      </div>
     </div>
     <div class="hesap-cards">${cardData.map((d) => `<a class="hcard ${d.cls}${d.wide ? " wide" : ""}" data-code="${d.code}"${d.acc ? ` data-id="${d.acc.id}"` : ""} href="#">
       <span class="hc-code">${d.code}</span>
