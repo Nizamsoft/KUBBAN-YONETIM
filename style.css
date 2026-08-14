@@ -1124,6 +1124,7 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 .bk-c:hover { border-color: var(--gold); background: var(--surface-2); }
 .bk-c:active { transform: translateY(1px); }
 .bk-c .ic { width: 46px; height: 46px; border-radius: 13px; background: var(--surface-2); display: flex; align-items: center; justify-content: center; font-size: 24px; }
+.bk-c .ic .brand-logo { width: 36px; height: 36px; padding: 2px; border-radius: 8px; }
 .bk-c .t { font-weight: 800; font-size: 14px; color: var(--ink); }
 
 /* ===== Banka POS grupları / kontrol ===== */

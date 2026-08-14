@@ -613,8 +613,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.210";
+const APP_VERSION = "2026.211";
 const CHANGELOG = [
+  { version: "2026.211", date: "2026-08-14", items: [
+    "🏦 Banka Aktarımı 'Hangi bankanın hareketleri?' seçim ekranı da yüklediğin banka logolarını gösteriyor (logo yoksa eski renkli daire kalır)",
+  ]},
   { version: "2026.210", date: "2026-08-14", items: [
     "🏦 YENİ: Banka & Kurum logoları. Sistem → Sayfa Ayarları → 'Banka & Kurum Logoları'ndan Garanti, Türkiye Finans, Ziraat, Yemek Sepeti, Getir, Trendyol, Edenred, Multinet, Pluxee, Metropol, Set Kurumsal için logo yükleyebilirsin (şeffaf PNG önerilir)",
     "🖼️ Yüklenen logo ilgili her yerde otomatik görünür: Hesaplar listesi, Kullanılabilir Likit kırılımı ve hesap defteri üst kartı (logo yoksa eski emoji kalır)",
@@ -7953,7 +7956,7 @@ async function viewBanka(c) {
       <div class="card">
         <div class="ft-q">Hangi bankanın hareketleri?<small>Dosyayı ona göre okuyacağım</small></div>
         <div class="bk-choose">
-          ${BK_BANKS.map((b) => `<button class="bk-c" data-bank="${b.key}"><span class="ic">${b.emoji}</span><span class="t">${esc(b.label)}</span></button>`).join("")}
+          ${BK_BANKS.map((b) => { const bk = { garanti: "garanti", tfinans: "finans", ziraat: "ziraat" }[b.key]; const lg = bk && bankLogoMap[bk]; return `<button class="bk-c" data-bank="${b.key}"><span class="ic">${lg ? `<img class="brand-logo" src="${lg}" alt="" onerror="this.replaceWith(document.createTextNode('${b.emoji}'))" />` : b.emoji}</span><span class="t">${esc(b.label)}</span></button>`; }).join("")}
         </div>
       </div>`;
     $$(".bk-c", body).forEach((btn) => btn.onclick = () => {
