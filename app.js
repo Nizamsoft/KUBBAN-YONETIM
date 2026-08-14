@@ -593,8 +593,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.206";
+const APP_VERSION = "2026.207";
 const CHANGELOG = [
+  { version: "2026.207", date: "2026-08-14", items: [
+    "✨ Dashboard sadeleşti & şıklaştı: 'Ağustos ciro' ve 'Kullanılabilir Likit' kartlarına solda ince renkli aksan çizgisi (yeşil/altın) + köşede soluk ikon eklendi. Borçlarım/Alacaklarım listelerine 1-2-3 sıralama numarası eklendi — en büyük borç/alacak bir bakışta belli",
+  ]},
   { version: "2026.206", date: "2026-08-14", items: [
     "✒️ Günün Cirosu kartındaki firma adı artık marka fontunda (Georgia/serif) ve daha belirgin; altında 'GAZİANTEP MUTFAĞI' altın renkli alt başlık — yan menüdeki marka kilidiyle aynı görünüm",
   ]},
@@ -1929,6 +1932,13 @@ async function viewDashboard(c) {
     .dm-ic{font-size:20px}.dm-lb{font-size:12px;color:var(--ink-faint,#8b8172);margin-top:3px;font-weight:600}
     .dm-vl{font-size:clamp(16px,4.8vw,23px);font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dm-dl{font-size:11px;color:var(--ink-faint,#8b8172);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .dm-dl.up{color:var(--ok,#2e9e52)}.dm-dl.down{color:var(--danger,#d33)}
+    /* sade & şık: sol renkli aksan + köşede soluk ikon */
+    .dmini.accent{position:relative;overflow:hidden;padding-left:20px}
+    .dmini.accent::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px}
+    .dmini.accent-green::before{background:linear-gradient(180deg,#54c97a,#2e9e52)}
+    .dmini.accent-gold::before{background:linear-gradient(180deg,#e7cf90,#b8952e)}
+    .dmini.accent .dm-ic{position:absolute;right:13px;top:13px;font-size:17px;opacity:.5;margin:0}
+    .dmini.accent .dm-lb{padding-right:24px}
     .dash-card{border-radius:18px;min-width:0}
     .dash-card-head{display:flex;align-items:center;justify-content:space-between;padding:2px 2px 12px;gap:10px}
     .dash-card-head h3{margin:0;font-size:15px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -1949,7 +1959,9 @@ async function viewDashboard(c) {
     .dli{display:flex;justify-content:space-between;gap:8px;padding:10px 4px;border-bottom:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit;font-size:13px;align-items:center}
     .dli:last-child{border-bottom:0}
     .dli-nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .dli-no{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--bg,#f1ede3);color:var(--gold,#b8952e);font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center}
     .dli-vl{flex:0 0 auto;font-weight:800;white-space:nowrap}.dli-vl.red{color:var(--danger,#d33)}.dli-vl.green{color:var(--ok,#2e9e52)}
+    .dash-card--list .dash-card-head{border-bottom:2px solid var(--line,#ece7dc);margin-bottom:2px}
     .dash-more{display:block;text-align:center;font-size:12px;padding:9px;color:var(--gold,#b8952e);text-decoration:none;font-weight:600}
     .dash-empty{padding:18px;text-align:center;color:var(--ink-faint,#9a9082);font-size:13px}
     .dash-quick{display:flex;gap:10px;overflow-x:auto;padding-bottom:2px}
@@ -1962,12 +1974,12 @@ async function viewDashboard(c) {
     <div class="dash-hero" id="dash-hero"></div>
 
     <div class="dash-mini">
-      <a class="dmini" href="#/gunsonu-kayitlar">
+      <a class="dmini accent accent-green" href="#/gunsonu-kayitlar">
         <div class="dm-ic">📅</div><div class="dm-lb">${esc(ayAdi)} · şimdiye kadarki ciro</div>
         <div class="dm-vl">${fmtTRY(ayCiro)}</div>
         <div class="dm-dl ${ayPct == null ? "" : (ayPct >= 0 ? "up" : "down")}">${ayPct == null ? "geçen ay kaydı yok" : `${ayPct >= 0 ? "▲" : "▼"} %${Math.abs(ayPct).toFixed(0)} · geçen ay ${fmtTRY(gecenAy)}`}</div>
       </a>
-      <a class="dmini" id="dm-likit" href="#/hesaplar">
+      <a class="dmini accent accent-gold" id="dm-likit" href="#/hesaplar">
         <div class="dm-ic">💰</div><div class="dm-lb">Kullanılabilir Likit Varlık</div>
         <div class="dm-vl">${fmtTRY(elde)}</div>
         <div class="dm-dl">Banka ${fmtTRY(banka)} · Nakit ${fmtTRY(kasa)} · dokun → kırılım</div>
@@ -1982,16 +1994,16 @@ async function viewDashboard(c) {
     </div>
 
     <div class="dash-two">
-      <div class="card dash-card">
+      <div class="card dash-card dash-card--list">
         <div class="dash-card-head"><h3>🔴 Borçlarım</h3><span class="dash-tot red">${fmtTRY(supTotal)}</span></div>
         ${suppliers.length
-          ? `<div class="dash-list">${suppliers.slice(0, 6).map((x) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}&from=dashboard" title="${esc(x.a.name)}"><span class="dli-nm">${esc(first2(x.a.name))}</span><span class="dli-vl red">${fmtTRY(x.debt)}</span></a>`).join("")}</div>${suppliers.length > 6 ? `<a class="dash-more" href="#/borc-alacak?t=borc">+${suppliers.length - 6} tedarikçi daha →</a>` : ""}`
+          ? `<div class="dash-list">${suppliers.slice(0, 6).map((x, i) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}&from=dashboard" title="${esc(x.a.name)}"><span class="dli-no">${i + 1}</span><span class="dli-nm">${esc(first2(x.a.name))}</span><span class="dli-vl red">${fmtTRY(x.debt)}</span></a>`).join("")}</div>${suppliers.length > 6 ? `<a class="dash-more" href="#/borc-alacak?t=borc">+${suppliers.length - 6} tedarikçi daha →</a>` : ""}`
           : `<div class="dash-empty">Tedarikçi borcu yok 🎉</div>`}
       </div>
-      <div class="card dash-card">
+      <div class="card dash-card dash-card--list">
         <div class="dash-card-head"><h3>🟢 Alacaklarım</h3><span class="dash-tot green">${fmtTRY(firmTotal)}</span></div>
         ${firms.length
-          ? `<div class="dash-list">${firms.slice(0, 6).map((x) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}&from=dashboard" title="${esc(x.a.name)}"><span class="dli-nm">${esc(first2(x.a.name))}</span><span class="dli-vl ${x.val >= 0 ? "green" : "red"}">${fmtTRY(x.val)}</span></a>`).join("")}</div>${firms.length > 6 ? `<a class="dash-more" href="#/borc-alacak?t=alacak">+${firms.length - 6} hesap daha →</a>` : ""}`
+          ? `<div class="dash-list">${firms.slice(0, 6).map((x, i) => `<a class="dli" href="#/hesap-detay?id=${x.a.id}&from=dashboard" title="${esc(x.a.name)}"><span class="dli-no">${i + 1}</span><span class="dli-nm">${esc(first2(x.a.name))}</span><span class="dli-vl ${x.val >= 0 ? "green" : "red"}">${fmtTRY(x.val)}</span></a>`).join("")}</div>${firms.length > 6 ? `<a class="dash-more" href="#/borc-alacak?t=alacak">+${firms.length - 6} hesap daha →</a>` : ""}`
           : `<div class="dash-empty">Bekleyen alacak yok</div>`}
       </div>
     </div>
