@@ -593,8 +593,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.207";
+const APP_VERSION = "2026.208";
 const CHANGELOG = [
+  { version: "2026.208", date: "2026-08-14", items: [
+    "↔️ Borçlarım ve Alacaklarım kartları telefonda da yan yana duruyor (artık alt alta düşmüyor). Dar ekranda satırlar kompaktlaştı: tutar ismin altına hizalanıyor, başlık dikey (isim + toplam) — iki liste ekrana sığıyor",
+  ]},
   { version: "2026.207", date: "2026-08-14", items: [
     "✨ Dashboard sadeleşti & şıklaştı: 'Ağustos ciro' ve 'Kullanılabilir Likit' kartlarına solda ince renkli aksan çizgisi (yeşil/altın) + köşede soluk ikon eklendi. Borçlarım/Alacaklarım listelerine 1-2-3 sıralama numarası eklendi — en büyük borç/alacak bir bakışta belli",
   ]},
@@ -1967,7 +1970,18 @@ async function viewDashboard(c) {
     .dash-quick{display:flex;gap:10px;overflow-x:auto;padding-bottom:2px}
     .dash-quick a{flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:5px;background:var(--bg,#f5f1e8);border-radius:15px;padding:12px 18px;text-decoration:none;color:inherit;font-size:11px;font-weight:600}
     .dash-quick a i{font-style:normal;font-size:20px}
-    @media(max-width:560px){.dash-two{grid-template-columns:1fr}.dh-val{font-size:36px}}
+    @media(max-width:560px){
+      .dh-val{font-size:36px}
+      .dash-two{grid-template-columns:1fr 1fr;gap:10px}
+      .dash-two .card{padding:12px 11px}
+      .dash-two .dash-card-head{padding:0 0 8px;flex-direction:column;align-items:flex-start;gap:2px}
+      .dash-two .dash-card-head h3{font-size:13px}
+      .dash-two .dash-tot{font-size:14px}
+      .dash-two .dli{padding:8px 2px;gap:5px 6px;flex-wrap:wrap;row-gap:1px}
+      .dash-two .dli-no{width:18px;height:18px;font-size:10px}
+      .dash-two .dli-nm{font-size:12.5px}
+      .dash-two .dli-vl{flex:1 1 100%;text-align:right;font-size:12.5px}
+    }
   </style>
   <div class="dash">
     ${pageBanner ? `<div class="dash-banner"><img src="${pageBanner}" alt="" loading="lazy" /></div>` : ""}
