@@ -390,6 +390,32 @@ table.data input.num { text-align: right; }
   color: #fff; box-shadow: 0 10px 24px rgba(122, 90, 32, .28);
   position: relative; overflow: hidden;
 }
+
+/* 5 büyük hesap kartı (Kasa/Bankalar/Blokeler/Alacaklar/Borçlar) */
+.hesap-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
+.hcard {
+  background: var(--surface, #fff); border: 1px solid var(--line, #ece7dc); border-radius: 18px;
+  padding: 14px; min-height: 116px; display: flex; flex-direction: column; gap: 6px;
+  position: relative; overflow: hidden; text-decoration: none; color: inherit;
+  transition: transform .06s, box-shadow .15s;
+}
+.hcard:hover { box-shadow: 0 6px 16px rgba(80, 60, 20, .12); }
+.hcard:active { transform: scale(.99); }
+.hcard::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--gold); }
+.hc-code { position: absolute; top: 13px; right: 14px; font-size: 12px; font-weight: 800; color: var(--ink-faint, #8b8172); }
+.hc-badge { width: 42px; height: 42px; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 22px; }
+.hc-badge .brand-logo { width: 28px; height: 28px; }
+.hc-nm { font-size: 13px; font-weight: 700; color: var(--ink-faint, #8b8172); }
+.hc-vl { font-size: clamp(15px, 3.6vw, 20px); font-weight: 800; color: var(--ink, #241d15); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hcard.kasa::before { background: #2e9e52; }   .hcard.kasa .hc-badge { background: #e7f5ec; }
+.hcard.banka::before { background: #3b7dd8; }  .hcard.banka .hc-badge { background: #e8f0fb; }
+.hcard.bloke::before { background: #d69a2a; }  .hcard.bloke .hc-badge { background: #fbf1dc; }
+.hcard.alacak::before { background: #12b3a6; } .hcard.alacak .hc-badge { background: #e2f7f5; }
+.hcard.borc::before { background: #e0574f; }   .hcard.borc .hc-badge { background: #fdeceb; }
+@media (max-width: 560px) {
+  .hesap-cards { grid-template-columns: 1fr 1fr; }
+  .hcard.wide { grid-column: 1 / -1; }
+}
 .acc-hero::after {
   content: ""; position: absolute; right: -34px; top: -34px; width: 150px; height: 150px;
   border-radius: 50%; background: rgba(255, 255, 255, .12);

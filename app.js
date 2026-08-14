@@ -614,8 +614,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.221";
+const APP_VERSION = "2026.222";
 const CHANGELOG = [
+  { version: "2026.222", date: "2026-08-14", items: [
+    "💳 Hesaplar sayfası yenilendi: en üstte 5 büyük kart — 100 Kasa · 102 Bankalar · 108 Blokeler · 120 Alacaklar · 320 Borçlar (her biri kendi renginde, mobilde 2'li + Borçlar tam genişlik, PC'de tek sıra). Karta basınca: Borçlar/Alacaklar ilgili sayfaya, diğerleri hesap planında o grubu açar. Altta detaylı Hesap Planı ağacı aynen duruyor",
+    "⚙️ Alt çubuktaki 'Menü' → 'Ayarlar' oldu. Yeni Ayarlar sayfası: Geçmiş Yükleme (Toplu Cari · Kasa/Banka/Cari Geçmişi), Kayıt & Kontrol (Tüm Kayıtlar · Bakiye Karşılaştır) ve Sistem (Kullanıcılar, Sayfa Ayarları, Yedek, Güncelleme…) tek yerde. Bu araçlar Hesaplar sayfasından Ayarlar'a taşındı. Bilgisayarda sol menüde 'Sistem' yerine 'Ayarlar' görünür",
+  ]},
   { version: "2026.221", date: "2026-08-14", items: [
     "📱 YENİ: Mobilde alttan yüzen gezinme çubuğu (hap tasarımı): Ana Sayfa · Hesaplar · Girişler · Raporlar · Menü. Aktif sekme altın kapsül. 'Girişler' ve 'Raporlar'a dokununca alttan şık bir liste açılır; 'Menü' tüm menüyü (Sistem dahil) açar. Üstteki ☰ düğmesi mobilde kaldırıldı (yerini alt çubuk aldı). Bilgisayarda sol panel aynen kalır",
   ]},
@@ -1539,15 +1543,7 @@ const NAV = [
     { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
     { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
   ]},
-  { label: "Sistem", icon: "⚙️", children: [
-    { label: "Kullanıcılar",        icon: "👥", path: "kullanicilar", admin: true },
-    { label: "Sayfa Ayarları",      icon: "🖼️", path: "sayfa-ayarlari", admin: true },
-    { label: "Gider Grupları",      icon: "🧾", path: "gider-gruplari" },
-    { label: "Nakit Akış Verileri", icon: "🔄", path: "nakit-akis-veri" },
-    { label: "Değişiklik Kaydı", icon: "📋", path: "audit" },
-    { label: "Yedek / Veri", icon: "💾", path: "yedek" },
-    { label: "Güncelleme",   icon: "🆕", path: "guncelleme" },
-  ]},
+  { label: "Ayarlar", icon: "⚙️", path: "ayarlar" },
 ];
 
 const ROUTES = {
@@ -1556,6 +1552,7 @@ const ROUTES = {
   "odeme-modu":       { title: "Ödeme Modu", crumb: "Raporlar", render: viewOdemeModu },
   "mali-durum":       { title: "Mali Durum & Kontrol", crumb: "Raporlar", render: viewMaliDurum },
   "ciro-aylik":       { title: "Aylık Ciro Dökümü", crumb: "Raporlar", render: viewCiroAylik },
+  "ayarlar":          { title: "Ayarlar", crumb: "Sistem", render: viewAyarlar },
   "gunsonu-aktarim":  { title: "Gün Sonu Aktarımı", crumb: "Veri Girişleri", render: viewGunSonuAktarim },
   "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu Aktarımı", render: viewGunSonuKayitlar },
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
@@ -1641,15 +1638,18 @@ const BN_ITEMS = [
   { key: "hesaplar",  icon: "💼", label: "Hesaplar",  href: "#/hesaplar" },
   { key: "veri",      icon: "📝", label: "Girişler",  group: "Veri Girişleri" },
   { key: "raporlar",  icon: "📈", label: "Raporlar",  group: "Raporlar" },
-  { key: "menu",      icon: "☰",  label: "Menü",      menu: true },
+  { key: "ayarlar",   icon: "⚙️", label: "Ayarlar",   href: "#/ayarlar" },
 ];
 const _bnPaths = (lbl) => (NAV.find((n) => n.label === lbl)?.children || []).map((c) => c.path);
+const AYARLAR_PATHS = ["ayarlar", "cari-import", "kasa-import", "banka-import", "cari-gecmis-import",
+  "tum-kayitlar", "bakiye-karsilastir", "kullanicilar", "sayfa-ayarlari", "gider-gruplari",
+  "nakit-akis-veri", "audit", "yedek", "guncelleme"];
 function bnActiveKey(p) {
   if (p === "dashboard" || p === "borc-alacak") return "dashboard";
   if (p === "hesaplar" || p === "hesap-detay") return "hesaplar";
   if (_bnPaths("Veri Girişleri").includes(p) || p === "gunsonu-kayitlar") return "veri";
   if (_bnPaths("Raporlar").includes(p)) return "raporlar";
-  if (_bnPaths("Sistem").includes(p)) return "menu";
+  if (AYARLAR_PATHS.includes(p)) return "ayarlar";
   return "";
 }
 function buildBottomNav() {
@@ -1686,6 +1686,57 @@ function openBottomSheet(groupLabel) {
   const close = () => { back.classList.remove("show"); setTimeout(() => back.remove(), 220); };
   back.addEventListener("click", (e) => { if (e.target === back) close(); });
   back.querySelectorAll(".bn-sheet-it").forEach((a) => a.addEventListener("click", close));
+}
+
+// ---------------------------------------------------------------------------
+//  AYARLAR — geçmiş yükleme, kayıt/kontrol, sistem (Menü'nün yerine)
+// ---------------------------------------------------------------------------
+async function viewAyarlar(c) {
+  const admin = isAdmin();
+  const SECTIONS = [
+    { title: "📥 Geçmiş Yükleme", desc: "Eski program verilerini içe aktar", items: [
+      { ic: "📥", label: "Toplu Cari", desc: "Cari hesapları topluca içe aktar", path: "cari-import" },
+      { ic: "📒", label: "Kasa Geçmişi", desc: "Geçmiş kasa hareketlerini yükle", path: "kasa-import", admin: true },
+      { ic: "🏦", label: "Banka Geçmişi", desc: "Geçmiş banka hareketlerini yükle", path: "banka-import", admin: true },
+      { ic: "🧾", label: "Cari Geçmişi", desc: "Geçmiş cari hareketlerini yükle", path: "cari-gecmis-import", admin: true },
+    ]},
+    { title: "🗂️ Kayıt & Kontrol", items: [
+      { ic: "📋", label: "Tüm Kayıtlar", desc: "Tüm hareketleri gör / düzenle / sil", path: "tum-kayitlar", admin: true },
+      { ic: "⚖️", label: "Bakiye Karşılaştır", desc: "Eski program bakiyeleriyle kontrol", path: "bakiye-karsilastir", admin: true },
+    ]},
+    { title: "⚙️ Sistem", items: [
+      { ic: "👥", label: "Kullanıcılar", desc: "Kullanıcı ekle / yetki", path: "kullanicilar", admin: true },
+      { ic: "🖼️", label: "Sayfa Ayarları", desc: "Görseller · banka logoları", path: "sayfa-ayarlari", admin: true },
+      { ic: "🧾", label: "Gider Grupları", desc: "Masraf/rapor kodları", path: "gider-gruplari" },
+      { ic: "🔄", label: "Nakit Akış Verileri", desc: "Tahmin verileri", path: "nakit-akis-veri" },
+      { ic: "📋", label: "Değişiklik Kaydı", desc: "Kim, ne zaman, neyi değiştirdi", path: "audit" },
+      { ic: "💾", label: "Yedek / Veri", desc: "Yedek al / geri yükle", path: "yedek" },
+      { ic: "🆕", label: "Güncelleme", desc: `Sürüm ${APP_VERSION}`, path: "guncelleme" },
+    ]},
+  ];
+  c.innerHTML = `<style>
+    .ayr{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+    .ayr-sec{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:18px;overflow:hidden}
+    .ayr-hd{font-family:Georgia,"Times New Roman",serif;font-weight:800;font-size:15px;padding:14px 16px 10px}
+    .ayr-hd small{display:block;font-family:-apple-system,sans-serif;font-weight:400;font-size:12px;color:var(--ink-faint,#8b8172);margin-top:2px}
+    .ayr-it{display:flex;align-items:center;gap:13px;padding:14px 16px;border-top:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit}
+    .ayr-it:active{background:var(--surface-2,#fbf7ef)}
+    .ayr-it .i{font-size:22px;width:30px;text-align:center;flex:0 0 auto}
+    .ayr-it .m{flex:1;min-width:0}
+    .ayr-it .m b{display:block;font-size:15px;font-weight:700}
+    .ayr-it .m span{display:block;font-size:12px;color:var(--ink-faint,#8b8172);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .ayr-it .ar{color:var(--ink-faint,#b8ad98);font-size:20px;flex:0 0 auto}
+  </style>
+  <div class="ayr">
+    ${SECTIONS.map((s) => {
+      const items = s.items.filter((it) => !(it.admin && !admin));
+      if (!items.length) return "";
+      return `<div class="ayr-sec">
+        <div class="ayr-hd">${s.title}${s.desc ? `<small>${esc(s.desc)}</small>` : ""}</div>
+        ${items.map((it) => `<a class="ayr-it" href="#/${it.path}"><span class="i">${it.ic}</span><span class="m"><b>${esc(it.label)}</b><span>${esc(it.desc || "")}</span></span><span class="ar">›</span></a>`).join("")}
+      </div>`;
+    }).join("")}
+  </div>`;
 }
 
 async function route(opts = {}) {
@@ -4901,6 +4952,19 @@ async function viewHesaplar(c) {
 
   const childCount = (a) => (kids.get(a.id) || []).length;
 
+  // 5 büyük kart (100 Kasa · 102 Bankalar · 108 Blokeler · 120 Alacaklar · 320 Borçlar)
+  const CARD_DEFS = [
+    { code: "100", label: "Kasa",      cls: "kasa" },
+    { code: "102", label: "Bankalar",  cls: "banka" },
+    { code: "108", label: "Blokeler",  cls: "bloke" },
+    { code: "120", label: "Alacaklar", cls: "alacak" },
+    { code: "320", label: "Borçlar",   cls: "borc", wide: true },
+  ];
+  const cardData = CARD_DEFS.map((d) => {
+    const acc = roots.find((r) => String(r.code) === d.code) || accounts.find((a) => String(a.code) === d.code) || null;
+    return { ...d, acc, bal: acc ? rolled(acc) : 0 };
+  });
+
   const rowHtml = (a, sub, pid) => {
     const parent = !sub && childCount(a) > 0;
     const bal = sub ? cur(a) : rolled(a);
@@ -4936,17 +5000,17 @@ async function viewHesaplar(c) {
         <div class="acc-hero-sub">🗂️ ${roots.length} ana hesap · 🧾 ${accounts.length} hesap${subCount ? ` · 🔖 ${subCount} alt` : ""}</div>
       </div>
     </div>
+    <div class="hesap-cards">${cardData.map((d) => `<a class="hcard ${d.cls}${d.wide ? " wide" : ""}" data-code="${d.code}"${d.acc ? ` data-id="${d.acc.id}"` : ""} href="#">
+      <span class="hc-code">${d.code}</span>
+      <span class="hc-badge">${accIconInner(d.acc || { code: d.code })}</span>
+      <span class="hc-nm">${esc(d.label)}</span>
+      <span class="hc-vl">${Math.round(Math.abs(d.bal)).toLocaleString("tr-TR")} ₺</span>
+    </a>`).join("")}</div>
     <div class="toolbar acc-tools">
       <div class="acc-search">
         <input id="acc-q" type="search" autocomplete="off" placeholder="🔍 Hesap ara — ör. 'Ga' → Garanti Bankası" />
         <div class="acc-suggest" id="acc-suggest"></div>
       </div>
-      <button class="btn btn-sm" id="acc-import">📥 Toplu Cari</button>
-      <button class="btn btn-sm" id="acc-kasa" style="display:none">📒 Kasa Geçmişi</button>
-      <button class="btn btn-sm" id="acc-banka" style="display:none">🏦 Banka Geçmişi</button>
-      <button class="btn btn-sm" id="acc-carigec" style="display:none">🧾 Cari Geçmişi</button>
-      <button class="btn btn-sm" id="acc-allrec" style="display:none">📋 Tüm Kayıtlar</button>
-      <button class="btn btn-sm" id="acc-baldiff" style="display:none">⚖️ Bakiye Karşılaştır</button>
       <button class="btn btn-sm" id="acc-complete" style="display:none">⤓ Varsayılanları Tamamla</button>
       <button class="btn btn-sm" id="acc-add" style="display:none">＋ Yeni Hesap</button>
       <button class="btn btn-sm btn-danger" id="acc-clean" style="display:none">🧹 Grup Temizle</button>
@@ -5003,6 +5067,22 @@ async function viewHesaplar(c) {
       setOpen(row.dataset.id, row.dataset.open !== "1");
     });
   });
+
+  // 5 büyük kart → tıklayınca: 320→Borçlar, 120→Alacaklar sayfası; diğerleri tree'de grubu aç + kaydır
+  $$(".hcard", c).forEach((card) => card.addEventListener("click", (e) => {
+    e.preventDefault();
+    const code = card.dataset.code, id = card.dataset.id;
+    if (code === "320") { location.hash = "#/borc-alacak?t=borc"; return; }
+    if (code === "120") { location.hash = "#/borc-alacak?t=alacak"; return; }
+    if (!id) { toast(`${code} hesabı yok.`, "err"); return; }
+    if ((kids.get(id) || []).length) {
+      setOpen(id, true);
+      const row = $(`.acc-row.parent[data-id="${id}"]`, c);
+      if (row) row.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
+      location.hash = "#/hesap-detay?id=" + id;
+    }
+  }));
 
   // Bakiyesi 0 olan alt hesapları gizle/göster
   let hideZero = false;
@@ -5101,17 +5181,7 @@ async function viewHesaplar(c) {
   };
 
   $("#acc-add").onclick = openNewChooser;
-  $("#acc-import").onclick = () => { location.hash = "#/cari-import"; };
-  const kasaBtn = $("#acc-kasa", c);
-  if (kasaBtn) { if (isAdmin()) kasaBtn.style.display = ""; kasaBtn.onclick = () => { location.hash = "#/kasa-import"; }; }
-  const bankaBtn = $("#acc-banka", c);
-  if (bankaBtn) { if (isAdmin()) bankaBtn.style.display = ""; bankaBtn.onclick = () => { location.hash = "#/banka-import"; }; }
-  const cariGecBtn = $("#acc-carigec", c);
-  if (cariGecBtn) { if (isAdmin()) cariGecBtn.style.display = ""; cariGecBtn.onclick = () => { location.hash = "#/cari-gecmis-import"; }; }
-  const allRecBtn = $("#acc-allrec", c);
-  if (allRecBtn) { if (isAdmin()) allRecBtn.style.display = ""; allRecBtn.onclick = () => { location.hash = "#/tum-kayitlar"; }; }
-  const balDiffBtn = $("#acc-baldiff", c);
-  if (balDiffBtn) { if (isAdmin()) balDiffBtn.style.display = ""; balDiffBtn.onclick = () => { location.hash = "#/bakiye-karsilastir"; }; }
+  // (Toplu Cari · Kasa/Banka/Cari Geçmişi · Tüm Kayıtlar · Bakiye Karşılaştır → artık Ayarlar'da)
   // "Hesapları Düzenle" modu: düzenle/alt ekle ikonları görünür olur
   $("#edit-toggle").onclick = () => {
     const list = $(".acc-list", c);
