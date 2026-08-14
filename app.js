@@ -483,6 +483,24 @@ function avatarInner(u = currentUser, cls = "") {
 }
 function renderAvatar() { const el = $("#user-avatar"); if (el) el.innerHTML = avatarInner(); }
 
+// Görseli genişliğe göre küçült (kırpma yok) → base64 data-URI (ayara gömmek için)
+function imageToDataURL(file, maxW = 1400, quality = 0.8) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxW / img.width);
+      const w = Math.round(img.width * scale), h = Math.round(img.height * scale);
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Görsel okunamadı")); };
+    img.src = url;
+  });
+}
+
 // Görseli tarayıcıda küçült (kare, ~256px, jpeg) → küçük dosya, hızlı yükleme
 function resizeImage(file, max = 256) {
   return new Promise((resolve, reject) => {
@@ -575,8 +593,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.201";
+const APP_VERSION = "2026.202";
 const CHANGELOG = [
+  { version: "2026.202", date: "2026-08-13", items: [
+    "🖼️ YENİ: Sistem → Sayfa Ayarları (yalnız yönetici) → Görseller. Buradan 'Dashboard Üst Görseli (Banner)' yükleyebilirsin — Dashboard'ın en üstünde geniş, şık bir kart olarak görünür. Görsel otomatik küçültülür (~1400px) ve ayarlarda saklanır; 'Kaldır' ile silinir",
+  ]},
   { version: "2026.201", date: "2026-08-13", items: [
     "🧹 Hesap Hareketleri (defter) sadeleşti: 'İşlem No', 'Cari No' ve 'Şahıs' sütunları kaldırıldı (tek hesabın defterinde şahıs = hesabın kendisi, No'lar iç sıra numarası — gereksizdi). Mobil kartta da başlık artık açıklama/işlem adı. Arama yine şahıs/no dahil her şeyde çalışır",
   ]},
@@ -1433,6 +1454,7 @@ const NAV = [
   ]},
   { label: "Sistem", icon: "⚙️", children: [
     { label: "Kullanıcılar",        icon: "👥", path: "kullanicilar", admin: true },
+    { label: "Sayfa Ayarları",      icon: "🖼️", path: "sayfa-ayarlari", admin: true },
     { label: "Gider Grupları",      icon: "🧾", path: "gider-gruplari" },
     { label: "Nakit Akış Verileri", icon: "🔄", path: "nakit-akis-veri" },
     { label: "Değişiklik Kaydı", icon: "📋", path: "audit" },
@@ -1467,6 +1489,7 @@ const ROUTES = {
   "guncelleme":       { title: "Güncelleme", crumb: "Sistem", render: viewGuncelleme },
   "audit":            { title: "Değişiklik Kaydı", crumb: "Sistem", render: viewAuditLog },
   "kullanicilar":     { title: "Kullanıcılar", crumb: "Sistem", render: viewUsers, admin: true },
+  "sayfa-ayarlari":   { title: "Sayfa Ayarları", crumb: "Sistem", render: viewSayfaAyarlari, admin: true },
 };
 
 function buildNav() {
@@ -1786,13 +1809,15 @@ function editableTable(columns, initialRows = [], opts = {}) {
 //  MODÜL: DASHBOARD
 // ===========================================================================
 async function viewDashboard(c) {
-  const [accounts, records, cari, bank, entries] = await Promise.all([
+  const [accounts, records, cari, bank, entries, settings] = await Promise.all([
     fetchAll(C.accounts).catch(() => []),
     fetchAll(C.dayEndRecords).catch(() => []),
     fetchAll(C.currentMovements).catch(() => []),
     fetchAll(C.bankTransactions).catch(() => []),
     fetchAll(C.accountEntries).catch(() => []),
+    fetchAll(C.settings).catch(() => []),
   ]);
+  const pageBanner = (settings.find((s) => s.id === "pageImages") || {}).dashboardBanner || "";
   const bal = computeBalances(accounts, cari, bank, entries);
   const cur = (id) => bal.get(id)?.current || 0;
   const sumType = (t) => accounts.filter((a) => a.type === t).reduce((s, a) => s + cur(a.id), 0);
@@ -1858,6 +1883,8 @@ async function viewDashboard(c) {
 
   c.innerHTML = `<style>
     .dash{display:flex;flex-direction:column;gap:14px;width:100%;max-width:100%}
+    .dash-banner{border-radius:20px;overflow:hidden;box-shadow:0 8px 22px rgba(51,41,28,.15);line-height:0}
+    .dash-banner img{width:100%;max-height:220px;object-fit:cover;display:block}
     .dash-hero{border-radius:22px;padding:16px 12px 18px;color:#fff;background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28)}
     .dh-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
     .dh-arrow{flex:0 0 auto;width:34px;height:34px;border-radius:50%;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
@@ -1906,6 +1933,7 @@ async function viewDashboard(c) {
     @media(max-width:560px){.dash-two{grid-template-columns:1fr}.dh-val{font-size:36px}}
   </style>
   <div class="dash">
+    ${pageBanner ? `<div class="dash-banner"><img src="${pageBanner}" alt="" loading="lazy" /></div>` : ""}
     <div class="dash-hero" id="dash-hero"></div>
 
     <div class="dash-mini">
@@ -9816,6 +9844,58 @@ async function viewUsers(c) {
       try { await adminUsers("delete", { id: b.dataset.del }); toast("Kullanıcı silindi.", "ok"); route(); }
       catch (e) { toast("Hata: " + e.message, "err"); }
     }));
+}
+
+// ===========================================================================
+//  MODÜL: SAYFA AYARLARI (yalnız yönetici) — Dashboard görselleri
+// ===========================================================================
+async function viewSayfaAyarlari(c) {
+  if (!isAdmin()) { c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`; return; }
+  const settings = await fetchAll(C.settings).catch(() => []);
+  const cfg = settings.find((s) => s.id === "pageImages") || {};
+  const imgs = { dashboardBanner: cfg.dashboardBanner || "" };
+  const save = async () => { await setDoc(doc(db, "settings", "pageImages"), { ...imgs, updatedAt: serverTimestamp() }); };
+
+  const render = () => {
+    c.innerHTML = `<style>
+      .sa-slot{border:1px solid var(--line,#ece2d1);border-radius:14px;padding:14px;margin-bottom:14px}
+      .sa-info b{display:block;font-size:14px}.sa-info span{font-size:12px;color:var(--ink-faint,#8b8172);line-height:1.5}
+      .sa-prev{margin:12px 0;border:1px dashed var(--line-strong,#ddd0b8);border-radius:12px;overflow:hidden;background:var(--surface-2,#fbf7ef);min-height:120px;display:flex;align-items:center;justify-content:center}
+      .sa-prev img{width:100%;display:block}
+      .sa-empty{color:var(--ink-faint,#8b8172);font-size:13px;padding:28px}
+      .sa-tools{display:flex;gap:8px;flex-wrap:wrap}
+    </style>
+    <div class="card">
+      <div class="card-head"><h3>🖼️ Görseller</h3><span class="hint">Yalnız yönetici · Dashboard görünümü</span></div>
+      <div style="padding:14px 16px">
+        <div class="sa-slot">
+          <div class="sa-info"><b>Dashboard Üst Görseli (Banner)</b><span>Dashboard'ın en üstünde geniş bir kart olarak görünür. En iyi sonuç için <b>yatay/geniş</b> bir görsel seç. Otomatik küçültülür (~1400px).</span></div>
+          <div class="sa-prev" id="sa-prev">${imgs.dashboardBanner ? `<img src="${imgs.dashboardBanner}" alt="banner" />` : `<div class="sa-empty">Henüz görsel yok</div>`}</div>
+          <div class="sa-tools">
+            <button class="btn btn-primary btn-sm" id="sa-pick">📁 Görsel Seç</button>
+            <button class="btn btn-sm" id="sa-rm" ${imgs.dashboardBanner ? "" : "disabled"}>Kaldır</button>
+          </div>
+          <input type="file" accept="image/*" id="sa-file" hidden />
+        </div>
+        <div class="notice info" style="margin:0">💡 Değişiklik anında kaydedilir. Dashboard'ı açınca (gerekirse yenileyince) görsel görünür.</div>
+      </div>
+    </div>`;
+
+    $("#sa-pick", c).onclick = () => $("#sa-file", c).click();
+    $("#sa-file", c).onchange = async (e) => {
+      const file = e.target.files && e.target.files[0]; if (!file) return;
+      const lb = loadingBar("Görsel hazırlanıyor…");
+      try {
+        imgs.dashboardBanner = await imageToDataURL(file, 1400, 0.8);
+        await save();
+        lb.finish(() => { toast("Görsel kaydedildi.", "ok"); render(); });
+      } catch (err) { lb.finish(() => toast("Hata: " + err.message, "err")); }
+    };
+    $("#sa-rm", c).onclick = () => confirmDialog("Banner görseli kaldırılsın mı?", async () => {
+      imgs.dashboardBanner = ""; try { await save(); toast("Kaldırıldı.", "ok"); render(); } catch (err) { toast("Hata: " + err.message, "err"); }
+    });
+  };
+  render();
 }
 
 // ===========================================================================
