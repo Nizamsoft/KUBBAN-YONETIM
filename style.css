@@ -321,6 +321,8 @@ button { font-family: inherit; }
 .user-chip .meta b { display: block; font-size: 12.5px; color: var(--ink); }
 .role-badge { font-size: 10px; padding: 1px 6px; border-radius: 999px; background: var(--gold-light); color: #4a3712; font-weight: 700; }
 .role-badge.user { background: var(--line-strong); color: var(--ink-soft); }
+/* Banka / kurum logosu — bulunduğu ikon konteynerinin yazı boyutuna göre ölçeklenir (emoji yerine geçer) */
+.brand-logo { width: 1.3em; height: 1.3em; object-fit: contain; border-radius: 4px; vertical-align: middle; display: inline-block; }
 
 .content { padding: 24px; flex: 1; min-width: 0; }
 #view-container { min-width: 0; }
@@ -867,8 +869,11 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
   .btn { padding: 10px 14px; }
   .btn-sm { padding: 8px 12px; }
 
-  .user-chip { padding: 4px; }
-  .user-chip .meta { display: none; }
+  .user-chip { padding: 4px 10px 4px 6px; }
+  /* Mobilde de fotoğrafın yanında ad-soyad görünsün (rol rozeti gizli, isim tek satır) */
+  .user-chip .meta { display: block; }
+  .user-chip .meta b { max-width: 96px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-chip .meta .role-badge { display: none; }
 
   .card { padding: 14px; }
 

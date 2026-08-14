@@ -292,6 +292,7 @@ async function logAction(action, entity, label) {
 //  Durum
 // ---------------------------------------------------------------------------
 let currentUser = null;      // { uid, email, displayName, role }
+let bankLogoMap = {};        // { markaKey: dataURI } — banka/kurum logoları (settings/bankLogos)
 const isAdmin = () => currentUser && currentUser.role === "admin";
 
 // Aktarım sonrası cari inceleme turu
@@ -470,6 +471,7 @@ async function preloadAndStart() {
   await Promise.all(refs.map((ref) => fetchAll(ref).catch(() => []).then(() => {
     done++; setLoaderProgress((done / refs.length) * 100, "Veriler yükleniyor…");
   })));
+  try { applyBankLogos(await fetchAll(C.settings).catch(() => [])); } catch (_) {}
   setLoaderProgress(100, "Hazır ✓");
   if (!location.hash) location.hash = "#/dashboard";
   try { await route({ silent: true }); } catch (_) {}   // ilk ekranı perde arkasında hazırla (cache sıcak → anında)
@@ -495,6 +497,24 @@ function imageToDataURL(file, maxW = 1400, quality = 0.8) {
       canvas.width = w; canvas.height = h;
       canvas.getContext("2d").drawImage(img, 0, 0, w, h);
       resolve(canvas.toDataURL("image/jpeg", quality));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Görsel okunamadı")); };
+    img.src = url;
+  });
+}
+
+// Logo küçültücü: en-boy korunur, kutuya sığdırılır, PNG (şeffaflık korunur)
+function logoToDataURL(file, maxSide = 240) {
+  return new Promise((resolve, reject) => {
+    const img = new Image(), url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const scale = Math.min(1, maxSide / Math.max(img.width, img.height));
+      const w = Math.max(1, Math.round(img.width * scale)), h = Math.max(1, Math.round(img.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = w; canvas.height = h;
+      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+      resolve(canvas.toDataURL("image/png"));
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Görsel okunamadı")); };
     img.src = url;
@@ -593,8 +613,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.209";
+const APP_VERSION = "2026.210";
 const CHANGELOG = [
+  { version: "2026.210", date: "2026-08-14", items: [
+    "🏦 YENİ: Banka & Kurum logoları. Sistem → Sayfa Ayarları → 'Banka & Kurum Logoları'ndan Garanti, Türkiye Finans, Ziraat, Yemek Sepeti, Getir, Trendyol, Edenred, Multinet, Pluxee, Metropol, Set Kurumsal için logo yükleyebilirsin (şeffaf PNG önerilir)",
+    "🖼️ Yüklenen logo ilgili her yerde otomatik görünür: Hesaplar listesi, Kullanılabilir Likit kırılımı ve hesap defteri üst kartı (logo yoksa eski emoji kalır)",
+    "👤 Üst çubukta artık telefonda da profil fotoğrafının yanında ad-soyad görünüyor",
+  ]},
   { version: "2026.209", date: "2026-08-14", items: [
     "📐 Dashboard: Borçlarım/Alacaklarım kartları üstten aynı hizada sabitlendi (başlık bloğu eşit yükseklikte — 'yukarısı sabit, sadece liste değişir')",
     "🗓️ Borçlar/Alacaklar detay sayfası: hesap adları artık 2 kelime gösteriliyor. Borçlar sekmesine 'son ödeme tarihi' sütunu eklendi (o tedarikçiye yapılan en son ödeme/borç hareketinin tarihi; ödeme yoksa '—'). Alacaklarda bu sütun yok",
@@ -1839,6 +1864,7 @@ async function viewDashboard(c) {
     fetchAll(C.accountEntries).catch(() => []),
     fetchAll(C.settings).catch(() => []),
   ]);
+  applyBankLogos(settings);
   const pageImg = settings.find((s) => s.id === "pageImages") || {};
   const pageBanner = pageImg.dashboardBanner || "";
   const pageHeroBg = pageImg.heroBg || "";
@@ -2082,13 +2108,14 @@ async function viewDashboard(c) {
     const otA = bankaAccts.filter((a) => !nn(a).includes("garanti") && !nn(a).includes("finans"));
     const kasaAcc = accounts.find((a) => a.type === "kasa" && !a.parentId) || accounts.find((a) => a.type === "kasa");
     const likit = [
-      { ic: "🟢", nm: "Garanti Bankası", val: grA.reduce((s, a) => s + cur(a.id), 0), id: grA[0]?.id },
-      { ic: "🔵", nm: "Türkiye Finans", val: tfA.reduce((s, a) => s + cur(a.id), 0), id: tfA[0]?.id },
-      { ic: "💵", nm: "Nakit (Kasa)", val: kasa, id: kasaAcc?.id },
+      { ic: "🟢", logo: accLogo(grA[0]), nm: "Garanti Bankası", val: grA.reduce((s, a) => s + cur(a.id), 0), id: grA[0]?.id },
+      { ic: "🔵", logo: accLogo(tfA[0]), nm: "Türkiye Finans", val: tfA.reduce((s, a) => s + cur(a.id), 0), id: tfA[0]?.id },
+      { ic: "💵", logo: "", nm: "Nakit (Kasa)", val: kasa, id: kasaAcc?.id },
     ];
-    otA.forEach((a) => { const v = cur(a.id); if (Math.abs(v) > 0.5) likit.push({ ic: accEmoji(a), nm: a.name, val: v, id: a.id }); });
+    otA.forEach((a) => { const v = cur(a.id); if (Math.abs(v) > 0.5) likit.push({ ic: accEmoji(a), logo: accLogo(a), nm: a.name, val: v, id: a.id }); });
     const likitTot = likit.reduce((s, r) => s + r.val, 0);
-    const rowH = (r) => `<a class="lkr" data-id="${r.id || ""}" href="${r.id ? `#/hesap-detay?id=${r.id}&from=dashboard` : "#"}"><span class="lkr-n">${r.ic} ${esc(r.nm)}</span><b class="lkr-v">${fmtTRY(r.val)}</b></a>`;
+    const icH = (r) => r.logo ? `<img class="brand-logo" src="${r.logo}" alt="" onerror="this.style.display='none'" />` : r.ic;
+    const rowH = (r) => `<a class="lkr" data-id="${r.id || ""}" href="${r.id ? `#/hesap-detay?id=${r.id}&from=dashboard` : "#"}"><span class="lkr-n">${icH(r)} ${esc(r.nm)}</span><b class="lkr-v">${fmtTRY(r.val)}</b></a>`;
     const body = document.createElement("div");
     body.innerHTML = `<style>
       .lk-grid{display:grid;grid-template-columns:1fr;gap:16px}
@@ -3827,6 +3854,34 @@ function accEmoji(a) {
   return "📁";
 }
 
+// --- Banka / Kurum logoları -------------------------------------------------
+// Marka bazlı: aynı markanın (ör. Garanti) logosu hesap/bloke/likit her yerde çıkar.
+const BANK_BRANDS = [
+  { key: "garanti",     ad: "Garanti Bankası",  emoji: "🟢", test: (n) => n.includes("garanti") },
+  { key: "finans",      ad: "Türkiye Finans",   emoji: "🔵", test: (n) => n.includes("finans") },
+  { key: "ziraat",      ad: "Ziraat Bankası",   emoji: "🌾", test: (n) => n.includes("ziraat") },
+  { key: "yemeksepeti", ad: "Yemek Sepeti",     emoji: "🍽️", test: (n) => n.includes("yemek sepeti") },
+  { key: "getir",       ad: "Getir",            emoji: "🛵", test: (n) => n.includes("getir") },
+  { key: "trendyol",    ad: "Trendyol",         emoji: "🛒", test: (n) => n.includes("trendyol") },
+  { key: "edenred",     ad: "Edenred",          emoji: "🎟️", test: (n) => n.includes("edenred") || n.includes("ticket") },
+  { key: "multinet",    ad: "Multinet",         emoji: "💠", test: (n) => n.includes("multinet") },
+  { key: "pluxee",      ad: "Pluxee",           emoji: "🍔", test: (n) => n.includes("pluxee") || n.includes("sodex") },
+  { key: "metropol",    ad: "Metropol",         emoji: "🏙️", test: (n) => n.includes("metropol") },
+  { key: "setkurumsal", ad: "Set Kurumsal",     emoji: "🏢", test: (n) => n.includes("set kurumsal") },
+];
+function bankBrandKey(a) { const n = normTr(a?.name || ""); const b = BANK_BRANDS.find((x) => x.test(n)); return b ? b.key : ""; }
+function accLogo(a) { const k = bankBrandKey(a); return (k && bankLogoMap[k]) ? bankLogoMap[k] : ""; }
+// Bir ikon konteynerinin (ör. .acc-ico / .lh-ico) İÇİNE gidecek HTML: logo varsa <img>, yoksa emoji
+function accIconInner(a) {
+  const logo = accLogo(a);
+  if (logo) return `<img class="brand-logo" src="${logo}" alt="" onerror="this.replaceWith(document.createTextNode('${accEmoji(a)}'))" />`;
+  return accEmoji(a);
+}
+function applyBankLogos(settingsArr) {
+  const doc = (settingsArr || []).find((s) => s.id === "bankLogos");
+  bankLogoMap = (doc && doc.map) ? doc.map : {};
+}
+
 // Hesap bakiyelerini hareketlerden OTOMATİK hesapla:
 //   güncel = açılış bakiyesi + hesap hareketleri + cari + banka
 //   · hesap hareketleri (accountEntries): giren − çıkan, accountId'ye göre
@@ -4624,7 +4679,7 @@ async function viewHesaplar(c) {
     const cls = (sub ? "sub" : (parent ? "parent" : "leaf")) + (zero ? " zerobal" : "");
     return `<div class="acc-row ${cls}" data-id="${a.id}"${sub ? ` data-parent="${pid ?? a.parentId}" style="display:none"` : ""}>
       <span class="chev">${parent ? "▸" : ""}</span>
-      <span class="acc-ico${sub ? " blank" : ""}">${sub ? "" : (virt ? "🔄" : accEmoji(a))}</span>
+      <span class="acc-ico${sub ? " blank" : ""}">${sub ? "" : (virt ? "🔄" : accIconInner(a))}</span>
       <div class="info">
         <span class="code">${esc(a.code || "—")}</span>
         <span class="name">${esc(a.name || "")}${parent ? ` <em>(${childCount(a)} alt${virt ? " · ters bakiye" : ""})</em>` : ""}</span>
@@ -6822,12 +6877,12 @@ async function viewAccountLedger(c) {
 
   const hero = cari
     ? `<div class="ledger-hero">
-        <div class="lh-ico">${accEmoji(acc)}</div>
+        <div class="lh-ico">${accIconInner(acc)}</div>
         <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
         <div class="lh-bal"><div class="lbl">${run >= 0 ? "Borç" : "Alacak"} Bakiye</div><div class="val">${fmtTRY(Math.abs(run))}</div></div>
       </div>`
     : `<div class="ledger-hero">
-        <div class="lh-ico">${accEmoji(acc)}</div>
+        <div class="lh-ico">${accIconInner(acc)}</div>
         <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
         <div class="lh-bal"><div class="lbl">Güncel Bakiye</div><div class="val" ${run < 0 ? 'style="color:#ffd9d0"' : ""}>${fmtTRY(run)}</div></div>
       </div>`;
@@ -9933,6 +9988,13 @@ async function viewSayfaAyarlari(c) {
   const cfg = settings.find((s) => s.id === "pageImages") || {};
   const imgs = { dashboardBanner: cfg.dashboardBanner || "", heroBg: cfg.heroBg || "" };
   const save = async () => { await setDoc(doc(db, "settings", "pageImages"), { ...imgs, updatedAt: serverTimestamp() }); };
+  // Banka & kurum logoları
+  const logoCfg = settings.find((s) => s.id === "bankLogos") || {};
+  const logos = { ...(logoCfg.map || {}) };
+  const saveLogos = async () => {
+    await setDoc(doc(db, "settings", "bankLogos"), { map: logos, updatedAt: serverTimestamp() });
+    bankLogoMap = { ...logos };
+  };
   const SLOTS = [
     { k: "dashboardBanner", ad: "Dashboard Üst Görseli (Banner)", desc: "Dashboard'ın en üstünde geniş bir kart olarak görünür. En iyi sonuç için <b>yatay/geniş</b> bir görsel seç." },
     { k: "heroBg", ad: "Günün Cirosu Kartı Arka Planı", desc: "Ciro kartının arka planı olur; üzerine otomatik <b>koyu degrade perde</b> iner, yazılar net okunur. <b>Yatay</b> görsel önerilir." },
@@ -9946,6 +10008,12 @@ async function viewSayfaAyarlari(c) {
       .sa-prev img{width:100%;display:block}
       .sa-empty{color:var(--ink-faint,#8b8172);font-size:13px;padding:28px}
       .sa-tools{display:flex;gap:8px;flex-wrap:wrap}
+      .sa-logos{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+      .sa-logo{border:1px solid var(--line,#ece2d1);border-radius:12px;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
+      .sa-logo-ic{width:56px;height:56px;border-radius:12px;background:var(--surface-2,#fbf7ef);border:1px solid var(--line,#ece2d1);display:flex;align-items:center;justify-content:center;font-size:26px;overflow:hidden}
+      .sa-logo-ic img{width:100%;height:100%;object-fit:contain;padding:6px}
+      .sa-logo-nm{font-size:12.5px;font-weight:600;line-height:1.2}
+      .sa-logo-tools{display:flex;gap:6px}
     </style>
     <div class="card">
       <div class="card-head"><h3>🖼️ Görseller</h3><span class="hint">Yalnız yönetici · Dashboard görünümü</span></div>
@@ -9961,7 +10029,36 @@ async function viewSayfaAyarlari(c) {
         </div>`).join("")}
         <div class="notice info" style="margin:0">💡 Değişiklik anında kaydedilir. Dashboard'ı açınca (gerekirse yenileyince) görünür.</div>
       </div>
+    </div>
+
+    <div class="card" style="margin-top:16px">
+      <div class="card-head"><h3>🏦 Banka & Kurum Logoları</h3><span class="hint">İlgili her yerde görünür</span></div>
+      <div style="padding:14px 16px">
+        <div class="sa-logos">
+          ${BANK_BRANDS.map((b) => `<div class="sa-logo">
+            <div class="sa-logo-ic">${logos[b.key] ? `<img src="${logos[b.key]}" alt="" />` : `<span>${b.emoji}</span>`}</div>
+            <div class="sa-logo-nm">${esc(b.ad)}</div>
+            <div class="sa-logo-tools">
+              <button class="btn btn-primary btn-sm" data-lpick="${b.key}" title="Logo seç">📁</button>
+              <button class="btn btn-sm" data-lrm="${b.key}" ${logos[b.key] ? "" : "disabled"} title="Kaldır">✕</button>
+            </div>
+            <input type="file" accept="image/*" data-lfile="${b.key}" hidden />
+          </div>`).join("")}
+        </div>
+        <div class="notice info" style="margin:14px 0 0">💡 En iyi sonuç için <b>şeffaf arka planlı (PNG)</b> logo yükle. Logo eklenince Hesaplar listesi, Kullanılabilir Likit kırılımı ve hesap defteri gibi ilgili yerlerde otomatik görünür.</div>
+      </div>
     </div>`;
+
+    c.querySelectorAll("[data-lpick]").forEach((b) => b.onclick = () => c.querySelector(`[data-lfile="${b.dataset.lpick}"]`).click());
+    c.querySelectorAll("[data-lfile]").forEach((inp) => inp.onchange = async (e) => {
+      const file = e.target.files && e.target.files[0]; if (!file) return;
+      const lb = loadingBar("Logo hazırlanıyor…");
+      try { logos[inp.dataset.lfile] = await logoToDataURL(file); await saveLogos(); lb.finish(() => { toast("Logo kaydedildi.", "ok"); render(); }); }
+      catch (err) { lb.finish(() => toast("Hata: " + err.message, "err")); }
+    });
+    c.querySelectorAll("[data-lrm]").forEach((b) => b.onclick = () => confirmDialog("Logo kaldırılsın mı?", async () => {
+      delete logos[b.dataset.lrm]; try { await saveLogos(); toast("Kaldırıldı.", "ok"); render(); } catch (err) { toast("Hata: " + err.message, "err"); }
+    }));
 
     c.querySelectorAll("[data-pick]").forEach((b) => b.onclick = () => c.querySelector(`[data-file="${b.dataset.pick}"]`).click());
     c.querySelectorAll("[data-file]").forEach((inp) => inp.onchange = async (e) => {
