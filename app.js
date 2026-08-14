@@ -614,8 +614,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.222";
+const APP_VERSION = "2026.223";
 const CHANGELOG = [
+  { version: "2026.223", date: "2026-08-14", items: [
+    "📂 Hesap kartına basınca artık o hesap açılıyor: alt hesabı varsa (ör. 102 Bankalar → Garanti/T.Finans/Ziraat, 108 Blokeler) Dashboard'daki Borçlar/Alacaklar gibi şık bir liste çıkar (sıra no + logo/ikon + bakiye, tıkla → o hesabın defteri). Alt hesabı yoksa (100 Kasa) doğrudan deftere gider. Açılış sağdan kayan animasyonla gelir",
+    "🖼️ Hesaplar sayfasının üst kartı Dashboard'daki gibi tasarlandı (marka logosu + 'Güllüoğlu Kübban' + Genel Toplam). Sistem → Sayfa Ayarları → Görseller'e 'Hesaplar Üst Kartı Arka Planı' slotu eklendi — görsel koyarsan otomatik koyu perdeyle net durur",
+  ]},
   { version: "2026.222", date: "2026-08-14", items: [
     "💳 Hesaplar sayfası yenilendi: en üstte 5 büyük kart — 100 Kasa · 102 Bankalar · 108 Blokeler · 120 Alacaklar · 320 Borçlar (her biri kendi renginde, mobilde 2'li + Borçlar tam genişlik, PC'de tek sıra). Karta basınca: Borçlar/Alacaklar ilgili sayfaya, diğerleri hesap planında o grubu açar. Altta detaylı Hesap Planı ağacı aynen duruyor",
     "⚙️ Alt çubuktaki 'Menü' → 'Ayarlar' oldu. Yeni Ayarlar sayfası: Geçmiş Yükleme (Toplu Cari · Kasa/Banka/Cari Geçmişi), Kayıt & Kontrol (Tüm Kayıtlar · Bakiye Karşılaştır) ve Sistem (Kullanıcılar, Sayfa Ayarları, Yedek, Güncelleme…) tek yerde. Bu araçlar Hesaplar sayfasından Ayarlar'a taşındı. Bilgisayarda sol menüde 'Sistem' yerine 'Ayarlar' görünür",
@@ -1553,6 +1557,7 @@ const ROUTES = {
   "mali-durum":       { title: "Mali Durum & Kontrol", crumb: "Raporlar", render: viewMaliDurum },
   "ciro-aylik":       { title: "Aylık Ciro Dökümü", crumb: "Raporlar", render: viewCiroAylik },
   "ayarlar":          { title: "Ayarlar", crumb: "Sistem", render: viewAyarlar },
+  "hesap-grup":       { title: "Hesap Grubu", crumb: "Hesaplar", render: viewHesapGrup, back: "#/hesaplar", anim: "viewInRight .32s cubic-bezier(.16,.84,.44,1)" },
   "gunsonu-aktarim":  { title: "Gün Sonu Aktarımı", crumb: "Veri Girişleri", render: viewGunSonuAktarim },
   "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu Aktarımı", render: viewGunSonuKayitlar },
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
@@ -1739,6 +1744,79 @@ async function viewAyarlar(c) {
   </div>`;
 }
 
+// ---------------------------------------------------------------------------
+//  HESAP GRUBU — büyük karta basınca: o ana hesabın alt hesapları (borç/alacak gibi liste)
+// ---------------------------------------------------------------------------
+async function viewHesapGrup(c) {
+  const id = hashQuery("id");
+  const [accounts, cari, bank, entries, settings] = await Promise.all([
+    fetchAll(C.accounts),
+    fetchAll(C.currentMovements).catch(() => []),
+    fetchAll(C.bankTransactions).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+    fetchAll(C.settings).catch(() => []),
+  ]);
+  applyBankLogos(settings);
+  const bal = computeBalances(accounts, cari, bank, entries);
+  const cur = (x) => bal.get(x)?.current || 0;
+  const parent = accounts.find((a) => a.id === id);
+  if (!parent) { c.innerHTML = `<div class="notice warn">Hesap bulunamadı. <a href="#/hesaplar">← Hesaplar</a></div>`; return; }
+  const childrenOf = (pid) => accounts.filter((a) => a.parentId === pid);
+  const rolled = (a) => childrenOf(a.id).reduce((s, ch) => s + rolled(ch), cur(a));
+  const total = rolled(parent);
+  const kids = childrenOf(id).map((a) => ({ a, bal: rolled(a), n: childrenOf(a.id).length }))
+    .sort((x, y) => Math.abs(y.bal) - Math.abs(x.bal));
+
+  const t = $("#page-title"); if (t) t.textContent = `${parent.code || ""} ${parent.name || ""}`.trim();
+  const from = encodeURIComponent("hesap-grup?id=" + id);
+  const rowH = (r, i) => {
+    const neg = r.bal < -0.005;
+    const href = r.n ? `#/hesap-grup?id=${r.a.id}` : `#/hesap-detay?id=${r.a.id}&from=${from}`;
+    return `<a class="hg-row" href="${href}">
+      <span class="hg-no">${i + 1}</span>
+      <span class="hg-ic">${accIconInner(r.a)}</span>
+      <span class="hg-nm"><b>${esc(r.a.name || "")}</b><small>${esc(r.a.code || "")}${r.n ? ` · ${r.n} alt hesap` : ""}</small></span>
+      <span class="hg-vl ${neg ? "red" : ""}">${fmtTRY(r.bal)}</span>
+      <span class="hg-ar">›</span>
+    </a>`;
+  };
+  c.innerHTML = `<style>
+    .hg{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:14px}
+    .hg-hero{display:flex;align-items:center;gap:14px;padding:18px 20px;border-radius:20px;color:#fff;background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 24px rgba(122,90,32,.28)}
+    .hg-hero .hg-ico{width:52px;height:52px;border-radius:14px;background:rgba(255,255,255,.2);display:flex;align-items:center;justify-content:center;font-size:26px;flex:0 0 auto}
+    .hg-hero .hg-ico .brand-logo{width:34px;height:34px}
+    .hg-hero .m{flex:1;min-width:0}
+    .hg-hero .m .cd{font-size:12px;opacity:.85;font-weight:700}
+    .hg-hero .m .nm{font-size:18px;font-weight:800;font-family:Georgia,"Times New Roman",serif;line-height:1.15}
+    .hg-hero .b{text-align:right;flex:0 0 auto}
+    .hg-hero .b .l{font-size:11px;opacity:.85}
+    .hg-hero .b .v{font-size:20px;font-weight:800;white-space:nowrap}
+    .hg-list{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:18px;overflow:hidden}
+    .hg-row{display:flex;align-items:center;gap:12px;padding:14px 15px;border-bottom:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit}
+    .hg-row:last-child{border-bottom:0}
+    .hg-row:active{background:var(--surface-2,#fbf7ef)}
+    .hg-no{flex:0 0 auto;width:22px;height:22px;border-radius:50%;background:var(--bg,#f1ede3);color:var(--gold,#b8952e);font-weight:800;font-size:11px;display:flex;align-items:center;justify-content:center}
+    .hg-ic{flex:0 0 auto;width:38px;height:38px;border-radius:11px;background:var(--surface-2,#fbf7ef);border:1px solid var(--line,#ece7dc);display:flex;align-items:center;justify-content:center;font-size:19px}
+    .hg-ic .brand-logo{width:26px;height:26px}
+    .hg-nm{flex:1;min-width:0}
+    .hg-nm b{display:block;font-size:14.5px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .hg-nm small{display:block;font-size:11.5px;color:var(--ink-faint,#8b8172);margin-top:1px}
+    .hg-vl{flex:0 0 auto;font-weight:800;white-space:nowrap;font-size:14.5px}
+    .hg-vl.red{color:var(--danger,#d33)}
+    .hg-ar{flex:0 0 auto;color:var(--ink-faint,#b8ad98);font-size:19px}
+  </style>
+  <div class="hg">
+    <div class="hg-hero">
+      <div class="hg-ico">${accIconInner(parent)}</div>
+      <div class="m"><div class="cd">${esc(parent.code || "")}</div><div class="nm">${esc(parent.name || "")}</div></div>
+      <div class="b"><div class="l">Toplam</div><div class="v">${fmtTRY(total)}</div></div>
+    </div>
+    ${kids.length
+      ? `<div class="hg-list">${kids.map(rowH).join("")}</div>`
+      : `<div class="notice info">Bu grupta alt hesap yok. <a href="#/hesap-detay?id=${id}">Hesabın hareketlerine git →</a></div>`}
+  </div>`;
+}
+
 async function route(opts = {}) {
   const silent = opts === true || opts?.silent;   // sessiz tazeleme: göstergesiz, animasyonsuz
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
@@ -1776,7 +1854,7 @@ async function route(opts = {}) {
       // Yumuşak sayfa geçişi (GPU: opacity + transform) — belirgin ama hızlı
       c.style.animation = "none";
       void c.offsetWidth;
-      c.style.animation = "viewIn .3s cubic-bezier(.16,.84,.44,1)";
+      c.style.animation = r.anim || "viewIn .3s cubic-bezier(.16,.84,.44,1)";
     } else if (r.noAnim) {
       c.style.animation = "none";   // bu ekran kaymadan, direkt gelsin (yükseklik kilidi zıplamasın)
     }
@@ -4871,12 +4949,15 @@ async function viewBakiyeKarsilastir(c) {
 }
 
 async function viewHesaplar(c) {
-  const [accounts, cari, bank, entries] = await Promise.all([
+  const [accounts, cari, bank, entries, settings] = await Promise.all([
     fetchAll(C.accounts),
     fetchAll(C.currentMovements).catch(() => []),
     fetchAll(C.bankTransactions).catch(() => []),
     fetchAll(C.accountEntries).catch(() => []),
+    fetchAll(C.settings).catch(() => []),
   ]);
+  applyBankLogos(settings);
+  const accHeroBg = (settings.find((s) => s.id === "pageImages") || {}).accHeroBg || "";
   const balances = computeBalances(accounts, cari, bank, entries);
 
   // Hiç hesap yoksa: varsayılan planı öner
@@ -4992,13 +5073,11 @@ async function viewHesaplar(c) {
 
   const subCount = accounts.length - realRootCount;
   c.innerHTML = `
-    <div class="acc-hero">
-      <div class="acc-hero-ico">💼</div>
-      <div class="acc-hero-main">
-        <div class="acc-hero-label">Genel Toplam</div>
-        <div class="acc-hero-total" style="${grand < 0 ? "color:#ffd9d0" : ""}">${fmtTRY(grand)}</div>
-        <div class="acc-hero-sub">🗂️ ${roots.length} ana hesap · 🧾 ${accounts.length} hesap${subCount ? ` · 🔖 ${subCount} alt` : ""}</div>
-      </div>
+    <div class="acc-hero brand${accHeroBg ? " has-bg" : ""}"${accHeroBg ? ` style="background-image:url('${accHeroBg}')"` : ""}>
+      <div class="ah-brand"><img src="${esc(COMPANY.logo || "")}" alt="" onerror="this.style.display='none'" /><div><div class="ah-brand-nm">${esc(COMPANY.name || "")}</div>${COMPANY.subtitle ? `<div class="ah-brand-sub">${esc(COMPANY.subtitle)}</div>` : ""}</div></div>
+      <div class="ah-label">GENEL TOPLAM</div>
+      <div class="ah-total" style="${grand < 0 ? "color:#ffd9d0" : ""}">${fmtTRY(grand)}</div>
+      <div class="ah-sub">🗂️ ${roots.length} ana hesap · 🧾 ${accounts.length} hesap${subCount ? ` · 🔖 ${subCount} alt` : ""}</div>
     </div>
     <div class="hesap-cards">${cardData.map((d) => `<a class="hcard ${d.cls}${d.wide ? " wide" : ""}" data-code="${d.code}"${d.acc ? ` data-id="${d.acc.id}"` : ""} href="#">
       <span class="hc-code">${d.code}</span>
@@ -5075,13 +5154,8 @@ async function viewHesaplar(c) {
     if (code === "320") { location.hash = "#/borc-alacak?t=borc"; return; }
     if (code === "120") { location.hash = "#/borc-alacak?t=alacak"; return; }
     if (!id) { toast(`${code} hesabı yok.`, "err"); return; }
-    if ((kids.get(id) || []).length) {
-      setOpen(id, true);
-      const row = $(`.acc-row.parent[data-id="${id}"]`, c);
-      if (row) row.scrollIntoView({ behavior: "smooth", block: "start" });
-    } else {
-      location.hash = "#/hesap-detay?id=" + id;
-    }
+    // Alt hesabı varsa → grup listesi (borç/alacak gibi); yoksa → doğrudan defter
+    location.hash = (kids.get(id) || []).length ? ("#/hesap-grup?id=" + id) : ("#/hesap-detay?id=" + id);
   }));
 
   // Bakiyesi 0 olan alt hesapları gizle/göster
@@ -10287,7 +10361,7 @@ async function viewSayfaAyarlari(c) {
   if (!isAdmin()) { c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`; return; }
   const settings = await fetchAll(C.settings).catch(() => []);
   const cfg = settings.find((s) => s.id === "pageImages") || {};
-  const imgs = { dashboardBanner: cfg.dashboardBanner || "", heroBg: cfg.heroBg || "" };
+  const imgs = { dashboardBanner: cfg.dashboardBanner || "", heroBg: cfg.heroBg || "", accHeroBg: cfg.accHeroBg || "" };
   const save = async () => { await setDoc(doc(db, "settings", "pageImages"), { ...imgs, updatedAt: serverTimestamp() }); };
   // Banka & kurum logoları
   const logoCfg = settings.find((s) => s.id === "bankLogos") || {};
@@ -10299,6 +10373,7 @@ async function viewSayfaAyarlari(c) {
   const SLOTS = [
     { k: "dashboardBanner", ad: "Dashboard Üst Görseli (Banner)", desc: "Dashboard'ın en üstünde geniş bir kart olarak görünür. En iyi sonuç için <b>yatay/geniş</b> bir görsel seç." },
     { k: "heroBg", ad: "Günün Cirosu Kartı Arka Planı", desc: "Ciro kartının arka planı olur; üzerine otomatik <b>koyu degrade perde</b> iner, yazılar net okunur. <b>Yatay</b> görsel önerilir." },
+    { k: "accHeroBg", ad: "Hesaplar Üst Kartı Arka Planı", desc: "Hesaplar sayfasındaki 'Genel Toplam' kartının arka planı; üzerine otomatik <b>koyu degrade perde</b> iner. <b>Yatay</b> görsel önerilir." },
   ];
 
   const render = () => {

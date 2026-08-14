@@ -327,6 +327,8 @@ button { font-family: inherit; }
 .content { padding: 24px; flex: 1; min-width: 0; }
 #view-container { min-width: 0; }
 @keyframes viewIn { from { opacity: 0; transform: translate3d(0, 16px, 0) scale(.985); } to { opacity: 1; transform: none; } }
+/* Karta basınca gruba "içeri gir" (sağdan kayarak) — drill-in hissi */
+@keyframes viewInRight { from { opacity: 0; transform: translate3d(26px, 0, 0); } to { opacity: 1; transform: none; } }
 /* Hareket azaltma tercihi: geçiş animasyonlarını kapat (erişilebilirlik + eski cihazda akıcılık) */
 @media (prefers-reduced-motion: reduce) {
   #view-container { animation: none !important; }
@@ -390,6 +392,22 @@ table.data input.num { text-align: right; }
   color: #fff; box-shadow: 0 10px 24px rgba(122, 90, 32, .28);
   position: relative; overflow: hidden;
 }
+
+/* Hesaplar üst kartı — Dashboard hero'su gibi (marka + Genel Toplam, opsiyonel görsel) */
+.acc-hero.brand { flex-direction: column; align-items: center; text-align: center; gap: 3px; padding: 16px 14px 18px; }
+.acc-hero.brand.has-bg { background: none; background-size: cover; background-position: center; }
+.acc-hero.brand.has-bg::before { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,.14), rgba(0,0,0,.66)); z-index: 0; }
+.acc-hero.brand.has-bg::after { display: none; }
+.acc-hero.brand > * { position: relative; z-index: 1; }
+.ah-brand { display: flex; align-items: center; justify-content: center; gap: 10px; margin-bottom: 6px; }
+.ah-brand img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #fff; padding: 2px; flex: 0 0 auto; }
+.ah-brand-nm { font-family: Georgia, "Times New Roman", serif; font-size: 19px; font-weight: 700; line-height: 1.05; }
+.ah-brand-sub { font-size: 9.5px; letter-spacing: 2px; font-weight: 700; text-transform: uppercase; color: #f2e4c0; margin-top: 2px; }
+.ah-label { font-size: 12px; letter-spacing: 2px; font-weight: 700; opacity: .85; }
+.ah-total { font-size: clamp(26px, 8vw, 38px); font-weight: 800; line-height: 1.05; margin: 1px 0 2px; white-space: nowrap; }
+.ah-sub { font-size: 12px; opacity: .92; }
+.acc-hero.brand.has-bg .ah-brand-nm, .acc-hero.brand.has-bg .ah-brand-sub,
+.acc-hero.brand.has-bg .ah-label, .acc-hero.brand.has-bg .ah-total, .acc-hero.brand.has-bg .ah-sub { text-shadow: 0 2px 6px rgba(0,0,0,.6); }
 
 /* 5 büyük hesap kartı (Kasa/Bankalar/Blokeler/Alacaklar/Borçlar) */
 .hesap-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 14px; }
