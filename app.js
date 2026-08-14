@@ -614,8 +614,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.225";
+const APP_VERSION = "2026.226";
 const CHANGELOG = [
+  { version: "2026.226", date: "2026-08-14", items: [
+    "📊 Hesap defteri mobilde artık kart yerine KOMPAKT TABLO: Tarih · İşlem · Açıklama · Tutar · Güncel Bakiye (5 sütun, ekrana tam sığar, yatay kaydırma yok). Uzun metinler kısaltılır; satıra dokununca tam detay/düzenleme açılır",
+    "🔍 Arama ve tarih filtresi artık üst karttaki küçük büyüteç ikonunda: dokununca arama + tarih aralığı + Temizle paneli açılır (üst sabit kalır). Sayfalama başlığa taşındı",
+  ]},
   { version: "2026.225", date: "2026-08-14", items: [
     "🎯 Hesaplar üst kartındaki sol üstteki koyu yuvarlak leke kaldırıldı (görselli kartta perde yanlışlıkla daire şeklindeydi). 'Güllüoğlu Kübban' yazısına da Dashboard'daki gibi gölge verildi — görselsiz kartta da net durur",
   ]},
@@ -7253,22 +7257,39 @@ async function viewAccountLedger(c) {
   </tr>`;
   const rowHtml = cari ? cariRowHtml : kasaRowHtml;
   const cardHtml = cari ? cariCard : kasaCard;
+  // Mobil kompakt tablo satırı: Tarih · İşlem Adı · Açıklama · Tutar · Güncel Bakiye
+  const dmy = (iso) => { iso = iso || ""; return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(2, 4)}`; };
+  const mInt = (v) => Math.round(parseNum(v)).toLocaleString("tr-TR");   // kuruşsuz, gruplu (mobilde sığsın)
+  const miniRowHtml = ({ e, bakiye }) => {
+    const delta = cari ? (parseNum(e.borc) - parseNum(e.alacak)) : (parseNum(e.giren) - parseNum(e.cikan));
+    const islem = cari ? (e.faturaTuru || e.sahis || "") : (e.islemAdi || "");
+    return `<tr class="${isHl(e) ? "hl-row" : ""}" data-edit="${e.id}">
+      <td class="lm-d">${esc(dmy(e.date))}</td>
+      <td class="lm-t">${esc(islem)}</td>
+      <td class="lm-a">${esc(e.aciklama || "")}</td>
+      <td class="num lm-v ${delta < -0.005 ? "red" : delta > 0.005 ? "grn" : ""}">${delta ? (delta < 0 ? "−" : "") + mInt(Math.abs(delta)) : "—"}</td>
+      <td class="num lm-b" style="${bakiye < 0 ? "color:var(--danger)" : ""}">${mInt(bakiye)}</td>
+    </tr>`;
+  };
 
   const totBorc = list.reduce((s, e) => s + parseNum(e.borc), 0);
   const totAlacak = list.reduce((s, e) => s + parseNum(e.alacak), 0);
   const totGiren = list.reduce((s, e) => s + parseNum(e.giren), 0);
   const totCikan = list.reduce((s, e) => s + parseNum(e.cikan), 0);
 
+  const heroBtn = rows.length ? `<button class="lh-filter" id="lh-filter" title="Ara / Filtrele" aria-label="Ara / Filtrele">🔍</button>` : "";
   const hero = cari
     ? `<div class="ledger-hero">
         <div class="lh-ico">${accIconInner(acc)}</div>
         <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
         <div class="lh-bal"><div class="lbl">${run >= 0 ? "Borç" : "Alacak"} Bakiye</div><div class="val">${fmtTRY(Math.abs(run))}</div></div>
+        ${heroBtn}
       </div>`
     : `<div class="ledger-hero">
         <div class="lh-ico">${accIconInner(acc)}</div>
         <div class="lh-mid"><div class="lh-code">${esc(acc.code || "")}</div><div class="lh-name">${esc(acc.name || "")}</div></div>
         <div class="lh-bal"><div class="lbl">Güncel Bakiye</div><div class="val" ${run < 0 ? 'style="color:#ffd9d0"' : ""}>${fmtTRY(run)}</div></div>
+        ${heroBtn}
       </div>`;
   const thead = cari
     ? `<tr><th>Tarih</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th><th>Fatura Türü</th><th>Fatura No</th><th></th></tr>`
@@ -7299,27 +7320,36 @@ async function viewAccountLedger(c) {
   let view = rows;                                                   // filtreli küme (başta hepsi)
   let page = tp() - 1;   // her zaman en yeni (son) sayfa — son işlemler görünür
 
-  // Arama + tarih + sayfalama tek satırda; sayfalama ortada no, iki yanında ok
-  const toolsHtml = `
-    <div class="tbl-tools">
+  // Filtre paneli (büyütece basınca açılır) + sayfalama (başlıkta)
+  const filterHtml = `
+    <div class="tbl-filter" hidden>
       <input class="tbl-search" type="search" placeholder="🔍 Ara — açıklama, şahıs, rapor, tutar…" autocomplete="off" />
-      <span class="tbl-lbl">Tarih</span>
-      <input class="tbl-date tbl-from" type="date" aria-label="Başlangıç tarihi" />
-      <span class="tbl-dsep">—</span>
-      <input class="tbl-date tbl-to" type="date" aria-label="Bitiş tarihi" />
-      <button class="btn btn-sm tbl-clear">Temizle</button>
-      <div class="pager pager-mini">
-        <button class="btn btn-sm" data-pg="prev" aria-label="Önceki">‹</button>
-        <span class="pg-info"></span>
-        <button class="btn btn-sm" data-pg="next" aria-label="Sonraki">›</button>
+      <div class="tbl-frow">
+        <span class="tbl-lbl">Tarih</span>
+        <input class="tbl-date tbl-from" type="date" aria-label="Başlangıç tarihi" />
+        <span class="tbl-dsep">—</span>
+        <input class="tbl-date tbl-to" type="date" aria-label="Bitiş tarihi" />
+        <div class="grow"></div>
+        <button class="btn btn-sm tbl-clear">Temizle</button>
+        <button class="btn btn-sm btn-primary tbl-close">Kapat</button>
       </div>
     </div>`;
+  const pagerHtml = `<div class="pager pager-mini">
+    <button class="btn btn-sm" data-pg="prev" aria-label="Önceki">‹</button>
+    <span class="pg-info"></span>
+    <button class="btn btn-sm" data-pg="next" aria-label="Sonraki">›</button>
+  </div>`;
+  const miniHtml = `<table class="ledger-mini">
+    <colgroup><col style="width:58px"><col style="width:58px"><col><col style="width:80px"><col style="width:86px"></colgroup>
+    <thead><tr><th>Tarih</th><th>İşlem</th><th>Açıklama</th><th class="num">Tutar</th><th class="num">Bakiye</th></tr></thead>
+    <tbody></tbody>
+  </table>`;
 
   c.innerHTML = `<div class="ledger-view">` + reviewBar + hero + `
     <div class="card ledger-card">
-      <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span></div>
-      ${rows.length ? toolsHtml : ""}
-      <div class="ledger-cards"></div>
+      <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span><div class="grow"></div>${rows.length ? pagerHtml : ""}</div>
+      ${rows.length ? filterHtml : ""}
+      <div class="ledger-cards">${rows.length ? miniHtml : ""}</div>
       <div class="table-wrap ledger-table"><table class="data">
         ${colgroup}
         <thead>${thead}</thead>
@@ -7329,6 +7359,7 @@ async function viewAccountLedger(c) {
     </div></div>`;
 
   const cardsEl = $(".ledger-cards", c);
+  const miniBody = $(".ledger-mini tbody", c);
   const tbodyEl = $(".ledger-table tbody", c);
   const searchEl = $(".tbl-search", c), fromEl = $(".tbl-from", c), toEl = $(".tbl-to", c);
   const clearEl = $(".tbl-clear", c);
@@ -7340,12 +7371,13 @@ async function viewAccountLedger(c) {
     page = Math.max(0, Math.min(totalPages - 1, page));
     if (!view.length) {
       const msg = rows.length ? "Eşleşen hareket yok." : "Henüz hareket yok.";
-      cardsEl.innerHTML = `<div class="empty" style="padding:28px"><div class="ico">🔍</div><p>${msg}</p></div>`;
+      if (miniBody) miniBody.innerHTML = `<tr><td colspan="5" class="lm-empty">🔍 ${msg}</td></tr>`;
+      else cardsEl.innerHTML = `<div class="empty" style="padding:28px"><div class="ico">🔍</div><p>${msg}</p></div>`;
       tbodyEl.innerHTML = `<tr><td colspan="${colCount}"><div class="empty"><div class="ico">🔍</div><p>${msg}</p></div></td></tr>`;
     } else {
       const start = page * PAGE_SIZE;
       const slice = view.slice(start, start + PAGE_SIZE);
-      cardsEl.innerHTML = slice.map(cardHtml).join("");
+      if (miniBody) miniBody.innerHTML = slice.map(miniRowHtml).join("");
       tbodyEl.innerHTML = slice.map(rowHtml).join("");
     }
     $$(".pg-info", c).forEach((el) => el.textContent = `${page + 1}/${totalPages}`);
@@ -7377,6 +7409,18 @@ async function viewAccountLedger(c) {
   if (clearEl) clearEl.addEventListener("click", () => {
     searchEl.value = ""; fromEl.value = ""; toEl.value = ""; applyFilter(); searchEl.focus();
   });
+  // Büyüteç (üst kartta) → filtre panelini aç/kapat; 'Kapat' kapatır
+  const filterPanel = $(".tbl-filter", c), filterBtn = $("#lh-filter", c);
+  const setFilterOpen = (open) => {
+    if (!filterPanel) return;
+    filterPanel.hidden = !open;
+    if (filterBtn) filterBtn.classList.toggle("on", open);
+    if (typeof fitLedger === "function") fitLedger();   // panel açılınca liste alanı yeniden ölçülsün
+    if (open && searchEl) setTimeout(() => searchEl.focus(), 30);
+  };
+  if (filterBtn) filterBtn.onclick = () => setFilterOpen(filterPanel.hidden);
+  const closeBtn = $(".tbl-close", c);
+  if (closeBtn) closeBtn.onclick = () => setFilterOpen(false);
 
   $$("[data-pg]", c).forEach((b) => b.onclick = () => {
     const k = b.dataset.pg;

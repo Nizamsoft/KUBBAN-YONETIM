@@ -772,7 +772,43 @@ table.data input.num { text-align: right; }
 .pager-mini .pg-info { min-width: 52px; text-align: center; margin: 0; font-weight: 700; color: var(--ink); }
 .pager-mini .btn { padding: 5px 12px; font-size: 16px; line-height: 1; }
 
-/* Banka uygulaması tarzı hareket kartları (mobil) */
+/* Üst kartta büyüteç (ara/filtrele) */
+.ledger-hero .lh-filter {
+  flex: 0 0 auto; align-self: center; position: relative; z-index: 2; margin-left: 2px;
+  width: 34px; height: 34px; border-radius: 50%; border: none;
+  background: rgba(255,255,255,.26); color: #fff; font-size: 16px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; line-height: 1;
+}
+.ledger-hero .lh-filter:hover { background: rgba(255,255,255,.34); }
+.ledger-hero .lh-filter.on { background: #fff; color: var(--gold-dark); }
+
+/* Filtre paneli (büyütece basınca) */
+.tbl-filter { display: flex; flex-direction: column; gap: 8px; margin: 0 0 12px; padding: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 14px; }
+.tbl-filter[hidden] { display: none; }
+.tbl-filter .tbl-search { width: 100%; padding: 10px 12px; border: 1px solid var(--line-strong); border-radius: 11px; font-size: 14px; font-family: inherit; background: var(--surface); color: var(--ink); }
+.tbl-filter .tbl-search:focus { outline: none; border-color: var(--gold); }
+.tbl-filter .tbl-frow { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tbl-filter .tbl-date { padding: 8px 10px; border: 1px solid var(--line-strong); border-radius: 11px; font-size: 13px; font-family: inherit; background: var(--surface); color: var(--ink); }
+.tbl-filter .tbl-lbl { font-size: 12px; color: var(--ink-soft); }
+.tbl-filter .tbl-dsep { color: var(--ink-faint); }
+.card-head .pager-mini { margin: 0; }
+
+/* Kompakt hareket tablosu (mobilde kart yerine) */
+.ledger-mini { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 11px; }
+.ledger-mini thead th { position: sticky; top: 0; z-index: 1; background: var(--bg); font-size: 9.5px; letter-spacing: .2px; color: var(--ink-faint); font-weight: 700; text-align: left; padding: 8px 4px; border-bottom: 1px solid var(--line); }
+.ledger-mini th.num { text-align: right; }
+.ledger-mini td { padding: 9px 4px; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-mini td.num { text-align: right; font-variant-numeric: tabular-nums; }
+.ledger-mini .lm-d { color: var(--ink-soft); }
+.ledger-mini .lm-t { font-weight: 600; color: var(--ink); }
+.ledger-mini .lm-a { color: var(--ink-soft); }
+.ledger-mini .lm-v.red { color: var(--danger); font-weight: 700; }
+.ledger-mini .lm-v.grn { color: var(--ok); font-weight: 700; }
+.ledger-mini .lm-b { font-weight: 600; color: var(--ink); }
+.ledger-mini tbody tr:active { background: var(--surface-2); }
+.ledger-mini .lm-empty { text-align: center; color: var(--ink-faint); padding: 26px; white-space: normal; }
+
+/* Banka uygulaması tarzı hareket kartları (mobil) — artık kompakt tablo kullanılıyor */
 .ledger-cards { display: none; }
 .tx-card {
   display: flex; justify-content: space-between; align-items: flex-start; gap: 12px;
@@ -799,10 +835,10 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 .tx-bal { font-size: 11px; color: var(--ink-faint); margin-top: 4px; white-space: nowrap; }
 
 @media (max-width: 820px) {
-  .ledger-cards { display: flex; flex-direction: column; gap: 10px; }
+  .ledger-cards { display: block; }
   .ledger-table { display: none; }
-  /* Defter mobilde de ekrana kilitli: üst (hesap özeti + başlık + araçlar) sabit,
-     yalnız hareket KARTLARI kendi içinde kayar */
+  /* Defter mobilde de ekrana kilitli: üst (hesap özeti + başlık + filtre) sabit,
+     yalnız hareket TABLOSU kendi içinde kayar */
   .ledger-view .ledger-card > .ledger-cards { flex: 1 1 auto; min-height: 0; overflow-y: auto; -webkit-overflow-scrolling: touch; }
 }
 
@@ -1094,7 +1130,7 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
 .ledger-view .ledger-card > .table-wrap.ledger-table { flex: 1 1 auto; min-height: 0; max-height: none; }
 .ledger-view .ledger-hero { flex: 0 0 auto; margin-bottom: 14px; }
 .ledger-view .ledger-card > .card-head,
-.ledger-view .ledger-card > .tbl-tools { flex: 0 0 auto; }
+.ledger-view .ledger-card > .tbl-filter { flex: 0 0 auto; }
 
 /* Hesap kartı içindeki eylem düğmeleri */
 .ledger-hero .lh-actions { display: flex; gap: 8px; margin-top: 11px; flex-wrap: wrap; }
