@@ -613,8 +613,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.211";
+const APP_VERSION = "2026.212";
 const CHANGELOG = [
+  { version: "2026.212", date: "2026-08-14", items: [
+    "📐 Dashboard hizası KESİN düzeldi: Alacaklarım kartının aşağı kaymasının gerçek nedeni bulundu ('.card + .card' üst boşluğu ikinci karta biniyordu) — artık Borçlarım/Alacaklarım hem telefonda hem bilgisayarda tam aynı hizada",
+    "📜 Borçlar/Alacaklar detay sayfası: üst kısım (Borçlar/Alacaklar seçimi + arama + sayaç) artık SABİT; aşağı inince yukarısı kaybolmuyor, yalnız liste kendi içinde kayıyor (hesap defterindeki gibi)",
+  ]},
   { version: "2026.211", date: "2026-08-14", items: [
     "🏦 Banka Aktarımı 'Hangi bankanın hareketleri?' seçim ekranı da yüklediğin banka logolarını gösteriyor (logo yoksa eski renkli daire kalır)",
   ]},
@@ -1991,6 +1995,7 @@ async function viewDashboard(c) {
     .dbar-x{font-size:10px;color:var(--ink-faint,#9a9082);white-space:nowrap}
     .dash-chart-foot{font-size:12px;color:var(--ink-faint,#8b8172);text-align:center;margin-top:10px}
     .dash-two{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+    .dash-two .card{margin-top:0}
     .dash-list{display:flex;flex-direction:column}
     .dli{display:flex;justify-content:space-between;gap:8px;padding:10px 4px;border-bottom:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit;font-size:13px;align-items:center}
     .dli:last-child{border-bottom:0}
@@ -2007,7 +2012,7 @@ async function viewDashboard(c) {
       .dh-val{font-size:36px}
       .dash-two{grid-template-columns:1fr 1fr;gap:10px}
       .dash-two .card{padding:12px 11px}
-      .dash-two .dash-card-head{padding:0 0 8px;flex-direction:column;align-items:flex-start;gap:2px;min-height:46px;justify-content:flex-end}
+      .dash-two .dash-card-head{padding:0 0 8px;flex-direction:column;align-items:flex-start;gap:2px}
       .dash-two .dash-card-head h3{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
       .dash-two .dash-tot{font-size:14px}
       .dash-two .dli{padding:8px 2px;gap:5px 6px;flex-wrap:wrap;row-gap:1px}
@@ -2184,14 +2189,15 @@ async function viewBorcAlacak(c) {
   let tab = new URLSearchParams(location.hash.split("?")[1] || "").get("t") === "alacak" ? "alacak" : "borc";
   let query = "";
   c.innerHTML = `<style>
-    .ba{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+    .ba{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:12px;min-height:0}
+    .ba-tabs,.ba-q,.ba-count{flex:0 0 auto}
     .ba-tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px}
     .ba-tabs button{border:1px solid var(--line,#ece7dc);background:var(--card,#fff);border-radius:14px;padding:12px;font-size:14px;font-weight:700;cursor:pointer;color:var(--ink,#241d15);display:flex;flex-direction:column;gap:3px;min-width:0}
     .ba-tabs button b{font-size:17px}
     .ba-tabs button.on[data-t=borc]{border-color:var(--danger,#d33);box-shadow:0 0 0 2px rgba(211,51,51,.15)}
     .ba-tabs button.on[data-t=alacak]{border-color:var(--ok,#2e9e52);box-shadow:0 0 0 2px rgba(46,158,82,.15)}
     .ba-q{width:100%;padding:11px 13px;border:1px solid var(--line,#ece7dc);border-radius:12px;font-size:14px}
-    .ba-list{display:flex;flex-direction:column;background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:16px;overflow:hidden}
+    .ba-list{flex:1 1 auto;min-height:0;overflow-y:auto;-webkit-overflow-scrolling:touch;display:flex;flex-direction:column;background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:16px}
     .ba-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border-bottom:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit}
     .ba-row:last-child{border-bottom:0}
     .ba-nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
@@ -2240,6 +2246,21 @@ async function viewBorcAlacak(c) {
   });
   $(".ba-q", c).addEventListener("input", (e) => { query = e.target.value; draw(); });
   draw();
+
+  // Üst kısım (sekmeler + arama + sayaç) SABİT; yalnız liste kendi içinde kayar
+  const baRoot = $(".ba", c);
+  function fitBa() {
+    if (!baRoot) return;
+    baRoot.style.height = ""; baRoot.style.overflow = "";
+    const content = c.closest(".content");
+    const padB = content ? (parseFloat(getComputedStyle(content).paddingBottom) || 0) : 0;
+    const h = window.innerHeight - baRoot.getBoundingClientRect().top - padB - 4;
+    if (h > 240) { baRoot.style.height = h + "px"; baRoot.style.overflow = "hidden"; }
+  }
+  requestAnimationFrame(fitBa);
+  setTimeout(fitBa, 300);
+  ledgerFitHandler = fitBa;                       // route değişince temizlenir (resize dinleyicisi kaldırılır)
+  window.addEventListener("resize", fitBa);
 }
 
 // Ödeme Modu — tedarikçi borçlarını büyükten küçüğe göster; Garanti/T.Finans'tan ödeme PLANLA (kayıt YOK)
