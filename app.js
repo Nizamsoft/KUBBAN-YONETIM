@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.237";
+const APP_VERSION = "2026.238";
 const CHANGELOG = [
+  { version: "2026.238", date: "2026-08-14", items: [
+    "🔢 Hareket düzenleme penceresinde (kasa/banka) alan sırası düzenlendi: Tarih · İşlem Adı · Şahıs · Açıklama · Rapor · Giren Tutar · Çıkan Tutar",
+  ]},
   { version: "2026.237", date: "2026-08-14", items: [
     "🧾 Hareket düzenleme penceresi alt kısmı 'dekont detay listesi'ne dönüştü: her alan ikon + etiket + değer olarak tek şık kartta, ince çizgilerle; değerlere dokununca yerinde düzenlenir. Tutarlar üstte vurgulu (çıkan/borç kırmızı, giren/alacak yeşil; boş olan soluk). Düzenlenemeyen alanlar (İşlem No / Cari No) formdan kaldırıldı — değer korunuyor, zaten başlıkta görünüyor",
   ]},
@@ -7618,13 +7621,13 @@ function entryModal(acc, entry, opts) {
     </div>${hidden}<input type="hidden" id="e-carino" value="${esc(String(entry?.cariNo ?? opts?.nextCariNo ?? ""))}" />`;
   } else {
     body.innerHTML = heroHtml + `<div class="em-list">
-      ${rowM("💰", "Giren", "e-giren", entry?.giren ?? "", "er-in")}
-      ${rowM("💸", "Çıkan", "e-cikan", entry?.cikan ?? "", "er-out")}
+      ${rowDate("e-date", entry?.date)}
       ${rowT("🏷️", "İşlem Adı", "e-islem", entry?.islemAdi, "Örn. Ödeme / Tahsilat")}
       ${rowT("👤", "Şahıs", "e-sahis", entry?.sahis, "Kişi / firma")}
-      ${rowT("📊", "Rapor", "e-rapor", entry?.rapor, "Rapor / referans")}
       ${rowT("📝", "Açıklama", "e-aciklama", entry?.aciklama, "Açıklama…")}
-      ${rowDate("e-date", entry?.date)}
+      ${rowT("📊", "Rapor", "e-rapor", entry?.rapor, "Rapor / referans")}
+      ${rowM("💰", "Giren", "e-giren", entry?.giren ?? "", "er-in")}
+      ${rowM("💸", "Çıkan", "e-cikan", entry?.cikan ?? "", "er-out")}
     </div>${hidden}`;
   }
   wireMoney(body);
