@@ -613,8 +613,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.217";
+const APP_VERSION = "2026.218";
 const CHANGELOG = [
+  { version: "2026.218", date: "2026-08-14", items: [
+    "↩️ Aylık Ciro Dökümü'ne Dashboard'dan (kart veya grafik) girince artık üstte geri (←) butonu çıkıyor — Dashboard'a tek dokunuşla dönülür",
+    "⚡ Borçlar/Alacaklar sayfası açılışı düzeldi: artık açılırken aşağı-yukarı zıplamıyor ve daha hızlı geliyor. Üst kısım yine sabit, yalnız liste içeride kayar (yükseklik artık sabit '.content'ten tek seferde, senkron ölçülüyor — animasyonlu ölçümden kaynaklı zıplama giderildi)",
+  ]},
   { version: "2026.217", date: "2026-08-14", items: [
     "🧮 Aylık Ciro Dökümü'nde Net Satış düzeltildi: artık gösterilen Ciro'dan İkram ve İskonto ÇIKARILARAK hesaplanıyor (Net = Ciro − İkram − İskonto). Önceden ayrı 'brüt' alanından gelen değer ciro'dan yüksek çıkıp toplama gibi görünüyordu. Not: diğer raporlarda (Gün Sonu Raporu, Mali Durum) net zaten Brüt − İskonto − İkram olarak doğru hesaplanıyor",
   ]},
@@ -1943,7 +1947,7 @@ async function viewDashboard(c) {
     const max = Math.max(1, ...series.map((s) => s.value));
     const tot = series.reduce((a, s) => a + s.value, 0);
     const nz = series.filter((s) => s.value > 0).length || 1;
-    return `<div class="dash-bars">${series.map((s) => `<a class="dbar" href="#/ciro-aylik" title="${esc(s.full)}: ${fmtTRY(s.value)}"><span class="dbar-v">${s.value ? compactTL(s.value) : ""}</span><div class="dbar-fill${s.now ? " now" : ""}" style="height:${Math.round(s.value / max * 118)}px"></div><span class="dbar-x">${esc(s.x || "")}</span></a>`).join("")}</div>
+    return `<div class="dash-bars">${series.map((s) => `<a class="dbar" href="#/ciro-aylik?from=dashboard" title="${esc(s.full)}: ${fmtTRY(s.value)}"><span class="dbar-v">${s.value ? compactTL(s.value) : ""}</span><div class="dbar-fill${s.now ? " now" : ""}" style="height:${Math.round(s.value / max * 118)}px"></div><span class="dbar-x">${esc(s.x || "")}</span></a>`).join("")}</div>
       <div class="dash-chart-foot">Toplam <b>${fmtTRY(tot)}</b> · günlük ort. ${fmtTRY(tot / nz)}</div>`;
   };
 
@@ -2046,7 +2050,7 @@ async function viewDashboard(c) {
     <div class="dash-hero" id="dash-hero"></div>
 
     <div class="dash-mini">
-      <a class="dmini accent accent-green" href="#/ciro-aylik">
+      <a class="dmini accent accent-green" href="#/ciro-aylik?from=dashboard">
         <div class="dm-ic">📅</div><div class="dm-lb">${esc(ayAdi)} · şimdiye kadarki ciro</div>
         <div class="dm-vl">${fmtTRY(ayCiro)}</div>
         <div class="dm-dl ${ayPct == null ? "" : (ayPct >= 0 ? "up" : "down")}">${ayPct == null ? "geçen ay kaydı yok" : `${ayPct >= 0 ? "▲" : "▼"} %${Math.abs(ayPct).toFixed(0)} · geçen ay ${fmtTRY(gecenAy)}`}</div>
@@ -2374,21 +2378,24 @@ async function viewBorcAlacak(c) {
   draw();
 
   // Üst kısım (sekmeler + arama + sayaç) SABİT; yalnız liste kendi içinde kayar.
-  // ÖNEMLİ: sayfaya gelmeden önce pencere aşağı kaydırılmışsa (ör. Dashboard'da
-  // '+N daha'ya basınca), önce EN TEPEYE dön → yükseklik doğru ölçülür, liste tepeden başlar.
+  // Yükseklik SABİT '.content' öğesinden ölçülür (giriş animasyonu #view-container'da olduğu
+  // için onun transform'undan etkilenmez) ve TEK SEFERDE, SENKRON kilitlenir → açılışta
+  // zıplama/gecikme olmaz (önceki rAF + 300ms çift ölçüm animasyonlu konumu ölçüp zıplatıyordu).
   const baRoot = $(".ba", c);
   function fitBa() {
     if (!baRoot) return;
-    baRoot.style.height = ""; baRoot.style.overflow = "";
     const content = c.closest(".content");
-    const padB = content ? (parseFloat(getComputedStyle(content).paddingBottom) || 0) : 0;
-    const h = window.innerHeight - baRoot.getBoundingClientRect().top - padB - 4;
+    if (!content) return;
+    const cs = getComputedStyle(content);
+    const padT = parseFloat(cs.paddingTop) || 0, padB = parseFloat(cs.paddingBottom) || 0;
+    const availTop = content.getBoundingClientRect().top + padT;
+    const h = window.innerHeight - availTop - padB - 4;
     if (h > 240) { baRoot.style.height = h + "px"; baRoot.style.overflow = "hidden"; }
+    else { baRoot.style.height = ""; baRoot.style.overflow = ""; }
   }
-  function initTop() { window.scrollTo(0, 0); fitBa(); if (listEl) listEl.scrollTop = 0; }
-  window.scrollTo(0, 0);
-  requestAnimationFrame(initTop);
-  setTimeout(initTop, 300);
+  window.scrollTo(0, 0);   // kaydırılmış gelince .content konumu doğru ölçülsün
+  fitBa();                 // senkron: ilk boyamadan önce kilitle → zıplamaz
+  if (listEl) listEl.scrollTop = 0;
   ledgerFitHandler = fitBa;                       // route değişince temizlenir (resize dinleyicisi kaldırılır)
   window.addEventListener("resize", fitBa);
 }
