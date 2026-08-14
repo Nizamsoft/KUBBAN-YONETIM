@@ -593,8 +593,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.208";
+const APP_VERSION = "2026.209";
 const CHANGELOG = [
+  { version: "2026.209", date: "2026-08-14", items: [
+    "📐 Dashboard: Borçlarım/Alacaklarım kartları üstten aynı hizada sabitlendi (başlık bloğu eşit yükseklikte — 'yukarısı sabit, sadece liste değişir')",
+    "🗓️ Borçlar/Alacaklar detay sayfası: hesap adları artık 2 kelime gösteriliyor. Borçlar sekmesine 'son ödeme tarihi' sütunu eklendi (o tedarikçiye yapılan en son ödeme/borç hareketinin tarihi; ödeme yoksa '—'). Alacaklarda bu sütun yok",
+  ]},
   { version: "2026.208", date: "2026-08-14", items: [
     "↔️ Borçlarım ve Alacaklarım kartları telefonda da yan yana duruyor (artık alt alta düşmüyor). Dar ekranda satırlar kompaktlaştı: tutar ismin altına hizalanıyor, başlık dikey (isim + toplam) — iki liste ekrana sığıyor",
   ]},
@@ -1957,7 +1961,7 @@ async function viewDashboard(c) {
     .dbar:active .dbar-fill{filter:brightness(.9)}
     .dbar-x{font-size:10px;color:var(--ink-faint,#9a9082);white-space:nowrap}
     .dash-chart-foot{font-size:12px;color:var(--ink-faint,#8b8172);text-align:center;margin-top:10px}
-    .dash-two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .dash-two{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
     .dash-list{display:flex;flex-direction:column}
     .dli{display:flex;justify-content:space-between;gap:8px;padding:10px 4px;border-bottom:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit;font-size:13px;align-items:center}
     .dli:last-child{border-bottom:0}
@@ -1974,8 +1978,8 @@ async function viewDashboard(c) {
       .dh-val{font-size:36px}
       .dash-two{grid-template-columns:1fr 1fr;gap:10px}
       .dash-two .card{padding:12px 11px}
-      .dash-two .dash-card-head{padding:0 0 8px;flex-direction:column;align-items:flex-start;gap:2px}
-      .dash-two .dash-card-head h3{font-size:13px}
+      .dash-two .dash-card-head{padding:0 0 8px;flex-direction:column;align-items:flex-start;gap:2px;min-height:46px;justify-content:flex-end}
+      .dash-two .dash-card-head h3{font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
       .dash-two .dash-tot{font-size:14px}
       .dash-two .dli{padding:8px 2px;gap:5px 6px;flex-wrap:wrap;row-gap:1px}
       .dash-two .dli-no{width:18px;height:18px;font-size:10px}
@@ -2136,6 +2140,16 @@ async function viewBorcAlacak(c) {
   const alacakGroups = new Set(["108", "120"]);
   const receiv = leaves.filter((a) => alacakGroups.has(groupOf(a.code))).map((a) => ({ a, amt: cur(a.id) })).filter((x) => x.amt > 0.5).sort((x, y) => y.amt - x.amt);
   const supTotal = suppliers.reduce((s, x) => s + x.amt, 0), recTotal = receiv.reduce((s, x) => s + x.amt, 0);
+  const first2 = (nm) => { const w = String(nm || "").trim().split(/\s+/); return w.slice(0, 2).join(" ") || String(nm || ""); };
+
+  // Son ödeme tarihi (yalnız borçlarda): tedarikçi hesabına yapılan en son BORÇ (ödeme) hareketi
+  const lastPay = new Map();
+  entries.forEach((e) => {
+    if (parseNum(e.borc) > 0 && e.date && e.accountId) {
+      const prev = lastPay.get(e.accountId);
+      if (!prev || e.date > prev) lastPay.set(e.accountId, e.date);
+    }
+  });
 
   let tab = new URLSearchParams(location.hash.split("?")[1] || "").get("t") === "alacak" ? "alacak" : "borc";
   let query = "";
@@ -2150,9 +2164,12 @@ async function viewBorcAlacak(c) {
     .ba-list{display:flex;flex-direction:column;background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:16px;overflow:hidden}
     .ba-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border-bottom:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit}
     .ba-row:last-child{border-bottom:0}
-    .ba-nm{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
+    .ba-nm{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px}
     .ba-code{color:var(--ink-faint,#9a9082);font-size:12px;margin-left:8px}
-    .ba-vl{flex:0 0 auto;font-weight:800;white-space:nowrap}.ba-vl.red{color:var(--danger,#d33)}.ba-vl.green{color:var(--ok,#2e9e52)}
+    .ba-pay{flex:0 0 auto;font-size:12px;color:var(--ink-faint,#8b8172);white-space:nowrap;text-align:right}
+    .ba-pay.none{opacity:.5}
+    .ba-vl{flex:0 0 auto;font-weight:800;white-space:nowrap;min-width:104px;text-align:right}.ba-vl.red{color:var(--danger,#d33)}.ba-vl.green{color:var(--ok,#2e9e52)}
+    @media(max-width:520px){.ba-row{gap:8px;padding:12px 13px}.ba-nm{font-size:13px}.ba-code{display:none}.ba-pay{font-size:11px}.ba-vl{min-width:96px;font-size:13.5px}}
     .ba-empty{padding:22px;text-align:center;color:var(--ink-faint,#9a9082)}
     .ba-count{font-size:12px;color:var(--ink-faint,#8b8172);padding:2px 4px}
   </style>
@@ -2172,11 +2189,19 @@ async function viewBorcAlacak(c) {
     const nq = normTr(query);
     const rows = nq ? src.filter((x) => normTr(x.a.name).includes(nq) || normTr(x.a.code).includes(nq)) : src;
     const cls = tab === "borc" ? "red" : "green";
+    const showPay = tab === "borc";
     const from = encodeURIComponent("borc-alacak?t=" + tab);
     listEl.innerHTML = rows.length
-      ? rows.map((x) => `<a class="ba-row" href="#/hesap-detay?id=${x.a.id}&from=${from}"><span class="ba-nm">${esc(x.a.name)}<span class="ba-code">${esc(x.a.code)}</span></span><span class="ba-vl ${cls}">${fmtTRY(x.amt)}</span></a>`).join("")
+      ? rows.map((x) => {
+          const payCell = showPay
+            ? (lastPay.has(x.a.id)
+                ? `<span class="ba-pay" title="Son ödeme tarihi">🗓️ ${esc(fmtDate(lastPay.get(x.a.id)))}</span>`
+                : `<span class="ba-pay none" title="Ödeme kaydı yok">🗓️ —</span>`)
+            : "";
+          return `<a class="ba-row" href="#/hesap-detay?id=${x.a.id}&from=${from}"><span class="ba-nm">${esc(first2(x.a.name))}<span class="ba-code">${esc(x.a.code)}</span></span>${payCell}<span class="ba-vl ${cls}">${fmtTRY(x.amt)}</span></a>`;
+        }).join("")
       : `<div class="ba-empty">Kayıt yok.</div>`;
-    countEl.textContent = `${rows.length.toLocaleString("tr-TR")} hesap · toplam ${fmtTRY(rows.reduce((s, x) => s + x.amt, 0))}`;
+    countEl.innerHTML = `${rows.length.toLocaleString("tr-TR")} hesap · toplam ${fmtTRY(rows.reduce((s, x) => s + x.amt, 0))}${showPay ? ` · <span style="opacity:.85">🗓️ = son ödeme tarihi</span>` : ""}`;
   };
   $$(".ba-tabs button", c).forEach((b) => b.onclick = () => {
     tab = b.dataset.t;
