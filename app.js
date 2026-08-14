@@ -613,8 +613,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.212";
+const APP_VERSION = "2026.213";
 const CHANGELOG = [
+  { version: "2026.213", date: "2026-08-14", items: [
+    "🟢 Alacaklar artık yalnız 120 (Alıcılar / müşteri-veresiye) hesaplarını gösteriyor. Blokeli / valörlü (108: banka blokesi + Yemek Sepeti, Getir, Edenred, Multinet, Pluxee, Metropol, Set…) artık Alacaklarım listesine girmiyor — hem Dashboard'daki kart hem Borçlar/Alacaklar detay sayfası",
+  ]},
   { version: "2026.212", date: "2026-08-14", items: [
     "📐 Dashboard hizası KESİN düzeldi: Alacaklarım kartının aşağı kaymasının gerçek nedeni bulundu ('.card + .card' üst boşluğu ikinci karta biniyordu) — artık Borçlarım/Alacaklarım hem telefonda hem bilgisayarda tam aynı hizada",
     "📜 Borçlar/Alacaklar detay sayfası: üst kısım (Borçlar/Alacaklar seçimi + arama + sayaç) artık SABİT; aşağı inince yukarısı kaybolmuyor, yalnız liste kendi içinde kayıyor (hesap defterindeki gibi)",
@@ -1933,7 +1936,7 @@ async function viewDashboard(c) {
   const groupOf = (cd) => String(cd || "").split(".")[0];
   const suppliers = leaves.filter((a) => groupOf(a.code) === "320").map((a) => ({ a, debt: -cur(a.id) })).filter((x) => x.debt > 0.5).sort((x, y) => y.debt - x.debt);
   const supTotal = suppliers.reduce((s, x) => s + x.debt, 0);
-  const alacakGroups = new Set(["108", "120"]);   // bloke + müşteri/veresiye
+  const alacakGroups = new Set(["120"]);   // yalnız müşteri/veresiye (alıcılar) — bloke (108) hariç
   const firms = leaves.filter((a) => alacakGroups.has(groupOf(a.code))).map((a) => ({ a, val: cur(a.id) })).filter((x) => x.val > 0.5).sort((x, y) => y.val - x.val);
   const firmTotal = firms.reduce((s, x) => s + x.val, 0);
   const first2 = (nm) => { const w = String(nm || "").trim().split(/\s+/); return w.slice(0, 2).join(" ") || String(nm || ""); };
@@ -2172,7 +2175,7 @@ async function viewBorcAlacak(c) {
   const leaves = accounts.filter((a) => !hasChild.has(a.id) && a.code);
   const groupOf = (cd) => String(cd || "").split(".")[0];
   const suppliers = leaves.filter((a) => groupOf(a.code) === "320").map((a) => ({ a, amt: -cur(a.id) })).filter((x) => x.amt > 0.5).sort((x, y) => y.amt - x.amt);
-  const alacakGroups = new Set(["108", "120"]);
+  const alacakGroups = new Set(["120"]);   // yalnız müşteri/veresiye (alıcılar) — bloke (108) hariç
   const receiv = leaves.filter((a) => alacakGroups.has(groupOf(a.code))).map((a) => ({ a, amt: cur(a.id) })).filter((x) => x.amt > 0.5).sort((x, y) => y.amt - x.amt);
   const supTotal = suppliers.reduce((s, x) => s + x.amt, 0), recTotal = receiv.reduce((s, x) => s + x.amt, 0);
   const first2 = (nm) => { const w = String(nm || "").trim().split(/\s+/); return w.slice(0, 2).join(" ") || String(nm || ""); };
