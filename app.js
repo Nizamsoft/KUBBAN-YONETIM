@@ -575,8 +575,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.198";
+const APP_VERSION = "2026.199";
 const CHANGELOG = [
+  { version: "2026.199", date: "2026-08-13", items: [
+    "📊 Mali Durum & Kontrol — Faz 2 (bilanço): rapora eklendi → 🧾 Borçlar (Cari Borçlar 320, Personele 335 · Dönem Başı/Giren/Çıkan/Dönem Sonu), ⚖️ Öz Kaynak (Sermaye = Varlık − Borç; dönem başı · kâr/zarar · dönem sonu), 🛒 Satış Özeti (Brüt−İskonto−İkram=Net + Cari Tahsilat) ve 💸 Ödeme Özeti (masraflar gruba göre + Toplam Ödenen). Ayrı hesabı olmayan kalemler (Kira vb.) ve Uyumsoft karşılaştırması dahil değildir",
+  ]},
   { version: "2026.198", date: "2026-08-13", items: [
     "🔍 Mali Durum & Kontrol: kırmızı fark satırına DOKUN → 'Fark Analizi' penceresi açılır. O günün BEYAN (gün sonu) ↔ YAZILAN (hesaba) kalemlerini yan yana gösterir, toplamları ve farkı verir; ayrıca o günkü hareketlerde farkı BİREBİR veren işlemi bulup işaretler (ör. cariye yazılmayan tahsilat aynı gün bankada çıkmış). Farkın nereden geldiğini tek bakışta gösterir",
   ]},
@@ -9034,9 +9037,38 @@ async function viewMaliDurum(c) {
       </tr>`;
     }).join("");
     const tSon = tOpen + tIn - tOut;
+    const recs = gunSonu.filter((r) => r.date.slice(0, 7) === ym).sort((a, b) => a.date.localeCompare(b.date));
+
+    // ---- BORÇLAR (KVY Kaynaklar) — pasif; işaret ters, borç magnitude pozitif ----
+    const liaOf = (a) => { const cd = String(a.code || ""); if (cd.startsWith("320") || cd.startsWith("321")) return "320"; if (cd.startsWith("335")) return "335"; if (cd.startsWith("336")) return "336"; return null; };
+    const LIA = [{ k: "320", ad: "Cari Borçlar", ic: "🔴" }, { k: "335", ad: "Personele Borçlar", ic: "👤" }, { k: "336", ad: "Diğer Borçlar", ic: "📌" }];
+    const lOpen = { "320": 0, "335": 0, "336": 0 }, lIn = { "320": 0, "335": 0, "336": 0 }, lOut = { "320": 0, "335": 0, "336": 0 };
+    accounts.forEach((a) => { const g = liaOf(a); if (!g) return; lOpen[g] += -(opening.get(a.id) || 0); lIn[g] += outflow.get(a.id) || 0; lOut[g] += inflow.get(a.id) || 0; });
+    let ltO = 0, ltI = 0, ltU = 0;
+    const liaRows = LIA.filter((g) => Math.abs(lOpen[g.k]) > 0.5 || Math.abs(lIn[g.k]) > 0.5 || Math.abs(lOut[g.k]) > 0.5).map((g) => {
+      const o = lOpen[g.k], i = lIn[g.k], u = lOut[g.k], s = o + i - u; ltO += o; ltI += i; ltU += u;
+      return `<tr><td class="md-nm">${g.ic} ${g.ad}</td><td class="num">${fmtTRY(o)}</td><td class="num md-in">${i ? fmtTRY(i) : "—"}</td><td class="num md-out">${u ? fmtTRY(u) : "—"}</td><td class="num"><b>${fmtTRY(s)}</b></td></tr>`;
+    }).join("");
+    const ltSon = ltO + ltI - ltU;
+
+    // ---- ÖZ KAYNAK (Sermaye = Varlık − Borç) ----
+    const sermayeBasi = tOpen - ltO, sermayeSon = tSon - ltSon, netKar = sermayeSon - sermayeBasi;
+
+    // ---- SATIŞ ÖZETİ (ay toplamı) ----
+    let sBrut = 0, sIsk = 0, sIkr = 0, sNet = 0, sTah = 0;
+    recs.forEach((r) => {
+      sBrut += parseNum(r.brut); sIsk += parseNum(r.iskonto);
+      sIkr += (r.ikramNet != null ? parseNum(r.ikramNet) : parseNum(r.ikram) - (r.x === "" || r.x == null ? 0 : parseNum(r.x)));
+      sNet += parseNum(r.netSatis); sTah += parseNum(r.cariTahsilatTotal);
+    });
+    const satistanGiren = sNet + sTah;
+
+    // ---- ÖDEME ÖZETİ (masraf, rapor grubuna göre) ----
+    const odeme = {}; let odemeTot = 0;
+    recs.forEach((r) => (r.masraflar || []).forEach((m) => { const t = parseNum(m.tutar); if (!t) return; const g = m.rapor || "Diğer"; odeme[g] = (odeme[g] || 0) + t; odemeTot += t; }));
+    const odemeRows = Object.entries(odeme).sort((a, b) => b[1] - a[1]).map(([g, v]) => `<div class="md-sr"><span>${esc(g)}</span><b>${fmtTRY(v)}</b></div>`).join("");
 
     // ---- KONTROLLER (ay içindeki her gün sonu için beyan ↔ yazılan) ----
-    const recs = gunSonu.filter((r) => r.date.slice(0, 7) === ym).sort((a, b) => a.date.localeCompare(b.date));
     const eps = 0.5;
     const fails = { kirilim: [], masraf: [], tahsilat: [], cari: [], aktarim: [] };
     recs.forEach((r) => {
@@ -9100,6 +9132,12 @@ async function viewMaliDurum(c) {
       .md-go{opacity:.55;font-size:11px}
       .md-df{color:var(--danger,#d33)}
       .md-checks{display:flex;flex-direction:column;gap:10px}
+      .md-two{display:grid;grid-template-columns:1fr;gap:14px}
+      @media(min-width:640px){.md-two{grid-template-columns:1fr 1fr}}
+      .md-sr,.md-ozr{display:flex;justify-content:space-between;gap:10px;padding:8px 2px;border-bottom:1px solid var(--line,#f0ece2);font-size:13.5px}
+      .md-sr:last-child,.md-ozr:last-child{border-bottom:0}
+      .md-sr.tot,.md-ozr.tot{font-weight:800;border-top:2px solid var(--gold-light,#c9a24b);border-bottom:0;margin-top:2px;padding-top:9px}
+      .md-sr b,.md-ozr b{white-space:nowrap}
     </style>
     <div class="md">
       <div class="md-bar">
@@ -9119,6 +9157,41 @@ async function viewMaliDurum(c) {
           </table>
         </div>
         <div class="md-hint">Dönem Başı + Giren − Çıkan = Dönem Sonu. Rakamlar hesap hareketlerinden (gün sonu, banka, fatura, cari) otomatik hesaplanır.</div>
+      </div>
+
+      ${liaRows ? `<div class="md-card">
+        <h3>🧾 Borçlar (kaynaklar)</h3>
+        <div style="overflow-x:auto"><table class="md-table">
+          <thead><tr><th>Hesap</th><th class="num">Dönem Başı</th><th class="num">Giren</th><th class="num">Çıkan</th><th class="num">Dönem Sonu</th></tr></thead>
+          <tbody>${liaRows}</tbody>
+          <tfoot><tr><td>TOPLAM BORÇ</td><td class="num">${fmtTRY(ltO)}</td><td class="num">${fmtTRY(ltI)}</td><td class="num">${fmtTRY(ltU)}</td><td class="num">${fmtTRY(ltSon)}</td></tr></tfoot>
+        </table></div>
+        <div class="md-hint">Giren = yeni borç · Çıkan = ödeme. (Kira gibi ayrı hesabı olmayan kalemler bu listede yer almaz.)</div>
+      </div>` : ""}
+
+      <div class="md-card">
+        <h3>⚖️ Öz Kaynak (Sermaye)</h3>
+        <div class="md-ozr"><span>Dönem Başı Sermaye</span><b>${fmtTRY(sermayeBasi)}</b></div>
+        <div class="md-ozr"><span>Dönem Kâr / Zarar</span><b class="${netKar >= 0 ? "md-in" : "md-out"}">${fmtTRY(netKar)}</b></div>
+        <div class="md-ozr tot"><span>Dönem Sonu Sermaye</span><b>${fmtTRY(sermayeSon)}</b></div>
+        <div class="md-hint">Sermaye = Toplam Varlık − Toplam Borç. Dönem Kâr/Zarar = bu ayki sermaye değişimi.</div>
+      </div>
+
+      <div class="md-two">
+        <div class="md-card">
+          <h3>🛒 Satış Özeti</h3>
+          <div class="md-sr"><span>Brüt Satış</span><b>${fmtTRY(sBrut)}</b></div>
+          <div class="md-sr"><span>− İskonto</span><b>${fmtTRY(sIsk)}</b></div>
+          <div class="md-sr"><span>− İkram</span><b>${fmtTRY(sIkr)}</b></div>
+          <div class="md-sr tot"><span>Net Satış</span><b>${fmtTRY(sNet)}</b></div>
+          <div class="md-sr"><span>+ Cari Tahsilat</span><b>${fmtTRY(sTah)}</b></div>
+          <div class="md-sr tot"><span>Satıştan Giren</span><b>${fmtTRY(satistanGiren)}</b></div>
+        </div>
+        <div class="md-card">
+          <h3>💸 Ödeme Özeti</h3>
+          ${odemeRows || `<div class="md-sr"><span style="color:var(--ink-faint,#8b8172)">Bu ay masraf kaydı yok.</span><b></b></div>`}
+          <div class="md-sr tot"><span>Toplam Ödenen</span><b>${fmtTRY(odemeTot)}</b></div>
+        </div>
       </div>
 
       <div class="md-card">
