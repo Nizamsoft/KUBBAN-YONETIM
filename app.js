@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.231";
+const APP_VERSION = "2026.232";
 const CHANGELOG = [
+  { version: "2026.232", date: "2026-08-14", items: [
+    "🧾 Gün Sonu kaydında artık kaç hesap hareketi işlendiği bildiriliyor ('Gün sonu kaydedildi · N hareket işlendi'). Eğer kayıt yazılıp da hesaplara HİÇ hareket işlenmezse (ör. Kasa Sayımı'nda 'Gerçekleşen' değerleri boşsa nakit/kart çekimleri yazılmaz) belirgin bir uyarı çıkıyor — sessizce 'kaydedildi' deyip geçmiyor. Hata olursa gerçek hata mesajı gösteriliyor (önceden kısa bir bildirimde kaybolup 'aktarım eksik' kayıt kalabiliyordu). Eksik kalan günü Gün Sonu Kayıtları → Düzenle → Kaydet ile yeniden aktarabilirsiniz",
+  ]},
   { version: "2026.231", date: "2026-08-14", items: [
     "🐞 Hesap grubu (ör. 102 Bankalar, 108 Blokeler) sayfasında bakiyeler hep 0,00 çıkıyordu — düzeltildi. Bakiye hesap KİMLİĞİ yerine yanlışlıkla hesap NESNESİ ile aranıyordu; artık Garanti/Türkiye Finans ve tüm alt hesaplar doğru bakiyeyi gösteriyor",
     "📖 Hesap defterinde sayfanın bir bütün olarak sürüklenmesi/kayması (iOS'ta 'lastik gibi' esneme dahil) tamamen kaldırıldı: kilit artık <html>+<body>+#app-view seviyesinde — üst (hesap kartı + başlık + sütun başlığı) taş gibi SABİT, yalnız hareket listesi kendi içinde kayar. İç listede aşağı/yukarı akış korunur (overscroll sızmaz)",
@@ -3837,14 +3840,33 @@ async function viewGunSonuAktarim(c) {
           else await addDoc(C.dayEndRecords(), { ...payload, notes: [], createdAt: serverTimestamp(), createdBy: currentUser.email });
         }
         // 3) Bloke (108) + Nakit/Ödemeler (100) + Cari (120) hareketleri (hepsi idempotent)
-        await postBlokeEntries(date, blokePayload, masraflar);
-        await postCariEntries(date, items, byName, accById);
-        await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", fmtDate(date));
-        toast("Gün sonu kaydedildi.", "ok");
+        const nBloke = (await postBlokeEntries(date, blokePayload, masraflar)) || 0;   // bloke + kasa nakit/masraf
+        const nCari = (await postCariEntries(date, items, byName, accById)) || 0;       // 120 cari borç/tahsilat
+        const nPosted = nBloke + nCari;
+        // Beyanda tutar var mı? (varsa ama 0 hareket yazıldıysa bir şeyler ters → kullanıcıyı belirgin uyar)
+        const beyanVar = (payload.cariIslemTotal || payload.cariTahsilatTotal || payload.masraflarTotal ||
+          parseNum(blokePayload.garantiKredi) || parseNum(blokePayload.garantiDebit) ||
+          gsComputeBlokeRows(gsState, accounts).some((r) => parseNum(r.borc))) ? true : false;
+        await logAction(editing ? "Düzenleme" : "Ekleme", "Gün Sonu", `${fmtDate(date)} · ${nPosted} hareket`);
         gsState = null; _activeDraftSaver = null; clearGsDraft();
-        successAnim("Gün sonu kaydedildi", () => { location.hash = "#/gunsonu-kayitlar"; });
+        if (nPosted === 0 && beyanVar) {
+          // Kayıt yazıldı ama hesaplara hiç hareket işlenmedi — bu SESSİZCE geçmesin
+          alert("⚠️ Gün sonu kaydı yazıldı ancak hesaplara HİÇ hareket işlenmedi.\n\n" +
+            "Genelde sebebi: Kasa Sayımı adımında 'Gerçekleşen' değerleri girilmemiş (nakit ve kart çekimleri 'Gerçekleşen' üzerinden hesaba yazılır).\n\n" +
+            "Kayıt duruyor — Gün Sonu Kayıtları → ilgili günü 'Düzenle' → Gerçekleşen'leri gir → 'Kaydet' ile tekrar aktar.");
+          toast("Kayıt yazıldı ama 0 hesap hareketi işlendi — Gerçekleşen'leri kontrol edin.", "err");
+        } else {
+          toast(`Gün sonu kaydedildi · ${nPosted} hesap hareketi işlendi.`, "ok");
+        }
+        successAnim(nPosted === 0 && beyanVar ? "Kayıt yazıldı — 0 hareket!" : `Gün sonu kaydedildi · ${nPosted} hareket`,
+          () => { location.hash = "#/gunsonu-kayitlar"; });
         return;
-      } catch (e) { toast("Kaydedilemedi: " + e.message, "err"); }
+      } catch (e) {
+        console.error("Gün sonu kaydetme hatası:", e);
+        alert("⚠️ Gün sonu kaydedilemedi:\n\n" + (e && e.message ? e.message : String(e)) +
+          "\n\nKayıt tam işlenmemiş olabilir; lütfen bu mesajı iletin ve günü 'Düzenle → Kaydet' ile yeniden aktarın.");
+        toast("Kaydedilemedi: " + (e && e.message || e), "err");
+      }
     };
 
     if (missing.length || dupItems.length) {
@@ -3902,6 +3924,7 @@ async function viewGunSonuAktarim(c) {
       });
     }
     if (docs.length) await batchAdd(C.accountEntries, docs);
+    return docs.length;
   }
 
   // Bloke satırlarını 108 hesap defterlerine + Nakit/Ödemeleri 100 Kasa'ya yazar (idempotent).
@@ -3979,6 +4002,7 @@ async function viewGunSonuAktarim(c) {
     }
 
     if (docs.length) await batchAdd(C.accountEntries, docs);
+    return docs.length;
   }
 
   render();
