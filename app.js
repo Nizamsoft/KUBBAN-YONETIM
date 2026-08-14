@@ -458,6 +458,7 @@ function showApp() {
   const foot = $(".sidebar-foot");
   if (foot) foot.textContent = `Sürüm ${APP_VERSION} · Bulut (Supabase)`;
   buildNav();
+  buildBottomNav();
   // Açılışta HER ŞEYİ yükle (logo + çubuk + %), sonra ilk ekranı aç → gezinmeler ışık hızında
   preloadAndStart();
 }
@@ -613,8 +614,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.220";
+const APP_VERSION = "2026.221";
 const CHANGELOG = [
+  { version: "2026.221", date: "2026-08-14", items: [
+    "📱 YENİ: Mobilde alttan yüzen gezinme çubuğu (hap tasarımı): Ana Sayfa · Hesaplar · Girişler · Raporlar · Menü. Aktif sekme altın kapsül. 'Girişler' ve 'Raporlar'a dokununca alttan şık bir liste açılır; 'Menü' tüm menüyü (Sistem dahil) açar. Üstteki ☰ düğmesi mobilde kaldırıldı (yerini alt çubuk aldı). Bilgisayarda sol panel aynen kalır",
+  ]},
   { version: "2026.220", date: "2026-08-14", items: [
     "📒 Tüm hesap defterlerinde (hesap detay) artık üst kısım SABİT, yalnız hareketler kendi içinde kayıyor — mobilde de (önceden sadece bilgisayarda böyleydi; telefonda tüm sayfa kayıp hesap özeti yukarı gidiyordu). Açılış Borçlar/Alacaklar'daki gibi pürüzsüz: kaydırmadan bağımsız yükseklik + giriş animasyonu kapalı → zıplama yok, son işlemler görünür açılır",
   ]},
@@ -1629,6 +1633,61 @@ function toggleGroup(group) {
   if (willOpen) group.classList.add("open");
 }
 
+// ---------------------------------------------------------------------------
+//  MOBİL ALT GEZİNME (yüzen hap çubuk) — yalnız telefonda görünür
+// ---------------------------------------------------------------------------
+const BN_ITEMS = [
+  { key: "dashboard", icon: "🏠", label: "Ana Sayfa", href: "#/dashboard" },
+  { key: "hesaplar",  icon: "💼", label: "Hesaplar",  href: "#/hesaplar" },
+  { key: "veri",      icon: "📝", label: "Girişler",  group: "Veri Girişleri" },
+  { key: "raporlar",  icon: "📈", label: "Raporlar",  group: "Raporlar" },
+  { key: "menu",      icon: "☰",  label: "Menü",      menu: true },
+];
+const _bnPaths = (lbl) => (NAV.find((n) => n.label === lbl)?.children || []).map((c) => c.path);
+function bnActiveKey(p) {
+  if (p === "dashboard" || p === "borc-alacak") return "dashboard";
+  if (p === "hesaplar" || p === "hesap-detay") return "hesaplar";
+  if (_bnPaths("Veri Girişleri").includes(p) || p === "gunsonu-kayitlar") return "veri";
+  if (_bnPaths("Raporlar").includes(p)) return "raporlar";
+  if (_bnPaths("Sistem").includes(p)) return "menu";
+  return "";
+}
+function buildBottomNav() {
+  const el = $("#bottom-nav"); if (!el) return;
+  el.innerHTML = BN_ITEMS.map((it) =>
+    `<button class="bn-item" data-key="${it.key}"><span class="bn-i">${it.icon}</span><span class="bn-l">${esc(it.label)}</span></button>`).join("");
+  el.querySelectorAll(".bn-item").forEach((btn) => {
+    const it = BN_ITEMS.find((x) => x.key === btn.dataset.key);
+    btn.onclick = () => {
+      if (it.href) location.hash = it.href;
+      else if (it.group) openBottomSheet(it.group);
+      else if (it.menu) toggleDrawer();
+    };
+  });
+}
+function updateBottomNav(navPath) {
+  const key = bnActiveKey(navPath);
+  $$("#bottom-nav .bn-item").forEach((b) => b.classList.toggle("on", b.dataset.key === key));
+}
+// Grup sekmesi (Girişler/Raporlar) → alttan kayan liste
+function openBottomSheet(groupLabel) {
+  const grp = NAV.find((n) => n.label === groupLabel); if (!grp) return;
+  const kids = (grp.children || []).filter((ch) => !(ch.admin && !isAdmin()));
+  const back = document.createElement("div");
+  back.className = "bn-sheet-back";
+  back.innerHTML = `<div class="bn-sheet" role="dialog" aria-label="${esc(grp.label)}">
+    <div class="bn-grip"></div>
+    <div class="bn-sheet-hd">${grp.icon} ${esc(grp.label)}</div>
+    <div class="bn-sheet-list">${kids.map((ch) =>
+      `<a class="bn-sheet-it" href="#/${ch.path}"><span class="i">${ch.icon}</span><span class="t">${esc(ch.label)}</span><span class="ar">›</span></a>`).join("")}</div>
+  </div>`;
+  document.body.appendChild(back);
+  requestAnimationFrame(() => back.classList.add("show"));
+  const close = () => { back.classList.remove("show"); setTimeout(() => back.remove(), 220); };
+  back.addEventListener("click", (e) => { if (e.target === back) close(); });
+  back.querySelectorAll(".bn-sheet-it").forEach((a) => a.addEventListener("click", close));
+}
+
 async function route(opts = {}) {
   const silent = opts === true || opts?.silent;   // sessiz tazeleme: göstergesiz, animasyonsuz
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
@@ -1644,6 +1703,7 @@ async function route(opts = {}) {
   // Aktif sayfanın bulunduğu grubu aç (akordeon)
   $$("#nav .nav-group").forEach((g) =>
     g.classList.toggle("open", Array.isArray(g._paths) && g._paths.includes(navPath)));
+  updateBottomNav(navPath);   // mobil alt çubukta aktif sekmeyi işaretle
   $("#page-title").textContent = r.title;
   $("#crumb").textContent = r.crumb;
   const backEl = $("#page-back");
