@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.232";
+const APP_VERSION = "2026.233";
 const CHANGELOG = [
+  { version: "2026.233", date: "2026-08-14", items: [
+    "📖 Hesap defteri (mobil) orta sütunu artık İKİ SATIR: üstte İşlem Adı (koyu), altta Açıklama (gri/küçük) — Tutar/Bakiye gibi. Böylece hem işlem adı hem açıklaması aynı anda görünüyor, uzun açıklama '…' ile kırpılıyor. Cari hesaplarda üstte açıklama, altta fatura türü/no ya da şahıs gösteriliyor. Sütun başlığı 'İşlem / Açıklama' oldu",
+  ]},
   { version: "2026.232", date: "2026-08-14", items: [
     "🧾 Gün Sonu kaydında artık kaç hesap hareketi işlendiği bildiriliyor ('Gün sonu kaydedildi · N hareket işlendi'). Eğer kayıt yazılıp da hesaplara HİÇ hareket işlenmezse (ör. Kasa Sayımı'nda 'Gerçekleşen' değerleri boşsa nakit/kart çekimleri yazılmaz) belirgin bir uyarı çıkıyor — sessizce 'kaydedildi' deyip geçmiyor. Hata olursa gerçek hata mesajı gösteriliyor (önceden kısa bir bildirimde kaybolup 'aktarım eksik' kayıt kalabiliyordu). Eksik kalan günü Gün Sonu Kayıtları → Düzenle → Kaydet ile yeniden aktarabilirsiniz",
   ]},
@@ -7344,10 +7347,20 @@ async function viewAccountLedger(c) {
   const mInt = (v) => Math.round(parseNum(v)).toLocaleString("tr-TR");   // kuruşsuz, gruplu (mobilde sığsın)
   const miniRowHtml = ({ e, bakiye }) => {
     const delta = cari ? (parseNum(e.borc) - parseNum(e.alacak)) : (parseNum(e.giren) - parseNum(e.cikan));
-    const aciklama = e.aciklama || (cari ? (e.faturaTuru || e.sahis || "") : (e.islemAdi || ""));
+    // İki satır: üst = İşlem Adı (koyu), alt = Açıklama (gri). Cari'de üst = açıklama, alt = fatura/şahıs.
+    let l1, l2;
+    if (cari) {
+      l1 = e.aciklama || e.faturaTuru || e.sahis || "";
+      l2 = (e.aciklama && (e.faturaTuru || e.sahis))
+        ? (e.faturaTuru ? (e.faturaTuru + (e.faturaNo ? " · " + e.faturaNo : "")) : e.sahis)
+        : "";
+    } else {
+      l1 = e.islemAdi || e.aciklama || "";
+      l2 = (e.islemAdi && e.aciklama) ? e.aciklama : "";
+    }
     return `<tr class="${isHl(e) ? "hl-row" : ""}" data-edit="${e.id}">
       <td class="lm-d">${esc(dmy(e.date))}</td>
-      <td class="lm-a">${esc(aciklama)}</td>
+      <td class="lm-a"><div class="lm-t">${esc(l1)}</div>${l2 ? `<div class="lm-s">${esc(l2)}</div>` : ""}</td>
       <td class="num lm-amt">
         <div class="lm-v ${delta < -0.005 ? "red" : delta > 0.005 ? "grn" : ""}">${delta ? (delta < 0 ? "−" : "+") + mInt(Math.abs(delta)) : "—"}</div>
         <div class="lm-b"${bakiye < 0 ? ' style="color:var(--danger)"' : ""}>${mInt(bakiye)}</div>
@@ -7424,7 +7437,7 @@ async function viewAccountLedger(c) {
   </div>`;
   const miniHtml = `<table class="ledger-mini">
     <colgroup><col style="width:62px"><col><col style="width:104px"></colgroup>
-    <thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Tutar / Bakiye</th></tr></thead>
+    <thead><tr><th>Tarih</th><th>${cari ? "Açıklama" : "İşlem / Açıklama"}</th><th class="num">Tutar / Bakiye</th></tr></thead>
     <tbody></tbody>
   </table>`;
 

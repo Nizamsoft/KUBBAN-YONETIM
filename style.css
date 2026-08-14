@@ -800,7 +800,9 @@ table.data input.num { text-align: right; }
 .ledger-mini td { padding: 8px 4px; border-bottom: 1px solid var(--line); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ledger-mini td.num { text-align: right; font-variant-numeric: tabular-nums; }
 .ledger-mini .lm-d { color: var(--ink-soft); white-space: nowrap; }
-.ledger-mini .lm-a { color: var(--ink); }
+.ledger-mini .lm-a { color: var(--ink); white-space: normal; line-height: 1.18; }
+.ledger-mini .lm-a .lm-t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ledger-mini .lm-a .lm-s { font-size: 10px; color: var(--ink-faint); margin-top: 1px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ledger-mini .lm-amt { white-space: nowrap; line-height: 1.15; }
 .ledger-mini .lm-v { font-weight: 800; }
 .ledger-mini .lm-v.red { color: var(--danger); }
