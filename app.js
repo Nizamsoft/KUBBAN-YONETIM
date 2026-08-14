@@ -302,7 +302,6 @@ let ledgerFitHandler = null;  // defter yükseklik kilidi (resize dinleyicisi)
 // ---- Kaydırma hafızası: "Geri" (←) tuşuyla dönünce sayfa BIRAKILDIĞI yerden açılır ----
 const _scrollMem = new Map();   // navKey -> { win, inner:{lc,lt,bl} }
 let _lastNavKey = null;         // ayrıldığımız sayfanın anahtarı (kaydetmek için)
-let _navIsBack = false;         // bu geçiş "Geri" (←) tuşuyla başladı → konumu geri yükle
 let _pendingRestore = null;     // render sırasında geri yüklenecek konum (varsa)
 const _SCROLL_SELS = { lc: ".ledger-view .ledger-cards", lt: ".ledger-view .ledger-table", bl: ".ba-list" };
 // Sayfa anahtarı: yol + (from hariç) parametreler. Farklı hesap defterleri ayrı ayrı hatırlanır.
@@ -640,10 +639,10 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.229";
+const APP_VERSION = "2026.230";
 const CHANGELOG = [
-  { version: "2026.229", date: "2026-08-14", items: [
-    "↩️ 'Geri' (←) tuşuyla bir sayfaya dönünce artık BIRAKILDIĞI yerden açılıyor — tepeye/başa sıfırlanmıyor. Örn. Hesaplar/Borçlar listesinde aşağı inip bir hesabı açtıktan sonra ← ile dönünce liste yine aynı konumda. Hem normal sayfa kaydırması hem de defter/borç-alacak iç liste kaydırması hatırlanıyor (her sayfa kendi parametresiyle ayrı ayrı: farklı hesaplar karışmaz). İleri gidişte (menü/bağlantı) sayfa yine tepeden başlar",
+  { version: "2026.230", date: "2026-08-14", items: [
+    "↩️ Bir sayfaya HER dönüşte (menüden, karttan, bağlantıdan ya da ← tuşuyla) sayfa artık BIRAKILDIĞI yerden açılıyor — tepeye/başa sıfırlanmıyor. Örn. Hesaplar/Borçlar listesinde aşağı inip başka yere gidip tekrar açınca liste yine aynı konumda. Hem normal sayfa kaydırması hem de defter/borç-alacak iç liste kaydırması hatırlanıyor (her sayfa kendi parametresiyle ayrı ayrı: farklı hesaplar karışmaz). Yalnızca inceleme turunda (rev) ilgili kayda odaklanmak için en alttan açılır",
   ]},
   { version: "2026.228", date: "2026-08-14", items: [
     "📖 Hesap defterinde sayfa artık bir bütün olarak AŞAĞI İNMİYOR: üst (altın hesap kartı + 'Hareketler' başlığı + sütun başlığı) SABİT kalır, yalnızca hareket listesi kendi içinde kayar. Kilit tamamen CSS ile (dvh + flex) yapıldı — JS ile yükseklik ölçülmüyor; iOS'ta URL çubuğu açılıp kapanınca yükseklik kendiliğinden düzeliyor, 'hero yukarı kaçması' / 'açılışta zıplama' sorunu bitti",
@@ -1867,12 +1866,13 @@ async function route(opts = {}) {
   const silent = opts === true || opts?.silent;   // sessiz tazeleme: göstergesiz, animasyonsuz
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
   const r = ROUTES[path] || ROUTES["dashboard"];
-  // Kaydırma hafızası: ayrılırken (yalnız gerçek geçişte) bu sayfanın konumunu sakla.
-  // "Geri" (←) tuşuyla dönünce ise hedef sayfayı bırakıldığı yerden yükle.
+  // Kaydırma hafızası: ayrılırken bu sayfanın konumunu sakla; bir sayfaya HER dönüşte
+  // (menüden, karttan, bağlantıdan ya da ← tuşuyla) bırakıldığı yerden yükle.
+  // İnceleme turu (rev=) hariç — orada ilgili kayda odaklanılır, en alttan açılır.
   const curKey = navKey(location.hash);
   if (!silent && _lastNavKey != null && _lastNavKey !== curKey) _scrollMem.set(_lastNavKey, captureScrollState());
-  const isBack = _navIsBack; _navIsBack = false;
-  _pendingRestore = (!silent && isBack && _scrollMem.has(curKey)) ? _scrollMem.get(curKey) : null;
+  const hasRev = /[?&]rev=/.test(location.hash);
+  _pendingRestore = (!silent && !hasRev && _scrollMem.has(curKey)) ? _scrollMem.get(curKey) : null;
   closeDrawer(); // mobilde gezinince menüyü kapat
   runDraftSaver(); _activeDraftSaver = null; // önceki ekranın taslağını kaydet (hesaba bakıp dönünce kaldığın yer)
   if (reviewKeyHandler) { document.removeEventListener("keydown", reviewKeyHandler); reviewKeyHandler = null; }
@@ -1895,7 +1895,7 @@ async function route(opts = {}) {
     // Geldiğin yere dön: hash'te ?from=... varsa oraya (ör. dashboard / borc-alacak), yoksa sabit r.back
     const fromParam = new URLSearchParams(location.hash.split("?")[1] || "").get("from");
     const backTarget = fromParam ? ("#/" + fromParam) : (r.back || null);
-    if (backTarget) { backEl.style.display = ""; backEl.onclick = () => { _navIsBack = true; location.hash = backTarget; }; }
+    if (backTarget) { backEl.style.display = ""; backEl.onclick = () => { location.hash = backTarget; }; }
     else { backEl.style.display = "none"; backEl.onclick = null; }
   }
   const c = $("#view-container");
