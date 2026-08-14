@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.238";
+const APP_VERSION = "2026.239";
 const CHANGELOG = [
+  { version: "2026.239", date: "2026-08-14", items: [
+    "🧾 Hareket düzenleme penceresi sadeleşti: üstteki büyük renkli tutar kartı ve sarı 'bağlı kayıt' bandı kaldırıldı. Hesap artık listenin en üstünde normal bir satır (Tarih'in üstünde); dokununca hesabı değiştirir. Tarih değeri artık diğer satırlar gibi sağa hizalı (kayma giderildi)",
+  ]},
   { version: "2026.238", date: "2026-08-14", items: [
     "🔢 Hareket düzenleme penceresinde (kasa/banka) alan sırası düzenlendi: Tarih · İşlem Adı · Şahıs · Açıklama · Rapor · Giren Tutar · Çıkan Tutar",
   ]},
@@ -7591,14 +7594,9 @@ function entryModal(acc, entry, opts) {
   const isNew = !entry;
   const cari = isCari(acc.type);
   const body = document.createElement("div");
-  const heroHtml = `
-    <div class="em-hero" id="em-hero">
-      <div class="em-cap" id="em-cap"></div>
-      <div class="em-amt" id="em-amt">—</div>
-      <div class="em-ttl" id="em-ttl"></div>
-      <div class="em-sub" id="em-sub"></div>
-    </div>`;
   // Dekont detay listesi — her alan ikon + etiket + inline düzenlenebilir değer (D1)
+  const accLabel = (acc.code ? acc.code + " " : "") + (acc.name || "");
+  const rowAcc = `<div class="em-row em-acc"${isNew ? "" : ' id="e-accrow"'}><span class="er-ic">🏦</span><span class="er-k">Hesap</span><span class="er-static">${esc(accLabel)}</span>${isNew ? "" : `<span class="er-chev">›</span>`}</div>`;
   const rowT = (ic, k, id, val, ph = "") =>
     `<label class="em-row"><span class="er-ic">${ic}</span><span class="er-k">${k}</span><input id="${id}" class="er-inp" value="${esc(val ?? "")}" placeholder="${esc(ph)}" /></label>`;
   const rowM = (ic, k, id, val, cls) => {
@@ -7610,17 +7608,19 @@ function entryModal(acc, entry, opts) {
   // Gizli (düzenlenemez) alanlar — değer korunur, formda görünmez (İşlem/Cari No zaten başlıkta)
   const hidden = `<input type="hidden" id="e-no" value="${esc(String(entry?.islemNo ?? opts?.nextNo ?? ""))}" />`;
   if (cari) {
-    body.innerHTML = heroHtml + `<div class="em-list">
-      ${rowM("📕", "Borç", "e-borc", entry?.borc ?? "", "er-out")}
-      ${rowM("📗", "Alacak", "e-alacak", entry?.alacak ?? "", "er-in")}
-      ${rowT("📝", "Açıklama", "e-aciklama", entry?.aciklama, "Açıklama…")}
+    body.innerHTML = `<div class="em-list">
+      ${rowAcc}
+      ${rowDate("e-date", entry?.date)}
       ${rowT("👤", "Şahıs", "e-sahis", entry?.sahis, "Kişi / firma")}
+      ${rowT("📝", "Açıklama", "e-aciklama", entry?.aciklama, "Açıklama…")}
       <label class="em-row"><span class="er-ic">🧾</span><span class="er-k">Fatura Türü</span><select id="e-faturaturu" class="er-inp er-sel">${FATURA_TURU.map((t) => `<option value="${esc(t)}" ${entry?.faturaTuru === t ? "selected" : ""}>${t || "—"}</option>`).join("")}</select></label>
       ${rowT("#️⃣", "Fatura No", "e-faturano", entry?.faturaNo, "Örn. A-000123")}
-      ${rowDate("e-date", entry?.date)}
+      ${rowM("📕", "Borç", "e-borc", entry?.borc ?? "", "er-out")}
+      ${rowM("📗", "Alacak", "e-alacak", entry?.alacak ?? "", "er-in")}
     </div>${hidden}<input type="hidden" id="e-carino" value="${esc(String(entry?.cariNo ?? opts?.nextCariNo ?? ""))}" />`;
   } else {
-    body.innerHTML = heroHtml + `<div class="em-list">
+    body.innerHTML = `<div class="em-list">
+      ${rowAcc}
       ${rowDate("e-date", entry?.date)}
       ${rowT("🏷️", "İşlem Adı", "e-islem", entry?.islemAdi, "Örn. Ödeme / Tahsilat")}
       ${rowT("👤", "Şahıs", "e-sahis", entry?.sahis, "Kişi / firma")}
@@ -7631,48 +7631,14 @@ function entryModal(acc, entry, opts) {
     </div>${hidden}`;
   }
   wireMoney(body);
-  // Üstteki dekont/fiş kartı — alanlar değiştikçe canlı güncellenir (tutar rengi + işlem/şahıs)
-  const updateHero = () => {
-    let cap, ttl, sub, outV, inV;   // outV = çıkan/borç, inV = giren/alacak
-    if (cari) {
-      outV = parseNum($("#e-borc", body).value); inV = parseNum($("#e-alacak", body).value);
-      cap = outV > 0.005 ? "BORÇ" : inV > 0.005 ? "ALACAK" : "TUTAR";
-      ttl = ($("#e-aciklama", body).value || "").trim();
-      sub = [($("#e-sahis", body).value || "").trim(), $("#e-faturaturu", body).value].filter(Boolean).join(" · ");
-    } else {
-      inV = parseNum($("#e-giren", body).value); outV = parseNum($("#e-cikan", body).value);
-      cap = inV > 0.005 ? "GİREN TUTAR" : outV > 0.005 ? "ÇIKAN TUTAR" : "TUTAR";
-      ttl = ($("#e-islem", body).value || "").trim();
-      sub = ($("#e-sahis", body).value || "").trim();
-    }
-    const isOut = outV > 0.005, isIn = inV > 0.005 && !isOut;
-    const val = isOut ? outV : isIn ? inV : 0;
-    const hero = $("#em-hero", body);
-    hero.classList.toggle("out", isOut);
-    hero.classList.toggle("in", isIn);
-    $("#em-cap", body).textContent = cap;
-    $("#em-amt", body).textContent = val ? (isOut ? "−" : "+") + fmtTRY(val) : "—";
-    const ttlEl = $("#em-ttl", body); ttlEl.textContent = ttl; ttlEl.style.display = ttl ? "" : "none";
-    const subEl = $("#em-sub", body); subEl.textContent = sub; subEl.style.display = sub ? "" : "none";
-    // Liste tutar satırları: dolu olan renkli, boş/0 soluk
-    [["#e-giren"], ["#e-cikan"], ["#e-borc"], ["#e-alacak"]].forEach(([sel]) => {
+  // Tutar satırları: dolu olan renkli, boş/0 soluk gösterilir
+  const paintAmounts = () => {
+    ["#e-giren", "#e-cikan", "#e-borc", "#e-alacak"].forEach((sel) => {
       const el = $(sel, body); if (el) el.classList.toggle("zero", parseNum(el.value) < 0.005);
     });
   };
-  $$("input, textarea, select", body).forEach((el) => { el.addEventListener("input", updateHero); el.addEventListener("change", updateHero); });
-  updateHero();
-  // 🔗 Bağlı işlem bandı: aynı Kayıt No / txId'li kayıtlar (çift taraflı) — silme/tarih hepsine uygulanır
-  if (!isNew && entry?.txId) {
-    const bar = document.createElement("div");
-    bar.className = "notice info"; bar.style.marginBottom = "10px";
-    bar.innerHTML = `🔗 <b>Kayıt No ${esc(String(entry.kayitNo ?? "?"))}</b> · bağlı işlem`;
-    const fieldsEl = body.querySelector(".em-list");
-    if (fieldsEl) fieldsEl.before(bar); else body.insertBefore(bar, body.firstChild);
-    fetchAll(C.accountEntries).then((all) => {
-      const n = all.filter((e) => e.txId && e.txId === entry.txId).length;
-      if (n > 1) bar.innerHTML = `🔗 <b>Kayıt No ${esc(String(entry.kayitNo ?? ""))}</b> · bu işlem <b>${n}</b> hesaba bağlı — silme ve tarih değişikliği hepsine uygulanır.`;
-    }).catch(() => {});
-  }
+  $$("input, select", body).forEach((el) => { el.addEventListener("input", paintAmounts); el.addEventListener("change", paintAmounts); });
+  paintAmounts();
   // Hesabı değiştir/taşı — üstteki bant ve alttaki "Taşı" butonu aynı işlevi çağırır (bankalardaki gibi aranabilir seçici)
   async function doMoveAccount() {
     const accs = await fetchAll(C.accounts).catch(() => []);
@@ -7708,15 +7674,9 @@ function entryModal(acc, entry, opts) {
       },
     });
   }
-  // Düzenlemede hesabı üstte göster + tek tıkla değiştir
-  if (!isNew) {
-    const accBar = document.createElement("div");
-    accBar.style.cssText = "margin-bottom:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--surface-2);border:1px solid var(--line);border-radius:10px";
-    accBar.innerHTML = `<span style="font-size:13px">🏦 Hesap: <b>${esc((acc.code ? acc.code + " " : "") + acc.name)}</b></span><div style="flex:1"></div>`;
-    accBar.appendChild(mkBtn("🔄 Değiştir", "btn-sm", () => doMoveAccount()));
-    const heroEl = body.querySelector(".em-hero");
-    if (heroEl) heroEl.after(accBar); else body.insertBefore(accBar, body.firstChild);
-  }
+  // Hesap satırına tıklayınca (düzenlemede) hesabı değiştir/taşı
+  const accRow = $("#e-accrow", body);
+  if (accRow) accRow.addEventListener("click", () => doMoveAccount());
 
   const footer = [];
   if (!isNew) {
