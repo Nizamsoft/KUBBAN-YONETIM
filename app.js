@@ -613,8 +613,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.214";
+const APP_VERSION = "2026.215";
 const CHANGELOG = [
+  { version: "2026.215", date: "2026-08-14", items: [
+    "📊 Ciro Grafiği'ne (çubuklara) basınca da Aylık Ciro Dökümü ekranı açılıyor",
+    "🔢 Dashboard özet kartlarındaki rakamlar biraz küçültüldü — 'Kullanılabilir Likit Varlık' ve 'şimdiye kadarki ciro' artık tam sığıyor (kırpılmıyor)",
+    "📱 Aylık Ciro Dökümü tablosu mobilde tam sığıyor — yatay kaydırma gerekmiyor (tutarlar kuruşsuz gösterilir, sütunlar içeriğe göre boyutlanır)",
+  ]},
   { version: "2026.214", date: "2026-08-14", items: [
     "📅 YENİ: 'Şimdiye kadarki ciro' kartına basınca Aylık Ciro Dökümü ekranı açılıyor (Raporlar menüsünde de var). Gün gün tablo: Tarih · Ciro · İkram · İskonto · Net Satış · Kasa Farkı + altta TOPLAM satırı. Oklarla ay ay gezilir. Kasa farkı fazlaysa yeşil, eksikse kırmızı",
     "📜 Borçlar/Alacaklar detay listesi düzeltildi: sayfaya girince artık en tepeden başlıyor (önceden pencere kaydırmasından dolayı alttan açılıyordu); üst kısım sabit kalıp yalnız liste içeride kayıyor, sekme/arama değişince de tepeye döner",
@@ -1932,7 +1937,7 @@ async function viewDashboard(c) {
     const max = Math.max(1, ...series.map((s) => s.value));
     const tot = series.reduce((a, s) => a + s.value, 0);
     const nz = series.filter((s) => s.value > 0).length || 1;
-    return `<div class="dash-bars">${series.map((s) => `<a class="dbar" href="#/gunsonu-kayitlar" title="${esc(s.full)}: ${fmtTRY(s.value)}"><span class="dbar-v">${s.value ? compactTL(s.value) : ""}</span><div class="dbar-fill${s.now ? " now" : ""}" style="height:${Math.round(s.value / max * 118)}px"></div><span class="dbar-x">${esc(s.x || "")}</span></a>`).join("")}</div>
+    return `<div class="dash-bars">${series.map((s) => `<a class="dbar" href="#/ciro-aylik" title="${esc(s.full)}: ${fmtTRY(s.value)}"><span class="dbar-v">${s.value ? compactTL(s.value) : ""}</span><div class="dbar-fill${s.now ? " now" : ""}" style="height:${Math.round(s.value / max * 118)}px"></div><span class="dbar-x">${esc(s.x || "")}</span></a>`).join("")}</div>
       <div class="dash-chart-foot">Toplam <b>${fmtTRY(tot)}</b> · günlük ort. ${fmtTRY(tot / nz)}</div>`;
   };
 
@@ -1979,7 +1984,7 @@ async function viewDashboard(c) {
     .dash-mini{display:grid;grid-template-columns:1fr 1fr;gap:12px}
     .dmini{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:18px;padding:15px 16px;text-decoration:none;color:inherit;display:block;min-width:0}
     .dm-ic{font-size:20px}.dm-lb{font-size:12px;color:var(--ink-faint,#8b8172);margin-top:3px;font-weight:600}
-    .dm-vl{font-size:clamp(16px,4.8vw,23px);font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dm-dl{font-size:11px;color:var(--ink-faint,#8b8172);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .dm-vl{font-size:clamp(14px,3.9vw,20px);font-weight:800;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.dm-dl{font-size:11px;color:var(--ink-faint,#8b8172);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .dm-dl.up{color:var(--ok,#2e9e52)}.dm-dl.down{color:var(--danger,#d33)}
     /* sade & şık: sol renkli aksan + köşede soluk ikon */
     .dmini.accent{position:relative;overflow:hidden;padding-left:20px}
@@ -2182,9 +2187,11 @@ async function viewCiroAylik(c) {
     (r.kasa || []).forEach((m) => { if (m.fark !== "" && m.fark != null) { any = true; s += parseNum(m.fark); } });
     return any ? s : null;
   };
+  const n0 = (v) => Math.round(parseNum(v)).toLocaleString("tr-TR");          // tam sayı, gruplu, ₺ yok (mobilde sığsın)
+  const dM = (iso) => (iso || "").slice(8, 10) + "." + (iso || "").slice(5, 7); // gün.ay (yıl/ay başlıkta)
   const farkTd = (v) => v == null
-    ? `<td class="num" style="color:var(--ink-faint,#9a9082)">—</td>`
-    : `<td class="num" style="font-weight:700;color:${v < -0.005 ? "var(--danger,#d33)" : v > 0.005 ? "var(--ok,#2e9e52)" : "inherit"}">${fmtTRY(v)}</td>`;
+    ? `<td class="num dim">—</td>`
+    : `<td class="num" style="font-weight:700;color:${v < -0.005 ? "var(--danger,#d33)" : v > 0.005 ? "var(--ok,#2e9e52)" : "inherit"}">${(v > 0.005 ? "+" : "") + n0(v)}</td>`;
 
   const render = () => {
     const [yy, mm] = ym.split("-").map(Number);
@@ -2205,16 +2212,22 @@ async function viewCiroAylik(c) {
       .ca-tile{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:14px;padding:12px 14px}
       .ca-tile .l{font-size:12px;color:var(--ink-faint,#8b8172);font-weight:600}
       .ca-tile .v{font-size:19px;font-weight:800;white-space:nowrap}
-      .ca-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line,#ece7dc);border-radius:14px;background:var(--card,#fff)}
-      table.ca-tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
-      .ca-tbl th,.ca-tbl td{padding:10px 12px;border-bottom:1px solid var(--line,#f0ece2);white-space:nowrap;text-align:right}
-      .ca-tbl th{font-size:11.5px;color:var(--ink-faint,#8b8172);background:var(--bg,#f6f2e9)}
-      .ca-tbl th:first-child,.ca-tbl td:first-child{text-align:left;position:sticky;left:0;background:var(--card,#fff)}
-      .ca-tbl th:first-child{background:var(--bg,#f6f2e9)}
+      .ca-wrap{border:1px solid var(--line,#ece7dc);border-radius:14px;background:var(--card,#fff);overflow:hidden}
+      table.ca-tbl{width:100%;border-collapse:collapse;font-size:13px}
+      .ca-tbl th,.ca-tbl td{padding:9px 6px;border-bottom:1px solid var(--line,#f0ece2);white-space:nowrap;text-align:right}
+      .ca-tbl th{font-size:11px;color:var(--ink-faint,#8b8172);background:var(--bg,#f6f2e9);font-weight:700}
+      .ca-tbl th:first-child,.ca-tbl td:first-child{text-align:left;padding-left:10px}
       .ca-tbl td.num{font-variant-numeric:tabular-nums}
+      .ca-tbl td.dim{color:var(--ink-faint,#9a9082)}
       .ca-tbl tfoot td{font-weight:800;border-top:2px solid var(--line,#e5ddcc);background:var(--surface-2,#faf6ee)}
-      .ca-tbl tfoot td:first-child{background:var(--surface-2,#faf6ee)}
+      .ca-cap{font-size:11px;color:var(--ink-faint,#9a9082);text-align:center;margin-top:-4px}
       .ca-empty{padding:26px;text-align:center;color:var(--ink-faint,#9a9082)}
+      @media(max-width:560px){
+        .ca-tbl{font-size:11px}
+        .ca-tbl th,.ca-tbl td{padding:8px 4px}
+        .ca-tbl th{font-size:9.5px}
+        .ca-tbl th:first-child,.ca-tbl td:first-child{padding-left:6px}
+      }
     </style>
     <div class="ca">
       <div class="ca-nav">
@@ -2223,28 +2236,29 @@ async function viewCiroAylik(c) {
         <button data-nav="next" aria-label="Sonraki ay" ${ym < curYm ? "" : "disabled"}>›</button>
       </div>
       <div class="ca-sum">
-        <div class="ca-tile"><div class="l">📅 Toplam Ciro (${recs.length} gün)</div><div class="v">${fmtTRY(T.ciro)}</div></div>
+        <div class="ca-tile"><div class="l">📅 Toplam Ciro</div><div class="v">${fmtTRY(T.ciro)}</div></div>
         <div class="ca-tile"><div class="l">🧾 Net Satış</div><div class="v">${fmtTRY(T.net)}</div></div>
       </div>
       ${recs.length ? `<div class="ca-wrap"><table class="ca-tbl">
         <thead><tr><th>Tarih</th><th>Ciro</th><th>İkram</th><th>İskonto</th><th>Net Satış</th><th>Kasa Farkı</th></tr></thead>
         <tbody>${recs.map((r) => `<tr>
-          <td>${esc(fmtDate(r.date))}</td>
-          <td class="num">${fmtTRY(parseNum(r.total))}</td>
-          <td class="num">${fmtTRY(ikramOf(r))}</td>
-          <td class="num">${fmtTRY(parseNum(r.iskonto))}</td>
-          <td class="num">${fmtTRY(parseNum(r.netSatis))}</td>
+          <td>${esc(dM(r.date))}</td>
+          <td class="num">${n0(r.total)}</td>
+          <td class="num">${n0(ikramOf(r))}</td>
+          <td class="num">${n0(r.iskonto)}</td>
+          <td class="num">${n0(r.netSatis)}</td>
           ${farkTd(kasaFarkOf(r))}
         </tr>`).join("")}</tbody>
         <tfoot><tr>
-          <td>TOPLAM</td>
-          <td class="num">${fmtTRY(T.ciro)}</td>
-          <td class="num">${fmtTRY(T.ikram)}</td>
-          <td class="num">${fmtTRY(T.iskonto)}</td>
-          <td class="num">${fmtTRY(T.net)}</td>
-          ${T.farkAny ? farkTd(T.fark) : `<td class="num" style="color:var(--ink-faint,#9a9082)">—</td>`}
+          <td>Top.</td>
+          <td class="num">${n0(T.ciro)}</td>
+          <td class="num">${n0(T.ikram)}</td>
+          <td class="num">${n0(T.iskonto)}</td>
+          <td class="num">${n0(T.net)}</td>
+          ${T.farkAny ? farkTd(T.fark) : `<td class="num dim">—</td>`}
         </tr></tfoot>
-      </table></div>` : `<div class="ca-wrap"><div class="ca-empty">Bu ay için gün sonu kaydı yok.</div></div>`}
+      </table></div>
+      <div class="ca-cap">${recs.length} gün · tutarlar ₺, kuruş yuvarlanmıştır · tam tutar için Gün Sonu Raporu</div>` : `<div class="ca-wrap"><div class="ca-empty">Bu ay için gün sonu kaydı yok.</div></div>`}
     </div>`;
     c.querySelectorAll("[data-nav]").forEach((b) => b.onclick = () => {
       const d = new Date(ym + "-01T00:00:00");
