@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.236";
+const APP_VERSION = "2026.237";
 const CHANGELOG = [
+  { version: "2026.237", date: "2026-08-14", items: [
+    "🧾 Hareket düzenleme penceresi alt kısmı 'dekont detay listesi'ne dönüştü: her alan ikon + etiket + değer olarak tek şık kartta, ince çizgilerle; değerlere dokununca yerinde düzenlenir. Tutarlar üstte vurgulu (çıkan/borç kırmızı, giren/alacak yeşil; boş olan soluk). Düzenlenemeyen alanlar (İşlem No / Cari No) formdan kaldırıldı — değer korunuyor, zaten başlıkta görünüyor",
+  ]},
   { version: "2026.236", date: "2026-08-14", items: [
     "🧾 Hareket düzenleme penceresi yeni 'dekont/fiş' tasarımıyla yenilendi: en üstte BÜYÜK renkli tutar kartı (çıkan/borç kırmızı, giren/alacak yeşil) + işlem adı ve şahıs; kart alanlar değiştikçe CANLI güncelleniyor. Altında hesap (Değiştir), bağlı kayıt bandı ve tüm alanlar düzenli şekilde. İşlevler (Sil/Taşı/Kaydet, tutarlar, fatura, tarih) aynen korundu",
   ]},
@@ -7592,72 +7595,66 @@ function entryModal(acc, entry, opts) {
       <div class="em-ttl" id="em-ttl"></div>
       <div class="em-sub" id="em-sub"></div>
     </div>`;
+  // Dekont detay listesi — her alan ikon + etiket + inline düzenlenebilir değer (D1)
+  const rowT = (ic, k, id, val, ph = "") =>
+    `<label class="em-row"><span class="er-ic">${ic}</span><span class="er-k">${k}</span><input id="${id}" class="er-inp" value="${esc(val ?? "")}" placeholder="${esc(ph)}" /></label>`;
+  const rowM = (ic, k, id, val, cls) => {
+    const v = (val !== "" && val != null) ? fmtNum(parseNum(val)) : "";
+    return `<label class="em-row amt"><span class="er-ic">${ic}</span><span class="er-k">${k}</span><input id="${id}" class="er-inp money num ${cls}" inputmode="decimal" value="${esc(v)}" placeholder="0,00" /><span class="er-cur">₺</span></label>`;
+  };
+  const rowDate = (id, val) =>
+    `<label class="em-row"><span class="er-ic">📅</span><span class="er-k">Tarih</span><input type="date" id="${id}" class="er-inp er-date" value="${esc(val || todayISO())}" /></label>`;
+  // Gizli (düzenlenemez) alanlar — değer korunur, formda görünmez (İşlem/Cari No zaten başlıkta)
+  const hidden = `<input type="hidden" id="e-no" value="${esc(String(entry?.islemNo ?? opts?.nextNo ?? ""))}" />`;
   if (cari) {
-    body.innerHTML = heroHtml + `
-      <div class="em-fields">
-        <div class="form-row">
-          ${moneyField("Borç", "e-borc", entry?.borc ?? "")}
-          ${moneyField("Alacak", "e-alacak", entry?.alacak ?? "")}
-        </div>
-        <div class="field"><label>Açıklama</label><textarea id="e-aciklama" rows="2" placeholder="Açıklama...">${esc(entry?.aciklama || "")}</textarea></div>
-        <div class="form-row">
-          <div class="field"><label>Şahıs</label><input id="e-sahis" value="${esc(entry?.sahis || "")}" placeholder="Kişi / firma" /></div>
-          <div class="field"><label>Tarih</label><input type="date" id="e-date" value="${esc(entry?.date || todayISO())}" /></div>
-        </div>
-        <div class="form-row">
-          <div class="field"><label>Fatura Türü</label><select id="e-faturaturu">
-            ${FATURA_TURU.map((t) => `<option value="${esc(t)}" ${entry?.faturaTuru===t?"selected":""}>${t || "—"}</option>`).join("")}
-          </select></div>
-          <div class="field"><label>Fatura No</label><input id="e-faturano" value="${esc(entry?.faturaNo || "")}" placeholder="Örn. A-000123" /></div>
-        </div>
-        <div class="form-row">
-          <div class="field"><label>İşlem No</label><input id="e-no" value="${esc(String(entry?.islemNo ?? opts?.nextNo ?? ""))}" readonly /></div>
-          <div class="field"><label>Cari No</label><input id="e-carino" value="${esc(String(entry?.cariNo ?? opts?.nextCariNo ?? ""))}" readonly /></div>
-        </div>
-      </div>`;
+    body.innerHTML = heroHtml + `<div class="em-list">
+      ${rowM("📕", "Borç", "e-borc", entry?.borc ?? "", "er-out")}
+      ${rowM("📗", "Alacak", "e-alacak", entry?.alacak ?? "", "er-in")}
+      ${rowT("📝", "Açıklama", "e-aciklama", entry?.aciklama, "Açıklama…")}
+      ${rowT("👤", "Şahıs", "e-sahis", entry?.sahis, "Kişi / firma")}
+      <label class="em-row"><span class="er-ic">🧾</span><span class="er-k">Fatura Türü</span><select id="e-faturaturu" class="er-inp er-sel">${FATURA_TURU.map((t) => `<option value="${esc(t)}" ${entry?.faturaTuru === t ? "selected" : ""}>${t || "—"}</option>`).join("")}</select></label>
+      ${rowT("#️⃣", "Fatura No", "e-faturano", entry?.faturaNo, "Örn. A-000123")}
+      ${rowDate("e-date", entry?.date)}
+    </div>${hidden}<input type="hidden" id="e-carino" value="${esc(String(entry?.cariNo ?? opts?.nextCariNo ?? ""))}" />`;
   } else {
-    body.innerHTML = heroHtml + `
-      <div class="em-fields">
-        <div class="form-row">
-          ${moneyField("Giren Tutar", "e-giren", entry?.giren ?? "")}
-          ${moneyField("Çıkan Tutar", "e-cikan", entry?.cikan ?? "")}
-        </div>
-        <div class="field"><label>İşlem Adı</label><input id="e-islem" value="${esc(entry?.islemAdi || "")}" placeholder="Örn. Tahsilat / Ödeme / Gün Sonu" /></div>
-        <div class="form-row">
-          <div class="field"><label>Şahıs</label><input id="e-sahis" value="${esc(entry?.sahis || "")}" placeholder="Kişi / firma" /></div>
-          <div class="field"><label>Rapor</label><input id="e-rapor" value="${esc(entry?.rapor || "")}" placeholder="Rapor / referans" /></div>
-        </div>
-        <div class="field"><label>Açıklama</label><textarea id="e-aciklama" rows="2" placeholder="Açıklama...">${esc(entry?.aciklama || "")}</textarea></div>
-        <div class="form-row">
-          <div class="field"><label>İşlem No</label><input id="e-no" value="${esc(String(entry?.islemNo ?? opts?.nextNo ?? ""))}" readonly /></div>
-          <div class="field"><label>Tarih</label><input type="date" id="e-date" value="${esc(entry?.date || todayISO())}" /></div>
-        </div>
-      </div>`;
+    body.innerHTML = heroHtml + `<div class="em-list">
+      ${rowM("💰", "Giren", "e-giren", entry?.giren ?? "", "er-in")}
+      ${rowM("💸", "Çıkan", "e-cikan", entry?.cikan ?? "", "er-out")}
+      ${rowT("🏷️", "İşlem Adı", "e-islem", entry?.islemAdi, "Örn. Ödeme / Tahsilat")}
+      ${rowT("👤", "Şahıs", "e-sahis", entry?.sahis, "Kişi / firma")}
+      ${rowT("📊", "Rapor", "e-rapor", entry?.rapor, "Rapor / referans")}
+      ${rowT("📝", "Açıklama", "e-aciklama", entry?.aciklama, "Açıklama…")}
+      ${rowDate("e-date", entry?.date)}
+    </div>${hidden}`;
   }
   wireMoney(body);
   // Üstteki dekont/fiş kartı — alanlar değiştikçe canlı güncellenir (tutar rengi + işlem/şahıs)
   const updateHero = () => {
-    let delta, cap, ttl, sub;
+    let cap, ttl, sub, outV, inV;   // outV = çıkan/borç, inV = giren/alacak
     if (cari) {
-      const borc = parseNum($("#e-borc", body).value), alacak = parseNum($("#e-alacak", body).value);
-      delta = borc - alacak;
-      cap = borc > 0.005 ? "BORÇ" : alacak > 0.005 ? "ALACAK" : "TUTAR";
+      outV = parseNum($("#e-borc", body).value); inV = parseNum($("#e-alacak", body).value);
+      cap = outV > 0.005 ? "BORÇ" : inV > 0.005 ? "ALACAK" : "TUTAR";
       ttl = ($("#e-aciklama", body).value || "").trim();
       sub = [($("#e-sahis", body).value || "").trim(), $("#e-faturaturu", body).value].filter(Boolean).join(" · ");
     } else {
-      const giren = parseNum($("#e-giren", body).value), cikan = parseNum($("#e-cikan", body).value);
-      delta = giren - cikan;
-      cap = giren > 0.005 ? "GİREN TUTAR" : cikan > 0.005 ? "ÇIKAN TUTAR" : "TUTAR";
+      inV = parseNum($("#e-giren", body).value); outV = parseNum($("#e-cikan", body).value);
+      cap = inV > 0.005 ? "GİREN TUTAR" : outV > 0.005 ? "ÇIKAN TUTAR" : "TUTAR";
       ttl = ($("#e-islem", body).value || "").trim();
       sub = ($("#e-sahis", body).value || "").trim();
     }
+    const isOut = outV > 0.005, isIn = inV > 0.005 && !isOut;
+    const val = isOut ? outV : isIn ? inV : 0;
     const hero = $("#em-hero", body);
-    hero.classList.toggle("in", delta > 0.005);
-    hero.classList.toggle("out", delta < -0.005);
+    hero.classList.toggle("out", isOut);
+    hero.classList.toggle("in", isIn);
     $("#em-cap", body).textContent = cap;
-    $("#em-amt", body).textContent = delta ? (delta < 0 ? "−" : "+") + fmtTRY(Math.abs(delta)) : "—";
+    $("#em-amt", body).textContent = val ? (isOut ? "−" : "+") + fmtTRY(val) : "—";
     const ttlEl = $("#em-ttl", body); ttlEl.textContent = ttl; ttlEl.style.display = ttl ? "" : "none";
     const subEl = $("#em-sub", body); subEl.textContent = sub; subEl.style.display = sub ? "" : "none";
+    // Liste tutar satırları: dolu olan renkli, boş/0 soluk
+    [["#e-giren"], ["#e-cikan"], ["#e-borc"], ["#e-alacak"]].forEach(([sel]) => {
+      const el = $(sel, body); if (el) el.classList.toggle("zero", parseNum(el.value) < 0.005);
+    });
   };
   $$("input, textarea, select", body).forEach((el) => { el.addEventListener("input", updateHero); el.addEventListener("change", updateHero); });
   updateHero();
@@ -7666,7 +7663,7 @@ function entryModal(acc, entry, opts) {
     const bar = document.createElement("div");
     bar.className = "notice info"; bar.style.marginBottom = "10px";
     bar.innerHTML = `🔗 <b>Kayıt No ${esc(String(entry.kayitNo ?? "?"))}</b> · bağlı işlem`;
-    const fieldsEl = body.querySelector(".em-fields");
+    const fieldsEl = body.querySelector(".em-list");
     if (fieldsEl) fieldsEl.before(bar); else body.insertBefore(bar, body.firstChild);
     fetchAll(C.accountEntries).then((all) => {
       const n = all.filter((e) => e.txId && e.txId === entry.txId).length;
