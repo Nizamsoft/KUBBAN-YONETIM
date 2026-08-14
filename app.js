@@ -613,8 +613,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.218";
+const APP_VERSION = "2026.219";
 const CHANGELOG = [
+  { version: "2026.219", date: "2026-08-14", items: [
+    "🎯 Borçlar/Alacaklar açılışındaki 'önce yukarıda gelip sonra aşağı oturma' kayması giderildi: yükseklik artık kaydırma konumundan BAĞIMSIZ (topbar yüksekliğinden) hesaplanıyor ve bu ekranda giriş animasyonu kapatıldı → içerik direkt, sabit, zıplamadan geliyor. Üst kısım yine sabit, liste içeride kayar",
+  ]},
   { version: "2026.218", date: "2026-08-14", items: [
     "↩️ Aylık Ciro Dökümü'ne Dashboard'dan (kart veya grafik) girince artık üstte geri (←) butonu çıkıyor — Dashboard'a tek dokunuşla dönülür",
     "⚡ Borçlar/Alacaklar sayfası açılışı düzeldi: artık açılırken aşağı-yukarı zıplamıyor ve daha hızlı geliyor. Üst kısım yine sabit, yalnız liste içeride kayar (yükseklik artık sabit '.content'ten tek seferde, senkron ölçülüyor — animasyonlu ölçümden kaynaklı zıplama giderildi)",
@@ -1542,7 +1545,7 @@ const NAV = [
 
 const ROUTES = {
   "dashboard":        { title: "Dashboard", crumb: "Ana Sayfa", render: viewDashboard },
-  "borc-alacak":      { title: "Borçlar / Alacaklar", crumb: "Ana Sayfa", render: viewBorcAlacak, back: "#/dashboard" },
+  "borc-alacak":      { title: "Borçlar / Alacaklar", crumb: "Ana Sayfa", render: viewBorcAlacak, back: "#/dashboard", noAnim: true },
   "odeme-modu":       { title: "Ödeme Modu", crumb: "Raporlar", render: viewOdemeModu },
   "mali-durum":       { title: "Mali Durum & Kontrol", crumb: "Raporlar", render: viewMaliDurum },
   "ciro-aylik":       { title: "Aylık Ciro Dökümü", crumb: "Raporlar", render: viewCiroAylik },
@@ -1655,11 +1658,13 @@ async function route(opts = {}) {
   const loadTimer = silent ? null : setTimeout(showViewLoader, 130);
   try {
     await r.render(c);
-    if (!silent) {
+    if (!silent && !r.noAnim) {
       // Yumuşak sayfa geçişi (GPU: opacity + transform) — belirgin ama hızlı
       c.style.animation = "none";
       void c.offsetWidth;
       c.style.animation = "viewIn .3s cubic-bezier(.16,.84,.44,1)";
+    } else if (r.noAnim) {
+      c.style.animation = "none";   // bu ekran kaymadan, direkt gelsin (yükseklik kilidi zıplamasın)
     }
   } catch (err) {
     console.error(err);
@@ -2378,9 +2383,9 @@ async function viewBorcAlacak(c) {
   draw();
 
   // Üst kısım (sekmeler + arama + sayaç) SABİT; yalnız liste kendi içinde kayar.
-  // Yükseklik SABİT '.content' öğesinden ölçülür (giriş animasyonu #view-container'da olduğu
-  // için onun transform'undan etkilenmez) ve TEK SEFERDE, SENKRON kilitlenir → açılışta
-  // zıplama/gecikme olmaz (önceki rAF + 300ms çift ölçüm animasyonlu konumu ölçüp zıplatıyordu).
+  // Yükseklik KAYDIRMADAN BAĞIMSIZ ölçülür: topbar yüksekliği + içerik boşluğu. Böylece
+  // (getBoundingClientRect scroll'a bağlı olduğundan) iOS'ta scrollTo tam oturmadan ölçüp
+  // sonra düzeltince oluşan AŞAĞI KAYMA/ZIPLAMA olmaz. Giriş animasyonu da bu ekranda kapalı.
   const baRoot = $(".ba", c);
   function fitBa() {
     if (!baRoot) return;
@@ -2388,13 +2393,14 @@ async function viewBorcAlacak(c) {
     if (!content) return;
     const cs = getComputedStyle(content);
     const padT = parseFloat(cs.paddingTop) || 0, padB = parseFloat(cs.paddingBottom) || 0;
-    const availTop = content.getBoundingClientRect().top + padT;
-    const h = window.innerHeight - availTop - padB - 4;
+    const topbar = document.querySelector(".topbar");
+    const tbH = topbar ? topbar.offsetHeight : 0;               // sabit; scroll'dan bağımsız
+    const h = window.innerHeight - tbH - padT - padB - 4;
     if (h > 240) { baRoot.style.height = h + "px"; baRoot.style.overflow = "hidden"; }
     else { baRoot.style.height = ""; baRoot.style.overflow = ""; }
   }
-  window.scrollTo(0, 0);   // kaydırılmış gelince .content konumu doğru ölçülsün
   fitBa();                 // senkron: ilk boyamadan önce kilitle → zıplamaz
+  window.scrollTo(0, 0);   // liste yüksekliği kilitlendiğinden pencere zaten tepede olur
   if (listEl) listEl.scrollTop = 0;
   ledgerFitHandler = fitBa;                       // route değişince temizlenir (resize dinleyicisi kaldırılır)
   window.addEventListener("resize", fitBa);
