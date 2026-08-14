@@ -614,8 +614,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.224";
+const APP_VERSION = "2026.225";
 const CHANGELOG = [
+  { version: "2026.225", date: "2026-08-14", items: [
+    "🎯 Hesaplar üst kartındaki sol üstteki koyu yuvarlak leke kaldırıldı (görselli kartta perde yanlışlıkla daire şeklindeydi). 'Güllüoğlu Kübban' yazısına da Dashboard'daki gibi gölge verildi — görselsiz kartta da net durur",
+  ]},
   { version: "2026.224", date: "2026-08-14", items: [
     "🔝 Mobilde sayfa geçişlerinde artık her sayfa EN TEPEDEN başlıyor — bir sayfada aşağı kaydırıp başka sayfaya geçince eskiden aşağıda başlıyordu, düzeldi",
     "🖼️ Hesaplar üst kartında (görsel arka planlıyken) yazıların arkasına Dashboard'daki gibi koyu panel eklendi + perde koyulaştırıldı → Genel Toplam ve alt bilgi görselin üstünde net okunuyor",
