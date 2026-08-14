@@ -613,8 +613,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.213";
+const APP_VERSION = "2026.214";
 const CHANGELOG = [
+  { version: "2026.214", date: "2026-08-14", items: [
+    "📅 YENİ: 'Şimdiye kadarki ciro' kartına basınca Aylık Ciro Dökümü ekranı açılıyor (Raporlar menüsünde de var). Gün gün tablo: Tarih · Ciro · İkram · İskonto · Net Satış · Kasa Farkı + altta TOPLAM satırı. Oklarla ay ay gezilir. Kasa farkı fazlaysa yeşil, eksikse kırmızı",
+    "📜 Borçlar/Alacaklar detay listesi düzeltildi: sayfaya girince artık en tepeden başlıyor (önceden pencere kaydırmasından dolayı alttan açılıyordu); üst kısım sabit kalıp yalnız liste içeride kayıyor, sekme/arama değişince de tepeye döner",
+  ]},
   { version: "2026.213", date: "2026-08-14", items: [
     "🟢 Alacaklar artık yalnız 120 (Alıcılar / müşteri-veresiye) hesaplarını gösteriyor. Blokeli / valörlü (108: banka blokesi + Yemek Sepeti, Getir, Edenred, Multinet, Pluxee, Metropol, Set…) artık Alacaklarım listesine girmiyor — hem Dashboard'daki kart hem Borçlar/Alacaklar detay sayfası",
   ]},
@@ -1504,6 +1508,7 @@ const NAV = [
   { label: "Hesaplar", icon: "💼", path: "hesaplar" },
   { label: "Raporlar", icon: "📈", children: [
     { label: "Ödeme Modu",          icon: "💳", path: "odeme-modu" },
+    { label: "Aylık Ciro Dökümü",   icon: "📅", path: "ciro-aylik" },
     { label: "Mali Durum & Kontrol", icon: "🧮", path: "mali-durum" },
     { label: "Kâr / Zarar Durumu",  icon: "💹", path: "kar-zarar" },
     { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
@@ -1525,6 +1530,7 @@ const ROUTES = {
   "borc-alacak":      { title: "Borçlar / Alacaklar", crumb: "Ana Sayfa", render: viewBorcAlacak, back: "#/dashboard" },
   "odeme-modu":       { title: "Ödeme Modu", crumb: "Raporlar", render: viewOdemeModu },
   "mali-durum":       { title: "Mali Durum & Kontrol", crumb: "Raporlar", render: viewMaliDurum },
+  "ciro-aylik":       { title: "Aylık Ciro Dökümü", crumb: "Raporlar", render: viewCiroAylik },
   "gunsonu-aktarim":  { title: "Gün Sonu Aktarımı", crumb: "Veri Girişleri", render: viewGunSonuAktarim },
   "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu Aktarımı", render: viewGunSonuKayitlar },
   "gunsonu-rapor":    { title: "Gün Sonu Raporu", crumb: "Raporlar", render: viewGunSonuRapor },
@@ -2029,7 +2035,7 @@ async function viewDashboard(c) {
     <div class="dash-hero" id="dash-hero"></div>
 
     <div class="dash-mini">
-      <a class="dmini accent accent-green" href="#/gunsonu-kayitlar">
+      <a class="dmini accent accent-green" href="#/ciro-aylik">
         <div class="dm-ic">📅</div><div class="dm-lb">${esc(ayAdi)} · şimdiye kadarki ciro</div>
         <div class="dm-vl">${fmtTRY(ayCiro)}</div>
         <div class="dm-dl ${ayPct == null ? "" : (ayPct >= 0 ? "up" : "down")}">${ayPct == null ? "geçen ay kaydı yok" : `${ayPct >= 0 ? "▲" : "▼"} %${Math.abs(ayPct).toFixed(0)} · geçen ay ${fmtTRY(gecenAy)}`}</div>
@@ -2161,6 +2167,96 @@ async function viewDashboard(c) {
   }));
 }
 
+// Aylık Ciro Dökümü — 'şimdiye kadarki ciro' kartına basınca; gün gün tablo
+async function viewCiroAylik(c) {
+  const records = await fetchAll(C.dayEndRecords).catch(() => []);
+  const AY = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+  const today = todayISO();
+  const curYm = today.slice(0, 7);
+  const ymL = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  let ym = curYm;
+
+  const ikramOf = (r) => parseNum(r.ikramNet != null ? r.ikramNet : r.ikram);
+  const kasaFarkOf = (r) => {
+    let any = false, s = 0;
+    (r.kasa || []).forEach((m) => { if (m.fark !== "" && m.fark != null) { any = true; s += parseNum(m.fark); } });
+    return any ? s : null;
+  };
+  const farkTd = (v) => v == null
+    ? `<td class="num" style="color:var(--ink-faint,#9a9082)">—</td>`
+    : `<td class="num" style="font-weight:700;color:${v < -0.005 ? "var(--danger,#d33)" : v > 0.005 ? "var(--ok,#2e9e52)" : "inherit"}">${fmtTRY(v)}</td>`;
+
+  const render = () => {
+    const [yy, mm] = ym.split("-").map(Number);
+    const recs = records.filter((r) => r.date && r.date.slice(0, 7) === ym)
+      .sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+    const T = { ciro: 0, ikram: 0, iskonto: 0, net: 0, fark: 0, farkAny: false };
+    recs.forEach((r) => {
+      T.ciro += parseNum(r.total); T.ikram += ikramOf(r); T.iskonto += parseNum(r.iskonto); T.net += parseNum(r.netSatis);
+      const kf = kasaFarkOf(r); if (kf != null) { T.fark += kf; T.farkAny = true; }
+    });
+    c.innerHTML = `<style>
+      .ca{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+      .ca-nav{display:flex;align-items:center;justify-content:center;gap:12px}
+      .ca-nav button{width:38px;height:38px;border-radius:50%;border:1px solid var(--line,#ece7dc);background:var(--card,#fff);font-size:20px;cursor:pointer;color:var(--ink,#241d15);display:flex;align-items:center;justify-content:center}
+      .ca-nav button:disabled{opacity:.35;cursor:default}
+      .ca-nav .m{font-size:17px;font-weight:800;min-width:150px;text-align:center}
+      .ca-sum{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .ca-tile{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:14px;padding:12px 14px}
+      .ca-tile .l{font-size:12px;color:var(--ink-faint,#8b8172);font-weight:600}
+      .ca-tile .v{font-size:19px;font-weight:800;white-space:nowrap}
+      .ca-wrap{overflow-x:auto;-webkit-overflow-scrolling:touch;border:1px solid var(--line,#ece7dc);border-radius:14px;background:var(--card,#fff)}
+      table.ca-tbl{width:100%;border-collapse:collapse;font-size:13px;min-width:560px}
+      .ca-tbl th,.ca-tbl td{padding:10px 12px;border-bottom:1px solid var(--line,#f0ece2);white-space:nowrap;text-align:right}
+      .ca-tbl th{font-size:11.5px;color:var(--ink-faint,#8b8172);background:var(--bg,#f6f2e9)}
+      .ca-tbl th:first-child,.ca-tbl td:first-child{text-align:left;position:sticky;left:0;background:var(--card,#fff)}
+      .ca-tbl th:first-child{background:var(--bg,#f6f2e9)}
+      .ca-tbl td.num{font-variant-numeric:tabular-nums}
+      .ca-tbl tfoot td{font-weight:800;border-top:2px solid var(--line,#e5ddcc);background:var(--surface-2,#faf6ee)}
+      .ca-tbl tfoot td:first-child{background:var(--surface-2,#faf6ee)}
+      .ca-empty{padding:26px;text-align:center;color:var(--ink-faint,#9a9082)}
+    </style>
+    <div class="ca">
+      <div class="ca-nav">
+        <button data-nav="prev" aria-label="Önceki ay">‹</button>
+        <div class="m">${AY[mm - 1]} ${yy}</div>
+        <button data-nav="next" aria-label="Sonraki ay" ${ym < curYm ? "" : "disabled"}>›</button>
+      </div>
+      <div class="ca-sum">
+        <div class="ca-tile"><div class="l">📅 Toplam Ciro (${recs.length} gün)</div><div class="v">${fmtTRY(T.ciro)}</div></div>
+        <div class="ca-tile"><div class="l">🧾 Net Satış</div><div class="v">${fmtTRY(T.net)}</div></div>
+      </div>
+      ${recs.length ? `<div class="ca-wrap"><table class="ca-tbl">
+        <thead><tr><th>Tarih</th><th>Ciro</th><th>İkram</th><th>İskonto</th><th>Net Satış</th><th>Kasa Farkı</th></tr></thead>
+        <tbody>${recs.map((r) => `<tr>
+          <td>${esc(fmtDate(r.date))}</td>
+          <td class="num">${fmtTRY(parseNum(r.total))}</td>
+          <td class="num">${fmtTRY(ikramOf(r))}</td>
+          <td class="num">${fmtTRY(parseNum(r.iskonto))}</td>
+          <td class="num">${fmtTRY(parseNum(r.netSatis))}</td>
+          ${farkTd(kasaFarkOf(r))}
+        </tr>`).join("")}</tbody>
+        <tfoot><tr>
+          <td>TOPLAM</td>
+          <td class="num">${fmtTRY(T.ciro)}</td>
+          <td class="num">${fmtTRY(T.ikram)}</td>
+          <td class="num">${fmtTRY(T.iskonto)}</td>
+          <td class="num">${fmtTRY(T.net)}</td>
+          ${T.farkAny ? farkTd(T.fark) : `<td class="num" style="color:var(--ink-faint,#9a9082)">—</td>`}
+        </tr></tfoot>
+      </table></div>` : `<div class="ca-wrap"><div class="ca-empty">Bu ay için gün sonu kaydı yok.</div></div>`}
+    </div>`;
+    c.querySelectorAll("[data-nav]").forEach((b) => b.onclick = () => {
+      const d = new Date(ym + "-01T00:00:00");
+      d.setMonth(d.getMonth() + (b.dataset.nav === "prev" ? -1 : 1));
+      const nym = ymL(d);
+      if (nym > curYm) return;
+      ym = nym; render();
+    });
+  };
+  render();
+}
+
 // Borçların/Alacakların TAM listesi — sekmeli tek sayfa (dashboard '+N daha' buraya gelir)
 async function viewBorcAlacak(c) {
   const [accounts, cari, bank, entries] = await Promise.all([
@@ -2241,6 +2337,7 @@ async function viewBorcAlacak(c) {
         }).join("")
       : `<div class="ba-empty">Kayıt yok.</div>`;
     countEl.innerHTML = `${rows.length.toLocaleString("tr-TR")} hesap · toplam ${fmtTRY(rows.reduce((s, x) => s + x.amt, 0))}${showPay ? ` · <span style="opacity:.85">🗓️ = son ödeme tarihi</span>` : ""}`;
+    listEl.scrollTop = 0;   // sekme/arama değişince liste tepeden başlasın
   };
   $$(".ba-tabs button", c).forEach((b) => b.onclick = () => {
     tab = b.dataset.t;
@@ -2250,7 +2347,9 @@ async function viewBorcAlacak(c) {
   $(".ba-q", c).addEventListener("input", (e) => { query = e.target.value; draw(); });
   draw();
 
-  // Üst kısım (sekmeler + arama + sayaç) SABİT; yalnız liste kendi içinde kayar
+  // Üst kısım (sekmeler + arama + sayaç) SABİT; yalnız liste kendi içinde kayar.
+  // ÖNEMLİ: sayfaya gelmeden önce pencere aşağı kaydırılmışsa (ör. Dashboard'da
+  // '+N daha'ya basınca), önce EN TEPEYE dön → yükseklik doğru ölçülür, liste tepeden başlar.
   const baRoot = $(".ba", c);
   function fitBa() {
     if (!baRoot) return;
@@ -2260,8 +2359,10 @@ async function viewBorcAlacak(c) {
     const h = window.innerHeight - baRoot.getBoundingClientRect().top - padB - 4;
     if (h > 240) { baRoot.style.height = h + "px"; baRoot.style.overflow = "hidden"; }
   }
-  requestAnimationFrame(fitBa);
-  setTimeout(fitBa, 300);
+  function initTop() { window.scrollTo(0, 0); fitBa(); if (listEl) listEl.scrollTop = 0; }
+  window.scrollTo(0, 0);
+  requestAnimationFrame(initTop);
+  setTimeout(initTop, 300);
   ledgerFitHandler = fitBa;                       // route değişince temizlenir (resize dinleyicisi kaldırılır)
   window.addEventListener("resize", fitBa);
 }
