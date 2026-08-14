@@ -575,8 +575,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.199";
+const APP_VERSION = "2026.200";
 const CHANGELOG = [
+  { version: "2026.200", date: "2026-08-13", items: [
+    "🗓️ Mali Durum: tarih seçici yenilendi ve güzelleşti — 'Ay' (‹ › ile ay ay) veya 'Tarih Aralığı' (ör. 01.08.2026–10.08.2026) modu. Aralıkta 'Son 7 gün / Son 30 gün / Bu ay' hızlı düğmeleri. Seçilen dönem sağ üstte net yazar",
+    "🔍 Mali Durum: Para Akışı ve Borçlar tablosunda bir hesabın GİREN ya da ÇIKAN tutarına dokun → o dönemdeki hareketleri basit ve sade listeler (tarih · kaynak · tutar + toplam). Ör. Kasa Giren'e bas → tüm nakit girişlerini gör",
+  ]},
   { version: "2026.199", date: "2026-08-13", items: [
     "📊 Mali Durum & Kontrol — Faz 2 (bilanço): rapora eklendi → 🧾 Borçlar (Cari Borçlar 320, Personele 335 · Dönem Başı/Giren/Çıkan/Dönem Sonu), ⚖️ Öz Kaynak (Sermaye = Varlık − Borç; dönem başı · kâr/zarar · dönem sonu), 🛒 Satış Özeti (Brüt−İskonto−İkram=Net + Cari Tahsilat) ve 💸 Ödeme Özeti (masraflar gruba göre + Toplam Ödenen). Ayrı hesabı olmayan kalemler (Kira vb.) ve Uyumsoft karşılaştırması dahil değildir",
   ]},
@@ -8876,6 +8880,11 @@ async function viewMaliDurum(c) {
   const months = [...monthsSet].filter((m) => /^\d{4}-\d{2}$/.test(m)).sort();
   const nowYm = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; })();
   let ym = months.length ? months[months.length - 1] : nowYm;
+  const monthEnd = (y) => { const d = new Date(y + "-01T00:00:00"); d.setMonth(d.getMonth() + 1); d.setDate(0); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+  const todayIso = (() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; })();
+  let mode = "ay";                          // "ay" | "aralik"
+  let rStart = ym + "-01", rEnd = monthEnd(ym);   // aralık modu tarihleri
+  const period = () => mode === "ay" ? { s: ym + "-01", e: monthEnd(ym) } : { s: rStart, e: rEnd };
 
   // Hesap grubu: kod önceliğiyle (100/102/108/120), yoksa tür
   const groupOfAcc = (a) => {
@@ -8886,6 +8895,7 @@ async function viewMaliDurum(c) {
     if (cd.startsWith("120")) return "alacak";
     return null;
   };
+  const liaOf = (a) => { const cd = String(a.code || ""); if (cd.startsWith("320") || cd.startsWith("321")) return "320"; if (cd.startsWith("335")) return "335"; if (cd.startsWith("336")) return "336"; return null; };
   const byCode = new Map();
   accounts.forEach((a) => { if (a.code) byCode.set(String(a.code).trim(), a.id); });
 
@@ -8996,16 +9006,52 @@ async function viewMaliDurum(c) {
   };
   const srcLabel = (s) => (typeof TK_SRC_LABELS !== "undefined" && TK_SRC_LABELS[s]) || ({ "gunsonu-cari": "Gün Sonu Cari", "gunsonu-masraf": "Gün Sonu Masraf", "gunsonu-nakit": "Gün Sonu Nakit", "gunsonu-bloke": "Gün Sonu Bloke", "cari-hareket": "Cari Hareket", "banka": "Banka", "fatura-import": "Fatura" }[s]) || (s || "Diğer");
 
+  // Bir hücreye (grup + yön) tıklayınca o dönemdeki hareketleri basitçe listele
+  const GRUP_AD = { kasa: "Kasa", banka: "Banka", alacak: "Cari Alacaklar", bloke: "Blokeli Hesaplar", "320": "Cari Borçlar", "335": "Personele Borçlar", "336": "Diğer Borçlar" };
+  const openAkisDetay = (groupKey, dir, isLia) => {
+    const { s: pS, e: pE } = period();
+    const inR = (d) => d && d >= pS && d <= pE;
+    const want = (a) => isLia ? (liaOf(a) === groupKey) : (groupOfAcc(a) === groupKey);
+    const wantAccs = accounts.filter(want);
+    const accIds = new Set(wantAccs.map((a) => a.id));
+    const codes = new Set(wantAccs.map((a) => String(a.code || "").trim()).filter(Boolean));
+    const items = [];
+    const push = (date, n, inA, outA, src) => {
+      const v = !isLia ? (dir === "giren" ? inA : outA) : (dir === "giren" ? outA : inA);
+      if (v > 0.005) items.push({ date: date || "", n: n || "—", v, src: src || "" });
+    };
+    entries.forEach((e) => { if (accIds.has(e.accountId) && inR(e.date)) push(e.date, e.sahis || e.aciklama || e.accountCode, parseNum(e.giren) + parseNum(e.borc), parseNum(e.cikan) + parseNum(e.alacak), e.source); });
+    cari.forEach((m) => { if (codes.has(String(m.code || "").trim()) && inR(m.date)) push(m.date, m.description || m.aciklama || "Cari hareket", parseNum(m.debit), parseNum(m.credit), "cari-hareket"); });
+    bank.forEach((t) => { if (accIds.has(t.accountId) && inR(t.date)) { const a = parseNum(t.amount); push(t.date, t.description || t.aciklama || "Banka işlemi", a > 0 ? a : 0, a < 0 ? -a : 0, "banka"); } });
+    items.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+    const tot = items.reduce((s, x) => s + x.v, 0);
+    const dirAd = dir === "giren" ? (isLia ? "Yeni Borç (Giren)" : "Giren") : (isLia ? "Ödeme (Çıkan)" : "Çıkan");
+    const body = document.createElement("div");
+    body.innerHTML = `<style>
+      .ak-sum{display:flex;justify-content:space-between;align-items:baseline;gap:10px;padding:0 0 10px;margin-bottom:8px;border-bottom:2px solid var(--line,#eee)}
+      .ak-sum .l{font-size:12px;color:var(--ink-faint,#8b8172)}.ak-sum b{font-size:18px}
+      .ak-list{max-height:56vh;overflow:auto}
+      .ak-row{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:9px 4px;border-bottom:1px solid var(--line,#f0ece2);font-size:13px}
+      .ak-row:last-child{border-bottom:0}
+      .ak-l{flex:1 1 auto;min-width:0}.ak-nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+      .ak-meta{font-size:11px;color:var(--ink-faint,#8b8172);margin-top:1px}
+      .ak-v{flex:0 0 auto;font-weight:800;white-space:nowrap;color:${dir === "giren" ? "var(--ok,#2e9e52)" : "var(--danger,#d33)"}}
+    </style>
+    <div class="ak-sum"><span class="l">${items.length.toLocaleString("tr-TR")} hareket</span><b>${fmtTRY(tot)}</b></div>
+    <div class="ak-list">${items.length ? items.map((x) => `<div class="ak-row"><div class="ak-l"><div class="ak-nm">${esc(x.n)}</div><div class="ak-meta">${x.date ? esc(fmtDate(x.date)) : "—"} · ${esc(srcLabel(x.src))}</div></div><b class="ak-v">${fmtTRY(x.v)}</b></div>`).join("") : `<div style="text-align:center;color:var(--ink-faint,#8b8172);padding:20px">Hareket yok.</div>`}</div>`;
+    const m = openModal({ title: `${GRUP_AD[groupKey] || groupKey} · ${dirAd}`, body, footer: [mkBtn("Kapat", "btn-primary", () => m.close())] });
+  };
+
   const render = () => {
-    const start = ym + "-01";
-    // Ay içi para akışı: her hesabın dönem başı / giren / çıkan / dönem sonu
+    const { s: pStart, e: pEnd } = period();
+    const periodLabel = mode === "ay" ? `${KZ_AYLAR[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}` : `${fmtDate(pStart)} – ${fmtDate(pEnd)}`;
+    // Dönem içi para akışı: her hesabın dönem başı / giren / çıkan / dönem sonu
     const opening = new Map(), inflow = new Map(), outflow = new Map();
     accounts.forEach((a) => { opening.set(a.id, a.openingBalance != null ? a.openingBalance : (a.balance || 0)); inflow.set(a.id, 0); outflow.set(a.id, 0); });
     const bump = (accId, dISO, inA, outA) => {
       if (!opening.has(accId)) return;
-      const m = (dISO || "").slice(0, 7);
-      if (!dISO || m < ym) opening.set(accId, opening.get(accId) + inA - outA);   // dönem başından önce → açılışa
-      else if (m === ym) { inflow.set(accId, inflow.get(accId) + inA); outflow.set(accId, outflow.get(accId) + outA); }
+      if (!dISO || dISO < pStart) opening.set(accId, opening.get(accId) + inA - outA);   // dönem başından önce → açılışa
+      else if (dISO <= pEnd) { inflow.set(accId, inflow.get(accId) + inA); outflow.set(accId, outflow.get(accId) + outA); }
       // dönem sonrası → bu dönemde yok
     };
     entries.forEach((e) => { if (e.accountId) bump(e.accountId, e.date, parseNum(e.giren) + parseNum(e.borc), parseNum(e.cikan) + parseNum(e.alacak)); });
@@ -9025,29 +9071,29 @@ async function viewMaliDurum(c) {
       { k: "bloke", ad: "Blokeli Hesaplar", ic: "🔒" },
     ];
     let tOpen = 0, tIn = 0, tOut = 0;
+    const cellIn = (v, g, dir, lia) => v ? `<td class="num ${dir === "giren" ? "md-in" : "md-out"} md-cell" data-g="${g}" data-dir="${dir}" data-lia="${lia}">${fmtTRY(v)} <span class="md-go">🔍</span></td>` : `<td class="num">—</td>`;
     const flowRows = GRUPLAR.map((g) => {
       const o = gOpen[g.k], i = gIn[g.k], ou = gOut[g.k], s = o + i - ou;
       tOpen += o; tIn += i; tOut += ou;
       return `<tr>
         <td class="md-nm">${g.ic} ${g.ad}</td>
         <td class="num">${fmtTRY(o)}</td>
-        <td class="num md-in">${i ? fmtTRY(i) : "—"}</td>
-        <td class="num md-out">${ou ? fmtTRY(ou) : "—"}</td>
+        ${cellIn(i, g.k, "giren", "0")}
+        ${cellIn(ou, g.k, "cikan", "0")}
         <td class="num"><b>${fmtTRY(s)}</b></td>
       </tr>`;
     }).join("");
     const tSon = tOpen + tIn - tOut;
-    const recs = gunSonu.filter((r) => r.date.slice(0, 7) === ym).sort((a, b) => a.date.localeCompare(b.date));
+    const recs = gunSonu.filter((r) => r.date >= pStart && r.date <= pEnd).sort((a, b) => a.date.localeCompare(b.date));
 
     // ---- BORÇLAR (KVY Kaynaklar) — pasif; işaret ters, borç magnitude pozitif ----
-    const liaOf = (a) => { const cd = String(a.code || ""); if (cd.startsWith("320") || cd.startsWith("321")) return "320"; if (cd.startsWith("335")) return "335"; if (cd.startsWith("336")) return "336"; return null; };
     const LIA = [{ k: "320", ad: "Cari Borçlar", ic: "🔴" }, { k: "335", ad: "Personele Borçlar", ic: "👤" }, { k: "336", ad: "Diğer Borçlar", ic: "📌" }];
     const lOpen = { "320": 0, "335": 0, "336": 0 }, lIn = { "320": 0, "335": 0, "336": 0 }, lOut = { "320": 0, "335": 0, "336": 0 };
     accounts.forEach((a) => { const g = liaOf(a); if (!g) return; lOpen[g] += -(opening.get(a.id) || 0); lIn[g] += outflow.get(a.id) || 0; lOut[g] += inflow.get(a.id) || 0; });
     let ltO = 0, ltI = 0, ltU = 0;
     const liaRows = LIA.filter((g) => Math.abs(lOpen[g.k]) > 0.5 || Math.abs(lIn[g.k]) > 0.5 || Math.abs(lOut[g.k]) > 0.5).map((g) => {
       const o = lOpen[g.k], i = lIn[g.k], u = lOut[g.k], s = o + i - u; ltO += o; ltI += i; ltU += u;
-      return `<tr><td class="md-nm">${g.ic} ${g.ad}</td><td class="num">${fmtTRY(o)}</td><td class="num md-in">${i ? fmtTRY(i) : "—"}</td><td class="num md-out">${u ? fmtTRY(u) : "—"}</td><td class="num"><b>${fmtTRY(s)}</b></td></tr>`;
+      return `<tr><td class="md-nm">${g.ic} ${g.ad}</td><td class="num">${fmtTRY(o)}</td>${cellIn(i, g.k, "giren", "1")}${cellIn(u, g.k, "cikan", "1")}<td class="num"><b>${fmtTRY(s)}</b></td></tr>`;
     }).join("");
     const ltSon = ltO + ltI - ltU;
 
@@ -9104,9 +9150,20 @@ async function viewMaliDurum(c) {
 
     c.innerHTML = `<style>
       .md{display:flex;flex-direction:column;gap:14px;max-width:920px;margin:0 auto}
-      .md-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
-      .md-bar input[type=month]{padding:8px 10px;border:1px solid var(--line,#ece2d1);border-radius:10px;font-size:14px}
-      .md-bar .nav{width:34px;height:34px;border:1px solid var(--line,#ece2d1);background:#fff;border-radius:9px;font-size:18px;cursor:pointer}
+      .md-bar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;background:#fff;border:1px solid var(--line,#ece2d1);border-radius:14px;padding:10px 12px}
+      .md-seg{display:inline-flex;background:var(--bg,#f1ede3);border-radius:11px;padding:3px}
+      .md-seg button{border:0;background:transparent;padding:7px 14px;border-radius:8px;font-size:13px;font-weight:700;cursor:pointer;color:var(--ink-faint,#8b8172)}
+      .md-seg button.on{background:#fff;color:var(--ink,#241d15);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+      .md-monthpick,.md-rangepick{display:inline-flex;align-items:center;gap:8px}
+      .md-bar input[type=month],.md-bar input[type=date]{padding:9px 12px;border:1px solid var(--line-strong,#ddd0b8);border-radius:10px;font-size:14px;background:var(--surface,#fff);color:var(--ink,#241d15);font-family:inherit}
+      .md-bar .nav{width:36px;height:36px;border:1px solid var(--line-strong,#ddd0b8);background:#fff;border-radius:10px;font-size:18px;cursor:pointer;color:var(--gold-dark,#7a5a20)}
+      .md-bar .nav:disabled{opacity:.35;cursor:default}
+      .md-dash{color:var(--ink-faint,#8b8172);font-weight:700}
+      .md-quick{display:inline-flex;gap:6px;flex-wrap:wrap}
+      .md-quick button{border:1px solid var(--line,#ece2d1);background:var(--surface-2,#fbf7ef);border-radius:999px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--ink-soft,#6b5d47)}
+      .md-quick button:hover{border-color:var(--gold-light,#c9a24b)}
+      .md-perlabel{margin-left:auto;font-weight:800;color:var(--gold-dark,#7a5a20);font-size:15px}
+      .md-cell{cursor:pointer}.md-cell:hover{background:#fffdf8;outline:1px solid var(--gold-light,#c9a24b);outline-offset:-1px}
       .md-card{background:#fff;border:1px solid var(--line,#ece2d1);border-radius:16px;padding:14px 16px}
       .md-card h3{margin:0 0 10px;font-size:15px}
       .md-table{width:100%;border-collapse:collapse;font-size:13.5px}
@@ -9141,10 +9198,27 @@ async function viewMaliDurum(c) {
     </style>
     <div class="md">
       <div class="md-bar">
-        <button class="nav" id="md-prev" title="Önceki ay">‹</button>
-        <input type="month" id="md-month" value="${ym}" max="${nowYm}" />
-        <button class="nav" id="md-next" title="Sonraki ay"${ym >= nowYm ? " disabled" : ""}>›</button>
-        <div style="font-weight:700;color:var(--gold-dark,#7a5a20)">${KZ_AYLAR[+ym.slice(5, 7) - 1]} ${ym.slice(0, 4)}</div>
+        <div class="md-seg">
+          <button data-mode="ay" class="${mode === "ay" ? "on" : ""}">Ay</button>
+          <button data-mode="aralik" class="${mode === "aralik" ? "on" : ""}">Tarih Aralığı</button>
+        </div>
+        ${mode === "ay" ? `
+          <div class="md-monthpick">
+            <button class="nav" id="md-prev" title="Önceki ay">‹</button>
+            <input type="month" id="md-month" value="${ym}" max="${nowYm}" />
+            <button class="nav" id="md-next" title="Sonraki ay"${ym >= nowYm ? " disabled" : ""}>›</button>
+          </div>` : `
+          <div class="md-rangepick">
+            <input type="date" id="md-rs" value="${rStart}" max="${todayIso}" />
+            <span class="md-dash">–</span>
+            <input type="date" id="md-re" value="${rEnd}" max="${todayIso}" />
+          </div>
+          <div class="md-quick">
+            <button data-q="7">Son 7 gün</button>
+            <button data-q="30">Son 30 gün</button>
+            <button data-q="ay">Bu ay</button>
+          </div>`}
+        <div class="md-perlabel">${periodLabel}</div>
       </div>
 
       <div class="md-card">
@@ -9207,11 +9281,28 @@ async function viewMaliDurum(c) {
       </div>
     </div>`;
 
+    // Mod: Ay / Tarih Aralığı
+    c.querySelectorAll(".md-seg button").forEach((b) => b.onclick = () => { mode = b.dataset.mode; render(); });
+    // Ay modu
     const shiftYm = (n) => { const d = new Date(ym + "-01T00:00:00"); d.setMonth(d.getMonth() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
-    $("#md-prev", c).onclick = () => { ym = shiftYm(-1); render(); };
+    const pv = $("#md-prev", c); if (pv) pv.onclick = () => { ym = shiftYm(-1); render(); };
     const nx = $("#md-next", c); if (nx) nx.onclick = () => { if (ym < nowYm) { ym = shiftYm(1); render(); } };
-    $("#md-month", c).onchange = (e) => { if (e.target.value) { ym = e.target.value > nowYm ? nowYm : e.target.value; render(); } };
+    const mm = $("#md-month", c); if (mm) mm.onchange = (e) => { if (e.target.value) { ym = e.target.value > nowYm ? nowYm : e.target.value; render(); } };
+    // Aralık modu
+    const rs = $("#md-rs", c); if (rs) rs.onchange = (e) => { if (e.target.value) { rStart = e.target.value; if (rStart > rEnd) rEnd = rStart; render(); } };
+    const re = $("#md-re", c); if (re) re.onchange = (e) => { if (e.target.value) { rEnd = e.target.value; if (rEnd < rStart) rStart = rEnd; render(); } };
+    const addDaysIso = (iso, n) => { const d = new Date(iso + "T00:00:00"); d.setDate(d.getDate() + n); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`; };
+    c.querySelectorAll(".md-quick button").forEach((b) => b.onclick = () => {
+      const q = b.dataset.q;
+      if (q === "7") { rEnd = todayIso; rStart = addDaysIso(todayIso, -6); }
+      else if (q === "30") { rEnd = todayIso; rStart = addDaysIso(todayIso, -29); }
+      else if (q === "ay") { rStart = todayIso.slice(0, 7) + "-01"; rEnd = monthEnd(todayIso.slice(0, 7)); if (rEnd > todayIso) rEnd = todayIso; }
+      render();
+    });
+    // Fark satırı → analiz
     c.querySelectorAll(".md-click").forEach((el) => el.onclick = () => openFarkDetay(el.dataset.type, el.dataset.iso));
+    // Akış hücresi (Giren/Çıkan) → o dönemdeki hareketler
+    c.querySelectorAll(".md-cell").forEach((el) => el.onclick = () => openAkisDetay(el.dataset.g, el.dataset.dir, el.dataset.lia === "1"));
   };
   render();
 }
