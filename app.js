@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.233";
+const APP_VERSION = "2026.234";
 const CHANGELOG = [
+  { version: "2026.234", date: "2026-08-14", items: [
+    "🏦 Banka hesabı defterinde (102.xx) orta sütunun alt satırı artık ŞAHIS gösteriyor (üstte İşlem Adı — ör. 'Para Transferi', altta karşı taraf/şahıs). Şahıs boşsa açıklamaya düşer. Kasa ve diğer hesaplarda alt satır yine Açıklama olarak kalıyor",
+  ]},
   { version: "2026.233", date: "2026-08-14", items: [
     "📖 Hesap defteri (mobil) orta sütunu artık İKİ SATIR: üstte İşlem Adı (koyu), altta Açıklama (gri/küçük) — Tutar/Bakiye gibi. Böylece hem işlem adı hem açıklaması aynı anda görünüyor, uzun açıklama '…' ile kırpılıyor. Cari hesaplarda üstte açıklama, altta fatura türü/no ya da şahıs gösteriliyor. Sütun başlığı 'İşlem / Açıklama' oldu",
   ]},
@@ -7255,6 +7258,7 @@ async function viewAccountLedger(c) {
     return;
   }
   const cari = isCari(acc.type) || String(acc.code || "").startsWith("108");
+  const isBank = !cari && (String(acc.code || "").startsWith("102") || acc.type === "banka");   // banka: alt satır = Şahıs
   const list = entries.filter((e) => e.accountId === id)
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.islemNo || 0) - (b.islemNo || 0));
   const opening = acc.openingBalance ?? acc.balance ?? 0;
@@ -7355,8 +7359,10 @@ async function viewAccountLedger(c) {
         ? (e.faturaTuru ? (e.faturaTuru + (e.faturaNo ? " · " + e.faturaNo : "")) : e.sahis)
         : "";
     } else {
+      // Kasa/banka: üst = İşlem Adı. Banka'da alt = Şahıs (yoksa açıklama), kasada alt = Açıklama.
       l1 = e.islemAdi || e.aciklama || "";
-      l2 = (e.islemAdi && e.aciklama) ? e.aciklama : "";
+      const sub = isBank ? (e.sahis || e.aciklama || "") : (e.aciklama || "");
+      l2 = (e.islemAdi && sub && sub !== l1) ? sub : "";
     }
     return `<tr class="${isHl(e) ? "hl-row" : ""}" data-edit="${e.id}">
       <td class="lm-d">${esc(dmy(e.date))}</td>
