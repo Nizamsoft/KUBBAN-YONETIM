@@ -299,6 +299,32 @@ const isAdmin = () => currentUser && currentUser.role === "admin";
 let reviewQueue = null;       // { stops: [{accountId, faturaNo?}], index, tok, after? }
 let reviewKeyHandler = null;  // Enter dinleyicisi
 let ledgerFitHandler = null;  // defter yükseklik kilidi (resize dinleyicisi)
+// ---- Kaydırma hafızası: "Geri" (←) tuşuyla dönünce sayfa BIRAKILDIĞI yerden açılır ----
+const _scrollMem = new Map();   // navKey -> { win, inner:{lc,lt,bl} }
+let _lastNavKey = null;         // ayrıldığımız sayfanın anahtarı (kaydetmek için)
+let _navIsBack = false;         // bu geçiş "Geri" (←) tuşuyla başladı → konumu geri yükle
+let _pendingRestore = null;     // render sırasında geri yüklenecek konum (varsa)
+const _SCROLL_SELS = { lc: ".ledger-view .ledger-cards", lt: ".ledger-view .ledger-table", bl: ".ba-list" };
+// Sayfa anahtarı: yol + (from hariç) parametreler. Farklı hesap defterleri ayrı ayrı hatırlanır.
+function navKey(hash) {
+  const raw = (hash || "").replace(/^#\/?/, "");
+  const [path, qs] = raw.split("?");
+  const p = path || "dashboard";
+  const params = new URLSearchParams(qs || "");
+  params.delete("from"); params.delete("rev");
+  const rest = params.toString();
+  return rest ? `${p}?${rest}` : p;
+}
+function captureScrollState() {
+  const inner = {};
+  for (const k in _SCROLL_SELS) { const el = document.querySelector(_SCROLL_SELS[k]); if (el && el.scrollTop > 0) inner[k] = el.scrollTop; }
+  return { win: window.scrollY || document.documentElement.scrollTop || 0, inner };
+}
+function applyScrollState(st) {
+  if (!st) return;
+  window.scrollTo(0, st.win || 0);
+  for (const k in (st.inner || {})) { const el = document.querySelector(_SCROLL_SELS[k]); if (el) el.scrollTop = st.inner[k]; }
+}
 // Adıma git — hash'e rev=index eklenir ki aynı hesap arka arkaya gelse bile yeniden çizilsin
 function gotoReviewStop() {
   const s = reviewQueue.stops[reviewQueue.index];
@@ -614,8 +640,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.228";
+const APP_VERSION = "2026.229";
 const CHANGELOG = [
+  { version: "2026.229", date: "2026-08-14", items: [
+    "↩️ 'Geri' (←) tuşuyla bir sayfaya dönünce artık BIRAKILDIĞI yerden açılıyor — tepeye/başa sıfırlanmıyor. Örn. Hesaplar/Borçlar listesinde aşağı inip bir hesabı açtıktan sonra ← ile dönünce liste yine aynı konumda. Hem normal sayfa kaydırması hem de defter/borç-alacak iç liste kaydırması hatırlanıyor (her sayfa kendi parametresiyle ayrı ayrı: farklı hesaplar karışmaz). İleri gidişte (menü/bağlantı) sayfa yine tepeden başlar",
+  ]},
   { version: "2026.228", date: "2026-08-14", items: [
     "📖 Hesap defterinde sayfa artık bir bütün olarak AŞAĞI İNMİYOR: üst (altın hesap kartı + 'Hareketler' başlığı + sütun başlığı) SABİT kalır, yalnızca hareket listesi kendi içinde kayar. Kilit tamamen CSS ile (dvh + flex) yapıldı — JS ile yükseklik ölçülmüyor; iOS'ta URL çubuğu açılıp kapanınca yükseklik kendiliğinden düzeliyor, 'hero yukarı kaçması' / 'açılışta zıplama' sorunu bitti",
   ]},
@@ -1838,6 +1867,12 @@ async function route(opts = {}) {
   const silent = opts === true || opts?.silent;   // sessiz tazeleme: göstergesiz, animasyonsuz
   const path = (location.hash.replace(/^#\/?/, "") || "dashboard").split("?")[0];
   const r = ROUTES[path] || ROUTES["dashboard"];
+  // Kaydırma hafızası: ayrılırken (yalnız gerçek geçişte) bu sayfanın konumunu sakla.
+  // "Geri" (←) tuşuyla dönünce ise hedef sayfayı bırakıldığı yerden yükle.
+  const curKey = navKey(location.hash);
+  if (!silent && _lastNavKey != null && _lastNavKey !== curKey) _scrollMem.set(_lastNavKey, captureScrollState());
+  const isBack = _navIsBack; _navIsBack = false;
+  _pendingRestore = (!silent && isBack && _scrollMem.has(curKey)) ? _scrollMem.get(curKey) : null;
   closeDrawer(); // mobilde gezinince menüyü kapat
   runDraftSaver(); _activeDraftSaver = null; // önceki ekranın taslağını kaydet (hesaba bakıp dönünce kaldığın yer)
   if (reviewKeyHandler) { document.removeEventListener("keydown", reviewKeyHandler); reviewKeyHandler = null; }
@@ -1860,7 +1895,7 @@ async function route(opts = {}) {
     // Geldiğin yere dön: hash'te ?from=... varsa oraya (ör. dashboard / borc-alacak), yoksa sabit r.back
     const fromParam = new URLSearchParams(location.hash.split("?")[1] || "").get("from");
     const backTarget = fromParam ? ("#/" + fromParam) : (r.back || null);
-    if (backTarget) { backEl.style.display = ""; backEl.onclick = () => { location.hash = backTarget; }; }
+    if (backTarget) { backEl.style.display = ""; backEl.onclick = () => { _navIsBack = true; location.hash = backTarget; }; }
     else { backEl.style.display = "none"; backEl.onclick = null; }
   }
   const c = $("#view-container");
@@ -1870,7 +1905,16 @@ async function route(opts = {}) {
   const loadTimer = silent ? null : setTimeout(showViewLoader, 130);
   try {
     await r.render(c);
-    if (!silent) window.scrollTo(0, 0);   // yeni sayfa TEPEDEN başlasın (önceki kaydırma kalmasın)
+    if (!silent) {
+      if (_pendingRestore) {
+        // "Geri" (←) ile dönüş: sayfa bırakıldığı yerden açılsın (pencere + iç liste kaydırması)
+        const st = _pendingRestore;
+        applyScrollState(st);
+        requestAnimationFrame(() => applyScrollState(st));   // yerleşim oturunca tekrar uygula
+      } else {
+        window.scrollTo(0, 0);   // yeni sayfa TEPEDEN başlasın (önceki kaydırma kalmasın)
+      }
+    }
     if (!silent && !r.noAnim) {
       // Yumuşak sayfa geçişi (GPU: opacity + transform) — belirgin ama hızlı
       c.style.animation = "none";
@@ -1879,6 +1923,7 @@ async function route(opts = {}) {
     } else if (r.noAnim) {
       c.style.animation = "none";   // bu ekran kaymadan, direkt gelsin (yükseklik kilidi zıplamasın)
     }
+    _lastNavKey = curKey;   // bir sonraki geçişte bu sayfanın konumu kaydedilsin
   } catch (err) {
     console.error(err);
     c.innerHTML = `<div class="notice warn"><b>Hata:</b> ${esc(err.message || err)}</div>`;
@@ -7445,11 +7490,15 @@ async function viewAccountLedger(c) {
   // overflow:auto). JS ile yükseklik ÖLÇÜLMEZ — iOS'ta URL çubuğu açılıp kapanınca tarayıcı
   // yüksekliği kendi düzeltir; 'yukarı gelip aşağı oturma' ya da 'hero yukarı kaçması' olmaz.
   const fitLedger = () => {};                 // CSS hallediyor; filtre/pencere geri çağrıları için no-op
+  // "Geri" (←) ile dönüşte konum route() tarafından geri yüklenir → en alta İNME.
+  const restoring = !!_pendingRestore;
   // Açılışta EN ALTA (son işlemler görünür). İncelenen fatura varsa yalnız vurgula.
   function initScroll() {
-    const tw = $(".ledger-table", c);
-    if (tw && getComputedStyle(tw).display !== "none") tw.scrollTop = tw.scrollHeight;
-    else { const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = cw.scrollHeight; }
+    if (!restoring) {
+      const tw = $(".ledger-table", c);
+      if (tw && getComputedStyle(tw).display !== "none") tw.scrollTop = tw.scrollHeight;
+      else { const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = cw.scrollHeight; }
+    }
     if (focusE) {
       const el = $(`[data-edit="${focusE.id}"]`, c)?.closest("tr, .tx-card");
       if (el) { el.style.outline = "2px solid var(--gold)"; el.style.outlineOffset = "-2px"; }
