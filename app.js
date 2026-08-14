@@ -593,8 +593,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.205";
+const APP_VERSION = "2026.206";
 const CHANGELOG = [
+  { version: "2026.206", date: "2026-08-14", items: [
+    "✒️ Günün Cirosu kartındaki firma adı artık marka fontunda (Georgia/serif) ve daha belirgin; altında 'GAZİANTEP MUTFAĞI' altın renkli alt başlık — yan menüdeki marka kilidiyle aynı görünüm",
+  ]},
   { version: "2026.205", date: "2026-08-13", items: [
     "🏷️ Günün Cirosu kartının en üstüne firma logosu + 'Güllüoğlu Kübban' adı eklendi (ortada). Görselli arka planda da net okunur (gölgeli)",
   ]},
@@ -1903,10 +1906,11 @@ async function viewDashboard(c) {
     .dash-hero.has-bg .dh-ciro,.dash-hero.has-bg .dh-ciro-lb,.dash-hero.has-bg .dh-date,.dash-hero.has-bg .dh-arrow,.dash-hero.has-bg .dh-empty{text-shadow:0 1px 4px rgba(0,0,0,.6)}
     .dash-hero.has-bg .dh-date,.dash-hero.has-bg .dh-stat{background:rgba(0,0,0,.44)}
     .dash-hero.has-bg .dh-arrow{background:rgba(0,0,0,.32)}
-    .dh-brand{display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:8px}
-    .dh-brand img{width:30px;height:30px;border-radius:50%;object-fit:cover;background:#fff;padding:2px;flex:0 0 auto}
-    .dh-brand span{font-size:13px;font-weight:800;letter-spacing:.3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .dash-hero.has-bg .dh-brand span{text-shadow:0 1px 4px rgba(0,0,0,.6)}
+    .dh-brand{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:8px}
+    .dh-brand img{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#fff;padding:2px;flex:0 0 auto}
+    .dh-brand-nm{font-family:Georgia,"Times New Roman",serif;font-size:19px;font-weight:700;line-height:1.05;text-shadow:0 1px 3px rgba(0,0,0,.45)}
+    .dh-brand-sub{font-size:9.5px;letter-spacing:2px;font-weight:700;text-transform:uppercase;color:#f2e4c0;margin-top:2px;text-shadow:0 1px 3px rgba(0,0,0,.45)}
+    .dash-hero.has-bg .dh-brand-nm,.dash-hero.has-bg .dh-brand-sub{text-shadow:0 2px 6px rgba(0,0,0,.65)}
     .dh-nav{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:10px}
     .dh-arrow{flex:0 0 auto;width:34px;height:34px;border-radius:50%;border:none;background:rgba(255,255,255,.18);color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;line-height:1}
     .dh-arrow:disabled{opacity:.3;cursor:default}
@@ -2015,7 +2019,7 @@ async function viewDashboard(c) {
     const ikram = ikramByDay.get(selDate) || 0;
     const iskonto = iskontoByDay.get(selDate) || 0;
     heroEl.innerHTML = `
-      <div class="dh-brand"><img src="${esc(COMPANY.logo || "")}" alt="" onerror="this.style.display='none'" /><span>${esc(COMPANY.name || "")}</span></div>
+      <div class="dh-brand"><img src="${esc(COMPANY.logo || "")}" alt="" onerror="this.style.display='none'" /><div><div class="dh-brand-nm">${esc(COMPANY.name || "")}</div>${COMPANY.subtitle ? `<div class="dh-brand-sub">${esc(COMPANY.subtitle)}</div>` : ""}</div></div>
       <div class="dh-nav">
         <button class="dh-arrow" data-nav="prev" aria-label="Önceki gün">‹</button>
         <label class="dh-date">📅 <span>${esc(fmtDate(selDate))}</span><input type="date" value="${selDate}" max="${today}"></label>
