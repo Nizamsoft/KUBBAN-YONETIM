@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.234";
+const APP_VERSION = "2026.235";
 const CHANGELOG = [
+  { version: "2026.235", date: "2026-08-14", items: [
+    "💰 Hesap defteri (mobil) tutar/bakiye: tam sayıysa kuruşsuz, KURUŞLU ise virgülden sonrası da gösteriliyor (ör. 1.544.399,44). Sütuna sığıyor (360/390px'te test edildi)",
+  ]},
   { version: "2026.234", date: "2026-08-14", items: [
     "🏦 Banka hesabı defterinde (102.xx) orta sütunun alt satırı artık ŞAHIS gösteriyor (üstte İşlem Adı — ör. 'Para Transferi', altta karşı taraf/şahıs). Şahıs boşsa açıklamaya düşer. Kasa ve diğer hesaplarda alt satır yine Açıklama olarak kalıyor",
   ]},
@@ -7348,7 +7351,12 @@ async function viewAccountLedger(c) {
   const cardHtml = cari ? cariCard : kasaCard;
   // Mobil kompakt tablo satırı: Tarih · İşlem Adı · Açıklama · Tutar · Güncel Bakiye
   const dmy = (iso) => { iso = iso || ""; return `${iso.slice(8, 10)}.${iso.slice(5, 7)}.${iso.slice(2, 4)}`; };
-  const mInt = (v) => Math.round(parseNum(v)).toLocaleString("tr-TR");   // kuruşsuz, gruplu (mobilde sığsın)
+  // Tam sayıysa kuruşsuz (mobilde sığsın); kuruş varsa virgülden sonrasını göster
+  const mInt = (v) => {
+    const n = parseNum(v);
+    const kurus = Math.abs(n - Math.round(n)) > 0.005;
+    return n.toLocaleString("tr-TR", kurus ? { minimumFractionDigits: 2, maximumFractionDigits: 2 } : { maximumFractionDigits: 0 });
+  };
   const miniRowHtml = ({ e, bakiye }) => {
     const delta = cari ? (parseNum(e.borc) - parseNum(e.alacak)) : (parseNum(e.giren) - parseNum(e.cikan));
     // İki satır: üst = İşlem Adı (koyu), alt = Açıklama (gri). Cari'de üst = açıklama, alt = fatura/şahıs.
