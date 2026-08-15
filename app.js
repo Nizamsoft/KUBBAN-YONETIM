@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.254";
+const APP_VERSION = "2026.255";
 const CHANGELOG = [
+  { version: "2026.255", date: "2026-08-15", items: [
+    "🗄️ Raporlar arşive alındı: Ödeme Modu · Aylık Ciro Dökümü · Mali Durum & Kontrol · Kâr/Zarar Durumu · Nakit Akış Raporu · Gün Sonu Raporu artık menüden çıkıp Ayarlar → Rapor Arşivi altında bekliyor (hepsine oradan ulaşılıyor). Her rapor tek tek yeniden düzenlenip onaylandıkça Raporlar menüsüne (PC sol menü + mobil alt çubuk) geri taşınacak. İlk sırada Nakit Akış Raporu var",
+  ]},
   { version: "2026.254", date: "2026-08-15", items: [
     "🏷️ Kasa nakit çıkışları artık 'MASRAF - Ana Kasa' adıyla görünüyor. GELECEK: Kasa (100) hesabına elle hareket eklerken Çıkan tutar girince işlem adı otomatik 'MASRAF - Ana Kasa' gelir (boşsa ya da 'Nakit' yazıyorsa). GEÇMİŞ: Ayarlar → Kayıt & Kontrol → 'Kasa Nakit Çıkışlarını Düzelt' düğmesiyle, işlem adı 'Nakit' olan tüm kasa çıkışları tek seferde 'MASRAF - Ana Kasa' yapılır (girişlere/Giren kayıtlara dokunulmaz, kaç kayıt güncellendiği bildirilir)",
   ]},
@@ -1648,6 +1651,20 @@ const CHANGELOG = [
   ]},
 ];
 
+// Raporlar — tek kaynak. `archived: true` olanlar menüden çıkar, Ayarlar → Rapor
+// Arşivi'nde durur. Bir rapor yeniden düzenlenip onaylanınca archived=false yapılır
+// ve otomatik olarak Raporlar menüsüne (PC sol menü + mobil alt çubuk) geri döner.
+const REPORTS = [
+  { label: "Ödeme Modu",           icon: "💳", path: "odeme-modu",       archived: true },
+  { label: "Aylık Ciro Dökümü",    icon: "📅", path: "ciro-aylik",        archived: true },
+  { label: "Mali Durum & Kontrol", icon: "🧮", path: "mali-durum",        archived: true },
+  { label: "Kâr / Zarar Durumu",   icon: "💹", path: "kar-zarar",         archived: true },
+  { label: "Nakit Akış Raporu",    icon: "📈", path: "nakit-akis-rapor",  archived: true },
+  { label: "Gün Sonu Raporu",      icon: "📄", path: "gunsonu-rapor",     archived: true },
+];
+const activeReports = () => REPORTS.filter((r) => !r.archived);
+const archivedReports = () => REPORTS.filter((r) => r.archived);
+
 // Akordeon menü: ana bölümler + alt sayfalar. Sıra kullanıcı isteğine göre.
 const NAV = [
   { label: "Dashboard", icon: "📊", path: "dashboard" },
@@ -1657,14 +1674,9 @@ const NAV = [
     { label: "Gün Sonu Aktarımı", icon: "🌙", path: "gunsonu-aktarim" },
   ]},
   { label: "Hesaplar", icon: "💼", path: "hesaplar" },
-  { label: "Raporlar", icon: "📈", children: [
-    { label: "Ödeme Modu",          icon: "💳", path: "odeme-modu" },
-    { label: "Aylık Ciro Dökümü",   icon: "📅", path: "ciro-aylik" },
-    { label: "Mali Durum & Kontrol", icon: "🧮", path: "mali-durum" },
-    { label: "Kâr / Zarar Durumu",  icon: "💹", path: "kar-zarar" },
-    { label: "Nakit Akış Raporu",   icon: "📈", path: "nakit-akis-rapor" },
-    { label: "Gün Sonu Raporu",     icon: "📄", path: "gunsonu-rapor" },
-  ]},
+  // Raporlar grubu yalnızca menüde en az bir aktif (arşivde olmayan) rapor varsa görünür
+  ...(activeReports().length ? [{ label: "Raporlar", icon: "📈",
+    children: activeReports().map((r) => ({ label: r.label, icon: r.icon, path: r.path })) }] : []),
   { label: "Ayarlar", icon: "⚙️", path: "ayarlar" },
 ];
 
@@ -1675,6 +1687,7 @@ const ROUTES = {
   "mali-durum":       { title: "Mali Durum & Kontrol", crumb: "Raporlar", render: viewMaliDurum },
   "ciro-aylik":       { title: "Aylık Ciro Dökümü", crumb: "Raporlar", render: viewCiroAylik },
   "ayarlar":          { title: "Ayarlar", crumb: "Sistem", render: viewAyarlar },
+  "rapor-arsiv":      { title: "Rapor Arşivi", crumb: "Ayarlar", render: viewRaporArsiv, back: "#/ayarlar" },
   "hesap-grup":       { title: "Hesap Grubu", crumb: "Hesaplar", render: viewHesapGrup, back: "#/hesaplar", anim: "viewInRight .32s cubic-bezier(.16,.84,.44,1)" },
   "gunsonu-aktarim":  { title: "Gün Sonu Aktarımı", crumb: "Veri Girişleri", render: viewGunSonuAktarim },
   "gunsonu-kayitlar": { title: "Gün Sonu Kayıtları", crumb: "Gün Sonu Aktarımı", render: viewGunSonuKayitlar },
@@ -1760,19 +1773,21 @@ const BN_ITEMS = [
   { key: "dashboard", icon: "🏠", label: "Ana Sayfa", href: "#/dashboard" },
   { key: "hesaplar",  icon: "💼", label: "Hesaplar",  href: "#/hesaplar" },
   { key: "veri",      icon: "📝", label: "Girişler",  group: "Veri Girişleri" },
-  { key: "raporlar",  icon: "📈", label: "Raporlar",  group: "Raporlar" },
+  // Raporlar sekmesi yalnızca aktif rapor varsa görünür (hepsi arşivdeyse gizli)
+  ...(activeReports().length ? [{ key: "raporlar", icon: "📈", label: "Raporlar", group: "Raporlar" }] : []),
   { key: "ayarlar",   icon: "⚙️", label: "Ayarlar",   href: "#/ayarlar" },
 ];
 const _bnPaths = (lbl) => (NAV.find((n) => n.label === lbl)?.children || []).map((c) => c.path);
 const AYARLAR_PATHS = ["ayarlar", "cari-import", "kasa-import", "banka-import", "cari-gecmis-import",
   "tum-kayitlar", "bakiye-karsilastir", "kullanicilar", "sayfa-ayarlari", "gider-gruplari",
-  "nakit-akis-veri", "audit", "yedek", "guncelleme"];
+  "nakit-akis-veri", "audit", "yedek", "guncelleme", "rapor-arsiv"];
 function bnActiveKey(p) {
   if (p === "dashboard" || p === "borc-alacak") return "dashboard";
   if (p === "hesaplar" || p === "hesap-detay") return "hesaplar";
   if (_bnPaths("Veri Girişleri").includes(p) || p === "gunsonu-kayitlar") return "veri";
-  if (_bnPaths("Raporlar").includes(p)) return "raporlar";
+  if (_bnPaths("Raporlar").includes(p)) return "raporlar";        // menüdeki (aktif) raporlar
   if (AYARLAR_PATHS.includes(p)) return "ayarlar";
+  if (archivedReports().some((r) => r.path === p)) return "ayarlar"; // arşivdeki raporlar → Ayarlar
   return "";
 }
 function buildBottomNav() {
@@ -1822,6 +1837,9 @@ async function viewAyarlar(c) {
       { ic: "📒", label: "Kasa Geçmişi", desc: "Geçmiş kasa hareketlerini yükle", path: "kasa-import", admin: true },
       { ic: "🏦", label: "Banka Geçmişi", desc: "Geçmiş banka hareketlerini yükle", path: "banka-import", admin: true },
       { ic: "🧾", label: "Cari Geçmişi", desc: "Geçmiş cari hareketlerini yükle", path: "cari-gecmis-import", admin: true },
+    ]},
+    { title: "📈 Raporlar", desc: "Rapor arşivi — yeniden düzenlendikçe menüye taşınır", items: [
+      { ic: "🗄️", label: "Rapor Arşivi", desc: `${archivedReports().length} rapor arşivde`, path: "rapor-arsiv" },
     ]},
     { title: "🗂️ Kayıt & Kontrol", items: [
       { ic: "📋", label: "Tüm Kayıtlar", desc: "Tüm hareketleri gör / düzenle / sil", path: "tum-kayitlar", admin: true },
@@ -1905,6 +1923,35 @@ async function fixKasaMasraf(btn) {
     if (orig) setLbl(orig);
     toast("Güncellenemedi: " + e.message, "err");
   }
+}
+
+// ---------------------------------------------------------------------------
+//  RAPOR ARŞİVİ — tüm raporlar burada bekler; yeniden düzenlenip onaylanınca
+//  archived=false yapılır ve otomatik olarak Raporlar menüsüne geri döner.
+// ---------------------------------------------------------------------------
+async function viewRaporArsiv(c) {
+  const arch = archivedReports();
+  c.innerHTML = `<style>
+    .ayr{max-width:760px;margin:0 auto;display:flex;flex-direction:column;gap:18px}
+    .ayr-sec{background:var(--card,#fff);border:1px solid var(--line,#ece7dc);border-radius:18px;overflow:hidden}
+    .ayr-hd{font-family:Georgia,"Times New Roman",serif;font-weight:800;font-size:15px;padding:14px 16px 10px}
+    .ayr-hd small{display:block;font-family:-apple-system,sans-serif;font-weight:400;font-size:12px;color:var(--ink-faint,#8b8172);margin-top:2px}
+    .ayr-it{display:flex;align-items:center;gap:13px;padding:14px 16px;border-top:1px solid var(--line,#f0ece2);text-decoration:none;color:inherit}
+    .ayr-it:active{background:var(--surface-2,#fbf7ef)}
+    .ayr-it .i{font-size:22px;width:30px;text-align:center;flex:0 0 auto}
+    .ayr-it .m{flex:1;min-width:0}
+    .ayr-it .m b{display:block;font-size:15px;font-weight:700}
+    .ayr-it .m span{display:block;font-size:12px;color:var(--ink-faint,#8b8172);margin-top:1px}
+    .ayr-it .ar{color:var(--ink-faint,#b8ad98);font-size:20px;flex:0 0 auto}
+    .rars-note{background:var(--surface-2,#fbf7ef);border:1px solid var(--line,#ece7dc);border-radius:14px;padding:13px 15px;color:var(--ink-soft,#6b5d49);font-size:13px;line-height:1.5;max-width:760px;margin:0 auto}
+  </style>
+  <div class="ayr">
+    <div class="rars-note">🗄️ Raporlar arşive alındı. Her rapor yeniden düzenlenip onaylandıkça <b>Raporlar</b> menüsüne (üst menü ve mobil alt çubuk) geri taşınacak. Şimdilik hepsine buradan ulaşabilirsin.</div>
+    ${arch.length ? `<div class="ayr-sec">
+      <div class="ayr-hd">📈 Arşivdeki Raporlar<small>${arch.length} rapor</small></div>
+      ${arch.map((r) => `<a class="ayr-it" href="#/${r.path}?from=rapor-arsiv"><span class="i">${r.icon}</span><span class="m"><b>${esc(r.label)}</b><span>Arşivde</span></span><span class="ar">›</span></a>`).join("")}
+    </div>` : `<div class="rars-note">Tüm raporlar menüye taşındı — arşivde rapor kalmadı. 🎉</div>`}
+  </div>`;
 }
 
 // ---------------------------------------------------------------------------
