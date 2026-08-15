@@ -1466,12 +1466,25 @@ table.na-t td.na-bloke { background: var(--ok-bg); color: #1f7a4d; font-weight: 
 table.na-t tr.fut td { background: #fffdf6; }
 table.na-t tr.fut td.na-bal.neg { background: #fbeaea; }
 table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(--warn-bg); }
-#na-pop { position: fixed; z-index: 1500; display: none; max-width: 250px; background: #241d15; color: #fff; border-radius: 11px; padding: 11px 13px; font-size: 12px; box-shadow: 0 10px 26px rgba(0,0,0,.3); }
-#na-pop .pt { font-weight: 800; font-size: 11.5px; color: #e9c877; margin-bottom: 5px; }
-#na-pop ul { margin: 0 0 8px; padding-left: 16px; } #na-pop li { margin: 2px 0; }
-#na-pop .none { opacity: .65; margin-bottom: 8px; font-style: italic; }
-#na-pop .tgl { width: 100%; border: none; border-radius: 8px; padding: 8px; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; color: #fff; }
-#na-pop .tgl.toGir { background: var(--ok); } #na-pop .tgl.toCik { background: var(--danger); }
+/* Nakit Akış — Giren/Çıkan detayı: ekranın ORTASINDA açılan kart (dim arka plan) */
+#na-pop { position: fixed; inset: 0; z-index: 1500; display: none; align-items: center; justify-content: center; padding: 22px; background: rgba(30,22,10,.42); }
+#na-pop.show { display: flex; }
+.npc-card { width: 100%; max-width: 320px; background: var(--surface); border-radius: 18px; overflow: hidden; box-shadow: 0 22px 54px rgba(0,0,0,.36); animation: npcIn .2s ease; }
+@keyframes npcIn { from { opacity: 0; transform: scale(.94) translateY(8px); } to { opacity: 1; transform: none; } }
+.npc-hd { padding: 13px 16px; color: #fff; display: flex; align-items: center; gap: 10px; }
+.npc-card.cik .npc-hd { background: linear-gradient(135deg, #a0202b, var(--danger)); }
+.npc-card.gir .npc-hd { background: linear-gradient(135deg, #256b49, var(--ok)); }
+.npc-badge { font-size: 10.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; background: rgba(255,255,255,.22); padding: 3px 9px; border-radius: 999px; }
+.npc-d { font-size: 15px; font-weight: 800; }
+.npc-x { margin-left: auto; background: rgba(255,255,255,.18); border: none; color: #fff; width: 26px; height: 26px; border-radius: 50%; font-size: 15px; cursor: pointer; line-height: 1; }
+.npc-body { padding: 2px 16px; max-height: 48vh; overflow: auto; }
+.npc-li { display: flex; justify-content: space-between; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13.5px; color: var(--ink); }
+.npc-li:last-child { border: 0; }
+.npc-li .a { font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.npc-card.cik .npc-li .a { color: var(--danger); } .npc-card.gir .npc-li .a { color: var(--ok); }
+.npc-tot { display: flex; justify-content: space-between; padding: 12px 16px; background: var(--surface-2); font-weight: 800; font-size: 14px; }
+.npc-tot .a { font-variant-numeric: tabular-nums; }
+.npc-card.cik .npc-tot .a { color: var(--danger); } .npc-card.gir .npc-tot .a { color: var(--ok); }
 
 /* ===== Nakit Akış — tek hesap tasarımı ===== */
 .na-tabs { display: flex; gap: 7px; margin-bottom: 10px; }
@@ -1483,12 +1496,12 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 .na-bnr .v { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; }
 .na-bnr .v.neg { color: var(--danger); }
 .na-tbl { border: 1px solid var(--line); border-radius: 13px; overflow: hidden; background: var(--surface); }
-.na-tbl table { border-collapse: collapse; width: 100%; font-size: 12.5px; table-layout: fixed; }
-.na-tbl col.c-dt { width: 21%; } .na-tbl col.c-num { width: 26.3%; }
-.na-tbl th, .na-tbl td { padding: 8px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
-.na-tbl th { background: var(--gold-dark); color: #fff; font-size: 9.5px; text-transform: uppercase; letter-spacing: .2px; font-weight: 800; }
+.na-tbl table { border-collapse: collapse; width: 100%; font-size: 11px; table-layout: fixed; }
+.na-tbl col.c-dt { width: 18%; } .na-tbl col.c-num { width: 27.3%; }
+.na-tbl th, .na-tbl td { padding: 7px 6px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+.na-tbl th { background: var(--gold-dark); color: #fff; font-size: 9px; text-transform: uppercase; letter-spacing: .2px; font-weight: 800; }
 .na-tbl th.r, .na-tbl td.r { text-align: right; } .na-tbl th.l, .na-tbl td.l { text-align: left; }
-.na-tbl td.dt { font-weight: 700; } .na-tbl td.dt small { color: var(--ink-faint); font-weight: 600; font-size: 10px; margin-left: 3px; }
+.na-tbl td.dt { font-weight: 700; } .na-tbl td.dt small { color: var(--ink-faint); font-weight: 600; font-size: 9px; margin-left: 2px; }
 .na-tbl td.gir { color: var(--ok); font-weight: 700; cursor: pointer; }
 .na-tbl td.cik { color: var(--danger); font-weight: 700; cursor: pointer; }
 .na-tbl td.gir.z, .na-tbl td.cik.z { color: var(--ink-faint); font-weight: 400; cursor: default; }

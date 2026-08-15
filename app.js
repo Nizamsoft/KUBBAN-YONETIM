@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.256";
+const APP_VERSION = "2026.257";
 const CHANGELOG = [
+  { version: "2026.257", date: "2026-08-15", items: [
+    "📈 Nakit Akış Raporu — mobil düzeltmeler: Tablonun yazı fontları küçültüldü (düzen aynı, 4 sütun), böylece 'Güncel Bakiye' (ör. 1.544.399,44) artık kırpılmadan tam sığıyor. Giren/Çıkan'a dokununca açılan detay kutusu yenilendi: eski kayan koyu kutu yerine artık ekranın TAM ORTASINDA, arkası hafif kararan, renkli başlıklı bir kart açılıyor (Çıkan kırmızı · Giren yeşil) — üstte tarih, altında kalem kalem tutarlar ve Toplam; ✕ ya da dışına dokununca kapanır",
+  ]},
   { version: "2026.256", date: "2026-08-15", items: [
     "📈 Nakit Akış Raporu arşivden çıkarıldı — Raporlar menüsü ve mobil alt çubuktaki 'Raporlar' sekmesi geri geldi (içinde şimdilik Nakit Akış var). Rapor artık ayın başından değil DÜN'den başlıyor: bugün 15 Ağustos ise tablo 14 Ağustos'tan itibaren gösteriliyor (daha eski hareketler açılış bakiyesine katılır, dün satırındaki Güncel Bakiye tüm geçmişi doğru yansıtır)",
   ]},
@@ -10564,7 +10567,7 @@ async function viewNakitAkisRapor(c) {
   }
 
   const pop = () => $("#na-pop");
-  function closePop() { pop().style.display = "none"; }
+  function closePop() { const P = pop(); if (P) { P.classList.remove("show"); P.innerHTML = ""; } }
   function wirePop() {
     const T = $("#na-tb");
     T.onclick = (e) => {
@@ -10572,13 +10575,16 @@ async function viewNakitAkisRapor(c) {
       e.stopPropagation();
       const d = JSON.parse(td.dataset.x.replace(/&#39;/g, "'"));
       const list = d.d.slice().sort((a, b) => b.a - a.a);
+      const cik = d.t === "Çıkan";
+      const total = list.reduce((s, x) => s + x.a, 0);
       const P = pop();
-      P.innerHTML = `<div class="pt">${d.dt} · ${d.t}</div><ul>${list.map((x) => `<li>${esc(x.t)}: ${fmtNum(x.a)} ₺</li>`).join("")}</ul>`;
-      P.style.display = "block"; P.style.visibility = "hidden";
-      const rect = td.getBoundingClientRect(), pw = Math.min(P.offsetWidth, 250);
-      let left = Math.max(8, Math.min(rect.left + rect.width / 2 - pw / 2, window.innerWidth - pw - 8));
-      let top = rect.top - P.offsetHeight - 10; if (top < 8) top = rect.bottom + 10;
-      P.style.left = left + "px"; P.style.top = top + "px"; P.style.visibility = "visible";
+      // Ekranın ortasında açılan detay kartı (dim arka plan) — çıkan kırmızı / giren yeşil
+      P.innerHTML = `<div class="npc-card ${cik ? "cik" : "gir"}" role="dialog" aria-label="${d.t} detayı">
+        <div class="npc-hd"><span class="npc-badge">${cik ? "ÇIKAN" : "GİREN"}</span><span class="npc-d">${esc(d.dt)}</span><button class="npc-x" aria-label="Kapat">✕</button></div>
+        <div class="npc-body">${list.map((x) => `<div class="npc-li"><span class="t">${esc(x.t)}</span><span class="a">${fmtNum(x.a)} ₺</span></div>`).join("")}</div>
+        <div class="npc-tot"><span>Toplam ${cik ? "Çıkan" : "Giren"}</span><span class="a">${fmtNum(total)} ₺</span></div>
+      </div>`;
+      P.classList.add("show");
     };
   }
 
@@ -10587,7 +10593,8 @@ async function viewNakitAkisRapor(c) {
     $$("#na-tabs .na-tab", c).forEach((x) => x.classList.toggle("on", x === t));
     closePop(); draw();
   });
-  document.addEventListener("click", (e) => { if (!e.target.closest("#na-pop") && !e.target.closest("#na-tb")) closePop(); });
+  // Kart dışına (dim alan) ya da ✕'e dokununca kapat
+  pop().addEventListener("click", (e) => { if (!e.target.closest(".npc-card") || e.target.closest(".npc-x")) closePop(); });
   draw();
 }
 
