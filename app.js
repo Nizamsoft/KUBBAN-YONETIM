@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.240";
+const APP_VERSION = "2026.241";
 const CHANGELOG = [
+  { version: "2026.241", date: "2026-08-14", items: [
+    "🧊 Dashboard Günün Cirosu kartındaki İkram/İskonto kutuları artık BUZLU CAM (frosted glass): arkadaki görsel/altın hafifçe bulanıklaşıyor, ince kenar ve üst parlaklıkla cam hissi; rakamlar net kalıyor",
+  ]},
   { version: "2026.240", date: "2026-08-14", items: [
     "💼 Hesaplar üst kartı artık 'GENEL TOPLAM' yerine VARLIKLAR − BORÇLAR farkını (net) gösteriyor; alt satırda Varlıklar ve Borçlar toplamları ayrı ayrı (🟢/🔴)",
     "🔴 Hesaplar'da Borçlar (320) kartı artık kırmızı ve eksi işaretli (−) gösteriliyor (negatif bakiyeli diğer kartlar da)",
@@ -2273,7 +2276,9 @@ async function viewDashboard(c) {
     .dash-hero.has-bg::before{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.14),rgba(0,0,0,.68));z-index:0}
     .dash-hero.has-bg>*{position:relative;z-index:1}
     .dash-hero.has-bg .dh-ciro,.dash-hero.has-bg .dh-ciro-lb,.dash-hero.has-bg .dh-date,.dash-hero.has-bg .dh-arrow,.dash-hero.has-bg .dh-empty{text-shadow:0 1px 4px rgba(0,0,0,.6)}
-    .dash-hero.has-bg .dh-date,.dash-hero.has-bg .dh-stat{background:rgba(0,0,0,.44)}
+    .dash-hero.has-bg .dh-date{background:rgba(0,0,0,.44)}
+    /* İkram/İskonto kutuları: buzlu cam (arkadaki görsel/altın bulanır) */
+    .dash-hero.has-bg .dh-stat{background:rgba(0,0,0,.28);backdrop-filter:blur(10px) saturate(1.05);-webkit-backdrop-filter:blur(10px) saturate(1.05)}
     .dash-hero.has-bg .dh-arrow{background:rgba(0,0,0,.32)}
     .dh-brand{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:8px}
     .dh-brand img{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#fff;padding:2px;flex:0 0 auto}
@@ -2288,7 +2293,9 @@ async function viewDashboard(c) {
     .dh-ciro-lb{text-align:center;font-size:12.5px;opacity:.92;font-weight:600}
     .dh-ciro{text-align:center;font-size:clamp(28px,8.5vw,40px);font-weight:800;line-height:1.05;margin:2px 0 12px}
     .dh-stats{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-    .dh-stat{background:rgba(255,255,255,.14);border-radius:14px;padding:9px 12px;text-align:center}
+    .dh-stat{background:rgba(255,255,255,.14);border-radius:14px;padding:9px 12px;text-align:center;
+      backdrop-filter:blur(9px) saturate(1.1);-webkit-backdrop-filter:blur(9px) saturate(1.1);
+      border:1px solid rgba(255,255,255,.22);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 6px 16px rgba(0,0,0,.12)}
     .dh-stat .l{font-size:11.5px;opacity:.9;font-weight:600}
     .dh-stat .v{font-size:16px;font-weight:800;margin-top:2px;white-space:nowrap}
     .dh-empty{text-align:center;font-size:13px;opacity:.95;padding:14px 0}
