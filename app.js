@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.257";
+const APP_VERSION = "2026.258";
 const CHANGELOG = [
+  { version: "2026.258", date: "2026-08-15", items: [
+    "📈 Nakit Akış Raporu — çoklu hesap seçimi: Üstteki hesap sekmeleri artık aç/kapa çalışıyor; birden çok seçebilirsin (ör. Garanti + T.Finans) ve seçilenlerin Giren/Çıkan/Güncel Bakiye değerleri TOPLANARAK tek tabloda gösterilir. En az bir hesap her zaman seçili kalır. Giren/Çıkan'a dokununca açılan detay kartında kalemler hesaba göre AYRI AYRI gruplanır (her grubun kendi ara toplamı + genel Toplam)",
+  ]},
   { version: "2026.257", date: "2026-08-15", items: [
     "📈 Nakit Akış Raporu — mobil düzeltmeler: Tablonun yazı fontları küçültüldü (düzen aynı, 4 sütun), böylece 'Güncel Bakiye' (ör. 1.544.399,44) artık kırpılmadan tam sığıyor. Giren/Çıkan'a dokununca açılan detay kutusu yenilendi: eski kayan koyu kutu yerine artık ekranın TAM ORTASINDA, arkası hafif kararan, renkli başlıklı bir kart açılıyor (Çıkan kırmızı · Giren yeşil) — üstte tarih, altında kalem kalem tutarlar ve Toplam; ✕ ya da dışına dokununca kapanır",
   ]},
@@ -10483,11 +10486,11 @@ async function viewNakitAkisRapor(c) {
   const dailyIn = Object.assign({ garanti: 0, tfinans: 0, nakit: 0 }, (cfgDoc && cfgDoc.dailyIn) || {});
   const accByKey = {};
   NA_ACCS.forEach((a) => { accByKey[a.key] = accounts.find((x) => String(x.code) === a.code) || null; });
-  let selKey = "garanti"; const fwd = 90;
+  const selKeys = new Set(["garanti"]); const fwd = 90;   // çoklu seçim: birden çok hesap seçilince TOPLANIR
 
   c.innerHTML = `
     <div class="na-tabs" id="na-tabs">
-      ${NA_ACCS.map((a) => `<div class="na-tab${a.key === selKey ? " on" : ""}" data-k="${a.key}"><span class="em">${a.key === "nakit" ? "💵" : "🏦"}</span>${esc(a.label)}${accByKey[a.key] ? "" : " ⚠️"}</div>`).join("")}
+      ${NA_ACCS.map((a) => `<div class="na-tab${selKeys.has(a.key) ? " on" : ""}" data-k="${a.key}"><span class="em">${a.key === "nakit" ? "💵" : "🏦"}</span>${esc(a.label)}${accByKey[a.key] ? "" : " ⚠️"}</div>`).join("")}
     </div>
     <div class="na-tbl">
       <table>
@@ -10497,7 +10500,7 @@ async function viewNakitAkisRapor(c) {
       </table>
     </div>
     <div id="na-pop"></div>
-    <div class="pv-fhint" style="margin-top:10px">Giren/Çıkan'a dokun → ne olduğu çıkar. Bugüne kadar <b>gerçek</b>, sonrası <b>öngörü</b> (öngörülen giriş + tekrarlanan kalemler).</div>`;
+    <div class="pv-fhint" style="margin-top:10px">Üstten birden çok hesap seçebilirsin — <b>toplanır</b> (kartta ayrı ayrı görünür). Giren/Çıkan'a dokun → ne olduğu çıkar. Bugüne kadar <b>gerçek</b>, sonrası <b>öngörü</b>.</div>`;
 
   function compute(key) {
     const acc = accByKey[key];
@@ -10549,9 +10552,32 @@ async function viewNakitAkisRapor(c) {
     return { days };
   }
 
+  // Seçili hesapları birleştir (topla). Her hesabın günleri aynı tarih aralığında
+  // ve aynı sırada üretildiği için indekse göre eşleşir. Birden çok hesap seçiliyse
+  // detay kalemleri hesap adıyla etiketlenir (kartta ayrı ayrı gösterilir).
+  function computeMerged(keys) {
+    const per = keys.map((k) => ({ label: (NA_ACCS.find((a) => a.key === k) || {}).label || k, days: compute(k).days }));
+    const multi = per.length > 1;
+    const n = per.length ? per[0].days.length : 0;
+    const days = [];
+    for (let i = 0; i < n; i++) {
+      const first = per[0].days[i];
+      let giren = 0, cikan = 0, bal = 0; const gd = [], cd = [];
+      per.forEach((p) => {
+        const dd = p.days[i];
+        giren += dd.giren; cikan += dd.cikan; bal += dd.bal;
+        dd.gd.forEach((x) => gd.push(multi ? { ...x, acc: p.label } : x));
+        dd.cd.forEach((x) => cd.push(multi ? { ...x, acc: p.label } : x));
+      });
+      days.push({ iso: first.iso, dObj: first.dObj, future: first.future, isToday: first.isToday, giren, cikan, gd, cd, bal });
+    }
+    return { days };
+  }
+
   const WK = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
   function draw() {
-    const { days } = compute(selKey);
+    const keys = NA_ACCS.filter((a) => selKeys.has(a.key)).map((a) => a.key);
+    const { days } = computeMerged(keys.length ? keys : ["garanti"]);
     let html = "";
     for (const r of days) {
       const gTap = r.giren && r.gd.length, cTap = r.cikan && r.cd.length;
@@ -10574,14 +10600,27 @@ async function viewNakitAkisRapor(c) {
       const td = e.target.closest("td.tap"); if (!td) { closePop(); return; }
       e.stopPropagation();
       const d = JSON.parse(td.dataset.x.replace(/&#39;/g, "'"));
-      const list = d.d.slice().sort((a, b) => b.a - a.a);
+      const items = d.d.slice();
       const cik = d.t === "Çıkan";
-      const total = list.reduce((s, x) => s + x.a, 0);
+      const total = items.reduce((s, x) => s + x.a, 0);
+      const liHtml = (x) => `<div class="npc-li"><span class="t">${esc(x.t)}</span><span class="a">${fmtNum(x.a)} ₺</span></div>`;
+      // Birden çok hesap seçiliyse kalemler hesap adıyla gelir → hesaba göre grupla (ayrı ayrı)
+      let bodyHtml;
+      if (items.some((x) => x.acc)) {
+        const accs = [...new Set(items.map((x) => x.acc))];
+        bodyHtml = accs.map((ac) => {
+          const g = items.filter((x) => x.acc === ac).sort((a, b) => b.a - a.a);
+          const st = g.reduce((s, x) => s + x.a, 0);
+          return `<div class="npc-grp"><div class="npc-gh">${esc(ac)}<span>${fmtNum(st)} ₺</span></div>${g.map(liHtml).join("")}</div>`;
+        }).join("");
+      } else {
+        bodyHtml = items.sort((a, b) => b.a - a.a).map(liHtml).join("");
+      }
       const P = pop();
       // Ekranın ortasında açılan detay kartı (dim arka plan) — çıkan kırmızı / giren yeşil
       P.innerHTML = `<div class="npc-card ${cik ? "cik" : "gir"}" role="dialog" aria-label="${d.t} detayı">
         <div class="npc-hd"><span class="npc-badge">${cik ? "ÇIKAN" : "GİREN"}</span><span class="npc-d">${esc(d.dt)}</span><button class="npc-x" aria-label="Kapat">✕</button></div>
-        <div class="npc-body">${list.map((x) => `<div class="npc-li"><span class="t">${esc(x.t)}</span><span class="a">${fmtNum(x.a)} ₺</span></div>`).join("")}</div>
+        <div class="npc-body">${bodyHtml}</div>
         <div class="npc-tot"><span>Toplam ${cik ? "Çıkan" : "Giren"}</span><span class="a">${fmtNum(total)} ₺</span></div>
       </div>`;
       P.classList.add("show");
@@ -10589,8 +10628,11 @@ async function viewNakitAkisRapor(c) {
   }
 
   $$("#na-tabs .na-tab", c).forEach((t) => t.onclick = () => {
-    selKey = t.dataset.k;
-    $$("#na-tabs .na-tab", c).forEach((x) => x.classList.toggle("on", x === t));
+    const k = t.dataset.k;
+    // Aç/kapa (toggle) — birden çok seçilebilir; en az bir hesap her zaman seçili kalır
+    if (selKeys.has(k)) { if (selKeys.size > 1) selKeys.delete(k); }
+    else selKeys.add(k);
+    $$("#na-tabs .na-tab", c).forEach((x) => x.classList.toggle("on", selKeys.has(x.dataset.k)));
     closePop(); draw();
   });
   // Kart dışına (dim alan) ya da ✕'e dokununca kapat
