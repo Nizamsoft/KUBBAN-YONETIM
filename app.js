@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.259";
+const APP_VERSION = "2026.260";
 const CHANGELOG = [
+  { version: "2026.260", date: "2026-08-15", items: [
+    "🔓 Bloke hesap defterlerine (108.xx: Garanti Blokesi, T.Finans Blokesi, yemek kartları) 'Valör Tarihi' sütunu eklendi — her blokenin ÇÖZÜLECEĞİ (serbest kalacağı) gün artık görünüyor. PC'de tabloda ayrı sütun (bekleyen blokeler yeşil, çözülenler gri); telefonda hareketin alt satırında '🔓 Valör: …' olarak. Valör tarihine göre de arama/filtre yapılabilir",
+  ]},
   { version: "2026.259", date: "2026-08-15", items: [
     "📈 Nakit Akış Raporu — BEKLEYEN BLOKE ÇÖZÜMLERİ öngörüye eklendi: Banka blokelerinde (Garanti Blokesi · T.Finans Blokesi) henüz çözülmemiş paralar, VALÖR (serbest kalma) tarihlerinde ilgili banka sekmesinde yeşil 'Giren' öngörüsü olarak görünür (ör. 20.08'de Garanti'ye 100.000 ₺ bloke çözülecek → o gün bakiyeye eklenir). Detay kartında 'Bloke: … Çekimi' satırlarıyla ayrı görünür. Kurallar: yalnız gelecekteki valörler (valörü geçmiş çözülmemişler eklenmez); yemek kartları (Edenred, Multinet…) dahil değil; bir hesabın öngörü toplamı o hesabın hâlâ blokedeki bakiyesini aşmaz (zaten çözülmüşler bankada gerçek giriş olarak görünmeye devam eder)",
   ]},
@@ -7547,6 +7550,7 @@ async function viewAccountLedger(c) {
   }
   const cari = isCari(acc.type) || String(acc.code || "").startsWith("108");
   const isBank = !cari && (String(acc.code || "").startsWith("102") || acc.type === "banka");   // banka: alt satır = Şahıs
+  const isBloke = String(acc.code || "").startsWith("108");   // bloke: çözüleceği gün (valör) sütunu gösterilir
   const list = entries.filter((e) => e.accountId === id)
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.islemNo || 0) - (b.islemNo || 0));
   const opening = acc.openingBalance ?? acc.balance ?? 0;
@@ -7618,8 +7622,9 @@ async function viewAccountLedger(c) {
     <td class="num">${e.borc ? fmtTRY(parseNum(e.borc)) : "—"}</td>
     <td class="num">${e.alacak ? fmtTRY(parseNum(e.alacak)) : "—"}</td>
     <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
-    <td>${esc(e.faturaTuru || "")}</td>
-    <td>${esc(e.faturaNo || "")}</td>
+    ${isBloke
+      ? `<td style="font-weight:600;${e.valor && e.alacak ? "color:var(--ink-faint)" : e.valor ? "color:var(--ok)" : ""}">${e.valor ? fmtDate(e.valor) : "—"}</td>`
+      : `<td>${esc(e.faturaTuru || "")}</td><td>${esc(e.faturaNo || "")}</td>`}
     <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
   </tr>`;
   // İşlem adına göre renkli rozet sınıfı (Bloke Çözüm yeşil · Komisyon amber · diğerleri nötr)
@@ -7660,10 +7665,16 @@ async function viewAccountLedger(c) {
     // İki satır: üst = İşlem Adı (koyu), alt = Açıklama (gri). Cari'de üst = açıklama, alt = fatura/şahıs.
     let l1, l2;
     if (cari) {
-      l1 = e.aciklama || e.faturaTuru || e.sahis || "";
-      l2 = (e.aciklama && (e.faturaTuru || e.sahis))
-        ? (e.faturaTuru ? (e.faturaTuru + (e.faturaNo ? " · " + e.faturaNo : "")) : e.sahis)
-        : "";
+      if (isBloke) {
+        // Bloke: üstte açıklama (… Çekimi), altta çözüleceği gün (valör)
+        l1 = e.aciklama || e.sahis || "";
+        l2 = e.valor ? "🔓 Valör: " + fmtDate(e.valor) : "";
+      } else {
+        l1 = e.aciklama || e.faturaTuru || e.sahis || "";
+        l2 = (e.aciklama && (e.faturaTuru || e.sahis))
+          ? (e.faturaTuru ? (e.faturaTuru + (e.faturaNo ? " · " + e.faturaNo : "")) : e.sahis)
+          : "";
+      }
     } else {
       // Kasa/banka: üst = İşlem Adı. Banka'da alt = Şahıs (yoksa açıklama), kasada alt = Açıklama.
       l1 = e.islemAdi || e.aciklama || "";
@@ -7700,15 +7711,15 @@ async function viewAccountLedger(c) {
         ${heroBtn}
       </div>`;
   const thead = cari
-    ? `<tr><th>Tarih</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th><th>Fatura Türü</th><th>Fatura No</th><th></th></tr>`
+    ? `<tr><th>Tarih</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>${isBloke ? "<th>Valör Tarihi</th>" : "<th>Fatura Türü</th><th>Fatura No</th>"}<th></th></tr>`
     : `<tr><th>Tarih</th><th>İşlem Adı</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th></tr>`;
-  const colCount = 8;
+  const colCount = cari ? (isBloke ? 7 : 8) : 8;
   // Sabit sütun genişlikleri — sayfalar arası "başlık daralması" olmasın (Açıklama esner/wrap)
   const colgroup = cari
-    ? `<colgroup><col style="width:92px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:120px"><col style="width:110px"><col style="width:96px"></colgroup>`
+    ? `<colgroup><col style="width:92px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px">${isBloke ? '<col style="width:130px">' : '<col style="width:120px"><col style="width:110px">'}<col style="width:96px"></colgroup>`
     : `<colgroup><col style="width:92px"><col style="width:146px"><col><col style="width:180px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:104px"></colgroup>`;
   const tfoot = !rows.length ? "" : (cari
-    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
+    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="${isBloke ? 2 : 3}"></td></tr></tfoot>`
     : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
 
   // Arama için her satıra metin torbası (bir kez hesaplanır — 27.000'de bile hızlı)
@@ -7716,7 +7727,7 @@ async function viewAccountLedger(c) {
     const e = r.e;
     r._hay = normTr([
       e.islemNo, e.cariNo, e.islemAdi, e.sahis, e.aciklama, e.rapor, e.faturaTuru, e.faturaNo,
-      fmtDate(e.date),
+      fmtDate(e.date), e.valor ? fmtDate(e.valor) : "",
       e.giren ? fmtNum(parseNum(e.giren)) : "", e.cikan ? fmtNum(parseNum(e.cikan)) : "",
       e.borc ? fmtNum(parseNum(e.borc)) : "", e.alacak ? fmtNum(parseNum(e.alacak)) : "",
     ].filter((x) => x !== "" && x != null).join(" "));
