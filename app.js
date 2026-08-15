@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.261";
+const APP_VERSION = "2026.262";
 const CHANGELOG = [
+  { version: "2026.262", date: "2026-08-15", items: [
+    "✨ Buzlu cam ailesi birleşti: Dashboard'daki 🎁 İkram / 🏷️ İskonto kutuları ve Hesaplar sayfasındaki üst panel (Varlıklar−Borçlar) artık alt gezinme çubuğuyla aynı krem/altın buzlu cam görünümünde — altın çerçeve, daha belirgin arka bulanıklık ve sıcak ton. Rakamlar yine okunaklı",
+  ]},
   { version: "2026.261", date: "2026-08-15", items: [
     "✨ Mobil alt gezinme çubuğu (Ana Sayfa · Hesaplar · Girişler · Raporlar · Ayarlar) artık BUZLU CAM: krem/altın tonlu yarı saydam zemin + arka bulanıklık (arkadaki içerik camdan geçer), altın çerçeve, aktif sekme altın vurgulu. Buzlu cam desteklenmeyen tarayıcıda opak krem zemine düşer",
   ]},
@@ -2430,8 +2433,9 @@ async function viewDashboard(c) {
     .dash-hero.has-bg>*{position:relative;z-index:1}
     .dash-hero.has-bg .dh-ciro,.dash-hero.has-bg .dh-ciro-lb,.dash-hero.has-bg .dh-date,.dash-hero.has-bg .dh-arrow,.dash-hero.has-bg .dh-empty{text-shadow:0 1px 4px rgba(0,0,0,.6)}
     .dash-hero.has-bg .dh-date{background:rgba(0,0,0,.44)}
-    /* İkram/İskonto kutuları: buzlu cam (arkadaki görsel/altın bulanır) */
-    .dash-hero.has-bg .dh-stat{background:rgba(0,0,0,.28);backdrop-filter:blur(10px) saturate(1.05);-webkit-backdrop-filter:blur(10px) saturate(1.05)}
+    /* İkram/İskonto kutuları: buzlu cam (krem/altın — alt çubukla aynı aile) */
+    .dash-hero.has-bg .dh-stat{background:rgba(46,35,16,.30);backdrop-filter:blur(18px) saturate(1.5);-webkit-backdrop-filter:blur(18px) saturate(1.5);
+      border:1px solid rgba(201,162,75,.5);box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 8px 22px rgba(0,0,0,.22)}
     .dash-hero.has-bg .dh-arrow{background:rgba(0,0,0,.32)}
     .dh-brand{display:flex;align-items:center;justify-content:center;gap:10px;margin-bottom:8px}
     .dh-brand img{width:40px;height:40px;border-radius:50%;object-fit:cover;background:#fff;padding:2px;flex:0 0 auto}
