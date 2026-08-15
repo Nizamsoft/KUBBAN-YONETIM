@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.255";
+const APP_VERSION = "2026.256";
 const CHANGELOG = [
+  { version: "2026.256", date: "2026-08-15", items: [
+    "📈 Nakit Akış Raporu arşivden çıkarıldı — Raporlar menüsü ve mobil alt çubuktaki 'Raporlar' sekmesi geri geldi (içinde şimdilik Nakit Akış var). Rapor artık ayın başından değil DÜN'den başlıyor: bugün 15 Ağustos ise tablo 14 Ağustos'tan itibaren gösteriliyor (daha eski hareketler açılış bakiyesine katılır, dün satırındaki Güncel Bakiye tüm geçmişi doğru yansıtır)",
+  ]},
   { version: "2026.255", date: "2026-08-15", items: [
     "🗄️ Raporlar arşive alındı: Ödeme Modu · Aylık Ciro Dökümü · Mali Durum & Kontrol · Kâr/Zarar Durumu · Nakit Akış Raporu · Gün Sonu Raporu artık menüden çıkıp Ayarlar → Rapor Arşivi altında bekliyor (hepsine oradan ulaşılıyor). Her rapor tek tek yeniden düzenlenip onaylandıkça Raporlar menüsüne (PC sol menü + mobil alt çubuk) geri taşınacak. İlk sırada Nakit Akış Raporu var",
   ]},
@@ -1659,7 +1662,7 @@ const REPORTS = [
   { label: "Aylık Ciro Dökümü",    icon: "📅", path: "ciro-aylik",        archived: true },
   { label: "Mali Durum & Kontrol", icon: "🧮", path: "mali-durum",        archived: true },
   { label: "Kâr / Zarar Durumu",   icon: "💹", path: "kar-zarar",         archived: true },
-  { label: "Nakit Akış Raporu",    icon: "📈", path: "nakit-akis-rapor",  archived: true },
+  { label: "Nakit Akış Raporu",    icon: "📈", path: "nakit-akis-rapor",  archived: false },
   { label: "Gün Sonu Raporu",      icon: "📄", path: "gunsonu-rapor",     archived: true },
 ];
 const activeReports = () => REPORTS.filter((r) => !r.archived);
@@ -10497,7 +10500,10 @@ async function viewNakitAkisRapor(c) {
     const acc = accByKey[key];
     const now = new Date(); now.setHours(0, 0, 0, 0);
     const todayISO = isoOfD(now);
-    const start = new Date(now.getFullYear(), now.getMonth(), 1);
+    // Tablo DÜN'den başlar (bugün 15 Ağustos ise 14 Ağustos'tan itibaren).
+    // Daha eski tüm hareketler açılış bakiyesine (baseline) katılır; böylece dün
+    // satırındaki Güncel Bakiye tüm geçmişi doğru yansıtır.
+    const start = new Date(now); start.setDate(start.getDate() - 1);
     const startISO = isoOfD(start);
     const end = new Date(now); end.setDate(end.getDate() + fwd);
     const es = acc ? entries.filter((e) => e.accountId === acc.id) : [];
