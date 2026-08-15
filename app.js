@@ -305,9 +305,6 @@ let ledgerFitHandler = null;  // defter yükseklik kilidi (resize dinleyicisi)
 const _scrollMem = new Map();   // navKey -> { win, inner:{lc,lt,bl} }
 let _lastNavKey = null;         // ayrıldığımız sayfanın anahtarı (kaydetmek için)
 let _pendingRestore = null;     // render sırasında geri yüklenecek konum (varsa)
-// Hesap Planı "kaldığın yerde kal": hesap düzenleyip/taşıyıp kaydedince açık gruplar +
-// scroll korunur (toplu düzenlemede sürekli açıp scroll etmemek için).
-const _hesapKeep = { open: new Set(), restore: false };
 const _SCROLL_SELS = { lc: ".ledger-view .ledger-cards", lt: ".ledger-view .ledger-table", bl: ".ba-list" };
 // Sayfa anahtarı: yol + (from hariç) parametreler. Farklı hesap defterleri ayrı ayrı hatırlanır.
 function navKey(hash) {
@@ -644,10 +641,10 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.249";
+const APP_VERSION = "2026.250";
 const CHANGELOG = [
-  { version: "2026.249", date: "2026-08-14", items: [
-    "📌 Hesap Planı 'kaldığın yerde kal': bir hesabı düzenleyip/taşıyıp/silince artık sayfa sıfırlanmıyor — o an AÇIK olan gruplar (ör. 321) açık kalıyor ve scroll bıraktığın yerde. Yalnız taşıdığın satır listeden düşüyor; sıradaki hesap gözünün önünde. Toplu düzenlemede her seferinde grubu tekrar açıp aşağı kaydırma derdi bitti (menüden yeni girişte gruplar yine kapalı başlar)",
+  { version: "2026.250", date: "2026-08-14", items: [
+    "📌 Hesap Planı'nda bir hesabı düzenleyip/taşıyıp/silince artık sayfa HİÇ yeniden çizilmiyor: ekran neyse aynen kalıyor — açık gruplar, scroll, ✎ düzenleme modu (kalem) ve 0️⃣ filtresi korunuyor. Sadece o hesabın satırı bulunduğu yerden düşüyor; grup toplamları (ör. 321/320 yanındaki tutar) ve üstteki kart (Varlıklar−Borçlar) ANINDA güncelleniyor. (Önceki 'hafızaya alıp yeniden çiz' yöntemi kaldırıldı)",
   ]},
   { version: "2026.248", date: "2026-08-14", items: [
     "🐞 Hesap taşıma düzeltildi: 'Hesabı Düzenle' açıkken '📁 Değiştir' ile grup (ör. 320) seçince form KAPANIYORDU ve Kaydet'e basılamıyordu. Artık pencereler üst üste açılıyor — grup seçici üstte gelir, seçince kapanır, Hesabı Düzenle yerinde kalır ve Kaydet'e basıp taşıyabilirsiniz",
@@ -5119,10 +5116,6 @@ async function viewBakiyeKarsilastir(c) {
 }
 
 async function viewHesaplar(c) {
-  // "Kaldığın yerde kal": düzenleme sonrası tazelemede açık grupları + scroll'u koru
-  const keepRestore = _hesapKeep.restore; _hesapKeep.restore = false;
-  const keepY = keepRestore ? (window.scrollY || 0) : 0;
-  if (!keepRestore) _hesapKeep.open.clear();   // menüden yeni girişte gruplar kapalı başlar
   const [accounts, cari, bank, entries, settings] = await Promise.all([
     fetchAll(C.accounts),
     fetchAll(C.currentMovements).catch(() => []),
@@ -5293,6 +5286,76 @@ async function viewHesaplar(c) {
       <div class="acc-list">${roots.map(renderMain).join("")}</div>
     </div></div>`;
 
+  // ---- Yerinde güncelleme (route YOK): düzenlenen hesabı sadece DOM'da yamalar ----
+  // Bir grup satırının (ana hesap) tutar + "(N alt)" sayısını modele göre tazele
+  function refreshGroupRow(pid) {
+    if (!pid) return;
+    const p = byId.get(pid); if (!p) return;
+    const row = $(`.acc-row[data-id="${pid}"]`, c); if (!row) return;
+    const bal = rolled(p);
+    const balEl = $(".bal", row); if (balEl) { balEl.textContent = fmtTRY(bal); balEl.style.color = bal < 0 ? "var(--danger)" : "inherit"; }
+    const em = $(".name em", row);
+    if (em) em.textContent = `(${(kids.get(pid) || []).length} alt${p.__virtual ? " · ters bakiye" : ""})`;
+  }
+  // Üst kart (Varlıklar−Borçlar) + 5 büyük kartı modele göre tazele
+  function refreshHeroAndCards() {
+    let vT = 0, bT = 0;
+    roots.forEach((a) => { const cc = String(a.code || ""), b = rolled(a); if (cc === "320") bT += Math.abs(b); else if (!cc.startsWith("3")) vT += b; });
+    const net = vT - bT;
+    const totEl = $(".ah-total", c); if (totEl) totEl.style.color = net < 0 ? "#ffd9d0" : "";
+    if (totEl) totEl.textContent = fmtTRY(net);
+    const subEl = $(".ah-sub", c); if (subEl) subEl.innerHTML = `<span>🟢 Varlıklar ${fmtTRY(vT)}</span><span>🔴 Borçlar ${fmtTRY(bT)}</span>`;
+    $$(".hcard", c).forEach((card) => {
+      const code = card.dataset.code, ca = roots.find((r) => String(r.code) === code), bal = ca ? rolled(ca) : 0;
+      const neg = code === "320" || bal < -0.005, vl = $(".hc-vl", card);
+      if (vl) { vl.textContent = `${neg ? "−" : ""}${Math.round(Math.abs(bal)).toLocaleString("tr-TR")} ₺`; vl.classList.toggle("neg", neg); }
+    });
+  }
+  // accModal'dan gelir: hesap taşındı/silindi/yeniden adlandırıldı → yeniden çizmeden yamala
+  function applyAccChange(ch) {
+    const acc = byId.get(ch.id);
+    if (!acc) { route(); return; }   // güvenlik: bulamazsak tam yenile
+    const removeKid = (pid) => { const arr = kids.get(pid); if (arr) { const i = arr.indexOf(acc); if (i >= 0) arr.splice(i, 1); } };
+    if (ch.deleted) {
+      (kids.get(ch.id) || []).forEach((s) => { $(`.acc-row[data-id="${s.id}"]`, c)?.remove(); byId.delete(s.id); });
+      $(`.acc-row[data-id="${ch.id}"]`, c)?.remove();
+      removeKid(acc.parentId); kids.delete(ch.id); byId.delete(ch.id);
+      refreshGroupRow(ch.oldParentId); refreshHeroAndCards();
+      return;
+    }
+    const moved = ("newParentId" in ch) && ch.newParentId !== (acc.parentId ?? null);
+    if (moved) {
+      $(`.acc-row[data-id="${ch.id}"]`, c)?.remove();          // eski gruptan satırı kaldır
+      if (!ch.oldParentId) { const ri = roots.indexOf(acc); if (ri >= 0) roots.splice(ri, 1); }  // kök hesap taşındıysa köklerden çıkar
+      removeKid(acc.parentId);
+      acc.parentId = ch.newParentId; acc.parentCode = ch.newParentCode ?? acc.parentCode;
+      if (ch.newCode) acc.code = ch.newCode;
+      if (ch.name) acc.name = ch.name;
+      if (ch.type) acc.type = ch.type;
+      if (ch.newParentId) { if (!kids.has(ch.newParentId)) kids.set(ch.newParentId, []); kids.get(ch.newParentId).push(acc); }
+      // Yeni grup AÇIKSA satırı oraya da ekle (kapalıysa gerekmez)
+      const np = ch.newParentId ? $(`.acc-row.parent[data-id="${ch.newParentId}"]`, c) : null;
+      if (np && np.dataset.open === "1") {
+        np.insertAdjacentHTML("afterend", rowHtml(acc, true, ch.newParentId));
+        const nr = $(`.acc-row.sub[data-id="${ch.id}"]`, c);
+        if (nr) { nr.style.display = "flex"; bindSubRow(nr); }
+      }
+      refreshGroupRow(ch.oldParentId); refreshGroupRow(ch.newParentId); refreshHeroAndCards();
+      return;
+    }
+    // Aynı grup (yeniden adlandırma / kod / açılış değişimi): satırı yerinde yenile
+    if (ch.newCode) acc.code = ch.newCode;
+    if (ch.name) acc.name = ch.name;
+    if (ch.type) acc.type = ch.type;
+    const row = $(`.acc-row[data-id="${ch.id}"]`, c);
+    if (row) {
+      const codeEl = $(".code", row); if (codeEl) codeEl.textContent = acc.code || "—";
+      const nameEl = $(".name", row);
+      if (nameEl) { const em = $("em", nameEl); nameEl.textContent = acc.name || ""; if (em) nameEl.appendChild(em); }
+    }
+    refreshGroupRow(acc.parentId); refreshHeroAndCards();
+  }
+
   // Bir alt satırın olaylarını bağla (tıkla → defter; ✎ → düzenle)
   const bindSubRow = (row) => {
     row.addEventListener("click", (e) => {
@@ -5303,7 +5366,7 @@ async function viewHesaplar(c) {
     if (eb) eb.addEventListener("click", (e) => {
       e.stopPropagation();
       const a = byId.get(eb.dataset.edit);
-      accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [], allAccounts: [...byId.values()] });
+      accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [], allAccounts: [...byId.values()], onSaved: applyAccChange });
     });
   };
   // Grup ilk açıldığında alt satırları üret (bir kez)
@@ -5316,7 +5379,7 @@ async function viewHesaplar(c) {
     $$(`.acc-row.sub[data-parent="${id}"]`, c).forEach(bindSubRow);
   };
   const setOpen = (id, open) => {
-    if (open) { injectSubs(id); _hesapKeep.open.add(id); } else _hesapKeep.open.delete(id);
+    if (open) injectSubs(id);
     $$(`.acc-row.sub[data-parent="${id}"]`, c).forEach((r) => r.style.display = open ? "flex" : "none");
     const main = $(`.acc-row.parent[data-id="${id}"]`, c);
     if (main) {
@@ -5334,14 +5397,6 @@ async function viewHesaplar(c) {
     });
   });
 
-  // Düzenleme sonrası tazelemede: önceden açık grupları HEMEN yeniden aç (çökme-titremesi olmasın),
-  // scroll'u da geri getir. route() render'dan sonra scrollTo(0,0) yapar → rAF ile ondan SONRA geri al.
-  if (keepRestore && _hesapKeep.open.size) {
-    [..._hesapKeep.open].forEach((id) => { if ($(`.acc-row.parent[data-id="${id}"]`, c)) setOpen(id, true); });
-    const restoreY = () => window.scrollTo(0, keepY);
-    requestAnimationFrame(restoreY);
-    requestAnimationFrame(() => requestAnimationFrame(restoreY));   // yerleşim oturunca tekrar
-  }
 
   // 5 büyük kart → tıklayınca o hesabın grup listesi (alt hesaplar; Bankalar gibi); alt yoksa → defter.
   // Borçlar(320)/Alacaklar(120) da dahil: dashboard Borç/Alacak sayfasına DEĞİL, kendi grup listesine gider.
@@ -5479,7 +5534,7 @@ async function viewHesaplar(c) {
   });
   $$("[data-edit]", c).forEach((b) => b.onclick = () => {
     const a = byId.get(b.dataset.edit);
-    accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [], allAccounts: [...byId.values()] });
+    accModal(a, a.parentId ? byId.get(a.parentId) : null, { children: kids.get(a.id) || [], allAccounts: [...byId.values()], onSaved: applyAccChange });
   });
 }
 
@@ -5668,7 +5723,9 @@ function accModal(acc, parent, opts) {
           for (const s of kids) await deleteDoc(doc(db, "accounts", s.id));
           await deleteDoc(doc(db, "accounts", acc.id));
           await logAction("Silme", "Hesap", `${acc.code || ""} ${acc.name || ""}`);
-          m.close(); toast("Silindi.", "ok"); _hesapKeep.restore = true; route();
+          m.close(); toast("Silindi.", "ok");
+          if (opts?.onSaved) opts.onSaved({ id: acc.id, oldParentId: acc.parentId ?? null, deleted: true });
+          else route();
         });
     });
     delBtn.style.marginRight = "auto"; // sola yasla
@@ -5729,7 +5786,18 @@ function accModal(acc, parent, opts) {
           await logAction("Düzenleme", "Hesap", `${payload.code || ""} ${payload.name}`);
         }
       }
-      m.close(); toast("Kaydedildi.", "ok"); _hesapKeep.restore = true; route();
+      m.close(); toast("Kaydedildi.", "ok");
+      // Yeniden çizmeden (route yok) sadece bu hesabı yerinde güncelle — açık gruplar/kalem/0-filtre/scroll korunur
+      if (opts?.onSaved && !isNew) {
+        opts.onSaved({
+          id: acc.id,
+          oldParentId: acc.parentId ?? null,
+          newParentId: ("parentId" in payload) ? payload.parentId : (acc.parentId ?? null),
+          newParentCode: ("parentCode" in payload) ? payload.parentCode : (acc.parentCode ?? null),
+          oldCode: acc.code || "", newCode: payload.code || "",
+          name: payload.name, type: payload.type,
+        });
+      } else route();
     } catch (e) { toast("Hata: " + e.message, "err"); }
   }));
   const m = openModal({
