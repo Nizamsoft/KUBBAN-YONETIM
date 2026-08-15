@@ -266,23 +266,20 @@ if (CONFIG_READY) {
 }
 
 // Firestore koleksiyon kısayolları (bkz. DATA-MODEL.md)
-// Her kısayola _name etiketi → RAM önbelleği güvenilir anahtarlar (ref iç yapısına bağlı değil)
-const _coll = (name) => { const f = () => collection(db, name); f._name = name; return f; };
 const C = {
-  users:            _coll("users"),
-  accounts:         _coll("accounts"),
-  accountEntries:   _coll("accountEntries"),
-  dayEndRecords:    _coll("dayEndRecords"),
-  currentMovements: _coll("currentMovements"),
-  bankTransactions: _coll("bankTransactions"),
-  cashflowItems:    _coll("cashflowItems"),
-  settings:         _coll("settings"),
-  auditLog:         _coll("auditLog"),
+  users:            () => collection(db, "users"),
+  accounts:         () => collection(db, "accounts"),
+  accountEntries:   () => collection(db, "accountEntries"),
+  dayEndRecords:    () => collection(db, "dayEndRecords"),
+  currentMovements: () => collection(db, "currentMovements"),
+  bankTransactions: () => collection(db, "bankTransactions"),
+  cashflowItems:    () => collection(db, "cashflowItems"),
+  settings:         () => collection(db, "settings"),
+  auditLog:         () => collection(db, "auditLog"),
 };
 
 // Değişiklik kaydı: kim, ne zaman, hangi işlem, hangi kayıt
 async function logAction(action, entity, label) {
-  clearDataCache();   // yazma sonrası: bir sonraki okuma güncel gelsin (önbellek tazelenir)
   try {
     await addDoc(C.auditLog(), {
       user: currentUser?.email || "?",
@@ -422,7 +419,6 @@ function onAuth() {
       // Supabase onAuthStateChange sekmeye dönünce / token yenileyince TEKRAR tetikler.
       // Aynı kullanıcı için uygulama zaten açıksa hiçbir şeyi yeniden yükleme (yükleme ekranı çıkmasın).
       if (_appShownForUid === fbUser.uid) return;
-      clearDataCache();   // kullanıcı/oturum değişti → eski verileri gösterme
       let profile;
       try { profile = await ensureUserDoc(fbUser); }
       catch { profile = { role: "user", displayName: fbUser.email, email: fbUser.email }; }
@@ -432,7 +428,6 @@ function onAuth() {
     } else {
       _appShownForUid = null;
       currentUser = null;
-      clearDataCache();
       showLogin();
     }
   });
@@ -646,11 +641,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.252";
+const APP_VERSION = "2026.253";
 const CHANGELOG = [
-  { version: "2026.252", date: "2026-08-14", items: [
-    "⚡ Sayfa geçişleri artık ANINDA (Excel gibi): veriler RAM'de önbelleğe alınıyor, sayfalar arası gezinme bekleme/yanıp-sönme olmadan açılıyor. Arka planda sessizce tazeleniyor ve her kayıt/düzenleme sonrası önbellek güncelleniyor (veri hep doğru). Başka cihazda yapılan değişiklikler en geç birkaç saniyede ya da bir kayıt işleminde yansır. (Aşama 1: anında geçiş)",
+  { version: "2026.253", date: "2026-08-14", items: [
+    "↩️ RAM önbelleği (v2026.252) geri alındı — uygulama açılışında takılmaya yol açıyordu. Sayfa geçişleri yine eski (çalışan) yöntemle. Anında-geçiş çalışması ileride daha güvenli bir yolla tekrar denenecek",
   ]},
+  { version: "2026.251", date: "2026-08-14", items: [
     "🎨 Hesap defteri (PC) kasa görünümü: Giren (yeşil) ve Çıkan (kırmızı) tutarlar artık daha CANLI ve kalın; sol yön şeritleri belirginleşti. 'Gün Sonu' işlemi artık defterde YEŞİL 'Nakit Giriş' rozetiyle görünüyor (ödemeyle karışmıyor). Rapor sütunu genişletildi — 'Personel Harcamaları' gibi metinler artık tam görünüyor",
   ]},
   { version: "2026.250", date: "2026-08-14", items: [
@@ -2068,37 +2064,11 @@ window.addEventListener("pagehide", runDraftSaver);
 // ---------------------------------------------------------------------------
 //  FIRESTORE OKUMA YARDIMCILARI
 // ---------------------------------------------------------------------------
-// ---- RAM veri önbelleği: sayfa geçişleri ANINDA olsun (Excel gibi) ----
-// Kısıtsız koleksiyon okumaları RAM'de tutulur; sonraki okumalar anında döner.
-// Arka planda (TTL sonrası) sessizce tazelenir; her yazmadan sonra (logAction) temizlenir.
-// Okuyucuya HER ZAMAN kopya obje verilir → bir ekranın mutasyonu önbelleği/başka ekranı bozmaz.
-const _dataCache = new Map();      // name -> { data:[], at:ms, busy:bool }
-const _CACHE_TTL = 12000;          // 12 sn: bu süre içinde arka plan tazelemesi tekrarlanmaz
-let _cacheGen = 0;                 // nesil: temizlenince artar (arka plan tazelemesi eski veriyi yazmasın)
-function clearDataCache() { _dataCache.clear(); _cacheGen++; }
-function _cloneRows(rows) { return rows.map((o) => ({ ...o })); }
-function _snapRows(snap) { return snap.docs.map((d) => { const o = d.data(); o.id = d.id; return o; }); }
-function _revalidateCache(name, colFn) {
-  const e = _dataCache.get(name); if (!e || e.busy) return; e.busy = true;
-  const gen = _cacheGen;
-  getDocs(colFn()).then((snap) => {
-    if (gen !== _cacheGen) { const x = _dataCache.get(name); if (x) x.busy = false; return; }  // arada yazma oldu → yok say
-    _dataCache.set(name, { data: _snapRows(snap), at: Date.now(), busy: false });
-  }).catch(() => { const x = _dataCache.get(name); if (x) x.busy = false; });
-}
 async function fetchAll(colFn, ...constraints) {
-  // Kısıtlı (filtre/where/limit) sorgular önbelleğe girmez → her zaman taze
-  const name = constraints.length ? null : (colFn._name || null);
-  if (name && _dataCache.has(name)) {
-    const e = _dataCache.get(name);
-    if (Date.now() - e.at > _CACHE_TTL) _revalidateCache(name, colFn);   // arka planda tazele
-    return _cloneRows(e.data);                                           // anında (kopya)
-  }
   const q = constraints.length ? query(colFn(), ...constraints) : colFn();
   const snap = await getDocs(q);
-  const data = _snapRows(snap);
-  if (name) { _dataCache.set(name, { data, at: Date.now(), busy: false }); return _cloneRows(data); }
-  return data;
+  // d.data() zaten taze bir kopya döndürür; tekrar {...} ile kopyalamayız (100k satırda gereksiz maliyet)
+  return snap.docs.map((d) => { const o = d.data(); o.id = d.id; return o; });
 }
 
 // ---------------------------------------------------------------------------
@@ -10947,7 +10917,6 @@ async function batchAdd(colFn, docs) {
     docs.slice(i, i + 400).forEach((d) => batch.set(doc(colFn()), d));
     await batch.commit();
   }
-  clearDataCache();   // toplu yazma sonrası: aynı akışta okunacak veriler taze gelsin
 }
 
 // ---------------------------------------------------------------------------
