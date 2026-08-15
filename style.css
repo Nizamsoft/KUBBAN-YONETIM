@@ -1002,8 +1002,15 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
   #bottom-nav {
     display: flex; position: fixed; left: 14px; right: 14px; z-index: 1000;
     bottom: calc(14px + env(safe-area-inset-bottom, 0px));
-    background: var(--surface, #fff); border: 1px solid var(--line, #ece7dc);
-    border-radius: 22px; padding: 6px; box-shadow: 0 10px 24px rgba(80, 60, 20, .20);
+    /* Buzlu cam (krem/altın): arkadaki içerik bulanık geçer */
+    background: rgba(251, 247, 239, .6);
+    -webkit-backdrop-filter: blur(20px) saturate(1.5); backdrop-filter: blur(20px) saturate(1.5);
+    border: 1px solid rgba(201, 162, 75, .35);
+    border-radius: 22px; padding: 6px; box-shadow: 0 8px 26px rgba(122, 90, 32, .20);
+  }
+  /* backdrop-filter desteklenmeyen tarayıcıda opak krem zemine düş */
+  @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    #bottom-nav { background: var(--surface, #fff); }
   }
   .bn-item {
     flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px;
@@ -1012,8 +1019,8 @@ tr.hl-row > td:first-child { box-shadow: inset 3px 0 0 0 var(--gold); }
     border-radius: 15px; cursor: pointer; -webkit-tap-highlight-color: transparent;
   }
   .bn-item .bn-i { font-size: 20px; line-height: 1; }
-  .bn-item.on { color: var(--gold, #b8952e); background: #f6ecd0; }
-  .bn-item:active { background: var(--surface-2, #fbf7ef); }
+  .bn-item.on { color: var(--gold-dark, #7a5a20); background: rgba(201, 162, 75, .24); }
+  .bn-item:active { background: rgba(201, 162, 75, .14); }
 
   .grid.cols-4, .grid.cols-3 { grid-template-columns: repeat(2, 1fr); }
   .grid.cols-2 { grid-template-columns: 1fr; }

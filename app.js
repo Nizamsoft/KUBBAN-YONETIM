@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.260";
+const APP_VERSION = "2026.261";
 const CHANGELOG = [
+  { version: "2026.261", date: "2026-08-15", items: [
+    "✨ Mobil alt gezinme çubuğu (Ana Sayfa · Hesaplar · Girişler · Raporlar · Ayarlar) artık BUZLU CAM: krem/altın tonlu yarı saydam zemin + arka bulanıklık (arkadaki içerik camdan geçer), altın çerçeve, aktif sekme altın vurgulu. Buzlu cam desteklenmeyen tarayıcıda opak krem zemine düşer",
+  ]},
   { version: "2026.260", date: "2026-08-15", items: [
     "🔓 Bloke hesap defterlerine (108.xx: Garanti Blokesi, T.Finans Blokesi, yemek kartları) 'Valör Tarihi' sütunu eklendi — her blokenin ÇÖZÜLECEĞİ (serbest kalacağı) gün artık görünüyor. PC'de tabloda ayrı sütun (bekleyen blokeler yeşil, çözülenler gri); telefonda hareketin alt satırında '🔓 Valör: …' olarak. Valör tarihine göre de arama/filtre yapılabilir",
   ]},
