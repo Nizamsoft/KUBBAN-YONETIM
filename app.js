@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.246";
+const APP_VERSION = "2026.247";
 const CHANGELOG = [
+  { version: "2026.247", date: "2026-08-14", items: [
+    "ℹ️ Hesap taşımada '📁 Değiştir' ile grup seçince çıkan mesaj netleşti: 'Yeni kod … — Kaydet'e basınca taşınır'. Grup seçmek tek başına taşımaz; taşımanın olması için Kaydet gerekiyor",
+  ]},
   { version: "2026.246", date: "2026-08-14", items: [
     "🔀 Hesabı düzenlerken kodun ön-ekini değiştirmek (ör. 321.60 → 320.60) artık hesabı otomatik olarak o ANA hesabın (320 Tedarikçiler) ALTINA taşıyor — ayrıca '📁 Değiştir' düğmesine gerek yok. Kod değişince cari hareketler de yeni koda taşınır. Böylece yanlış grupta kalan hesaplar (ör. 320'ye ait olup 321'de tanımlananlar) tek adımda doğru gruba geçer",
   ]},
@@ -5725,7 +5728,7 @@ function accModal(acc, parent, opts) {
         const ti = $("#a-type", body); if (ti) ti.value = g.type || "";
         const ts = ti?.previousElementSibling; if (ts && ts.tagName === "INPUT" && ts.disabled) ts.value = accTypeLabel(g.type);
         const gl = $("#a-group-label", body); if (gl) gl.value = `${g.code || ""} ${g.name}`;
-        toast(`Yeni kod: ${code} · ${accTypeLabel(g.type)}`, "ok");
+        toast(`Yeni kod: ${code} · ${accTypeLabel(g.type)} — “Kaydet”e basınca taşınır`, "ok");
       },
     });
   };
