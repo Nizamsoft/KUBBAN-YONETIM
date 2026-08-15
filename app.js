@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.242";
+const APP_VERSION = "2026.243";
 const CHANGELOG = [
+  { version: "2026.243", date: "2026-08-14", items: [
+    "🖥️ Masaüstünde (geniş ekran) Dashboard görünümü düzeltildi: içerik artık 1080px'de ORTALANIYOR (uçtan uca gerilmiyordu). Günün Cirosu görseli makul oranda; İkram/İskonto kutuları 720px'de merkezde toplanıyor. Telefonda görünüm aynı",
+  ]},
   { version: "2026.242", date: "2026-08-14", items: [
     "🧊 Hesaplar üst kartındaki panel de BUZLU CAM oldu (arkadaki görsel bulanıklaşıyor, kenar + parlaklık). Alt satırdaki Varlıklar/Borçlar rakamları artık tam sığıyor (her biri ayrı satırda, ortada, kırpılmadan)",
     "🧮 Hesaplar 'Varlıklar − Borçlar' hesabında Borçlar artık YALNIZ 320 Tedarikçiler'i sayıyor; diğer 3xx borç hesapları (335/336/340 vb.) NET'e katılmıyor ('diğer borçlar' gösterilmiyor)",
@@ -2272,7 +2275,14 @@ async function viewDashboard(c) {
   const first2 = (nm) => { const w = String(nm || "").trim().split(/\s+/); return w.slice(0, 2).join(" ") || String(nm || ""); };
 
   c.innerHTML = `<style>
-    .dash{display:flex;flex-direction:column;gap:14px;width:100%;max-width:100%}
+    .dash{display:flex;flex-direction:column;gap:14px;width:100%;max-width:1080px;margin:0 auto}
+    /* Masaüstünde hero fazla gerilmesin: makul yükseklik + görsel düzgün otursun */
+    @media(min-width:900px){
+      .dash-hero{padding:22px 22px 24px}
+      .dash-hero.has-bg{background-position:center 38%}
+      .dash-hero .dh-stats{max-width:720px;margin-left:auto;margin-right:auto}
+      .dash-hero .dh-stat .v{font-size:18px}
+    }
     .dash-banner{border-radius:20px;overflow:hidden;box-shadow:0 8px 22px rgba(51,41,28,.15);line-height:0}
     .dash-banner img{width:100%;max-height:220px;object-fit:cover;display:block}
     .dash-hero{position:relative;border-radius:22px;padding:16px 12px 18px;color:#fff;background:linear-gradient(135deg,#8a6d1a,#c39a2b);box-shadow:0 10px 26px rgba(160,120,20,.28);overflow:hidden}
