@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.244";
+const APP_VERSION = "2026.245";
 const CHANGELOG = [
+  { version: "2026.245", date: "2026-08-14", items: [
+    "📊 Hesap defteri (PC tablo) daha okunur tasarıma geçti: altın başlık, satır aralı (zebra) + üzerine gelince vurgu, solda yön şeridi (giren yeşil / çıkan kırmızı), İşlem Adı renkli rozet (Bloke Çözüm yeşil · Komisyon amber · diğerleri nötr), Giren yeşil / Çıkan kırmızı, Güncel Bakiye kalın. Mobil kompakt liste değişmedi",
+  ]},
   { version: "2026.244", date: "2026-08-14", items: [
     "🖥️ Hesaplar sayfası da masaüstünde 1080px'de ORTALANIYOR (üst kart, 5 hesap kartı ve Hesap Planı artık uçtan uca gerilmiyor). Telefonda görünüm aynı",
   ]},
@@ -7393,16 +7396,27 @@ async function viewAccountLedger(c) {
     <td>${esc(e.faturaNo || "")}</td>
     <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
   </tr>`;
-  const kasaRowHtml = ({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
+  // İşlem adına göre renkli rozet sınıfı (Bloke Çözüm yeşil · Komisyon amber · diğerleri nötr)
+  const chipCls = (name) => {
+    const k = normTr(name || "");
+    if (k.includes("bloke") || k.includes("cozum") || k.includes("cozuld")) return "c-gr";
+    if (k.includes("komisyon")) return "c-am";
+    return "c-nt";
+  };
+  const kasaRowHtml = ({ e, bakiye }) => {
+    const gi = parseNum(e.giren), ci = parseNum(e.cikan);
+    const dir = gi > 0.005 ? " rin" : ci > 0.005 ? " rout" : "";
+    return `<tr class="${isHl(e) ? "hl-row" : ""}${dir}">
     <td>${fmtDate(e.date)}</td>
-    <td>${esc(e.islemAdi || "")}</td>
+    <td class="lt-islem">${e.islemAdi ? `<span class="ledger-chip ${chipCls(e.islemAdi)}">${esc(e.islemAdi)}</span>` : ""}</td>
     <td class="tdwrap">${esc(e.aciklama || "")}</td>
-    <td>${esc(e.rapor || "")}</td>
-    <td class="num" style="color:var(--ok)">${e.giren ? fmtTRY(parseNum(e.giren)) : "—"}</td>
-    <td class="num" style="color:var(--danger)">${e.cikan ? fmtTRY(parseNum(e.cikan)) : "—"}</td>
-    <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
-    <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
+    <td class="lt-muted">${esc(e.rapor || "")}</td>
+    <td class="num lt-in">${e.giren ? fmtTRY(gi) : `<span class="lt-dash">—</span>`}</td>
+    <td class="num lt-out">${e.cikan ? fmtTRY(ci) : `<span class="lt-dash">—</span>`}</td>
+    <td class="num lt-bal"${bakiye < 0 ? ' style="color:var(--danger)"' : ""}>${fmtTRY(bakiye)}</td>
+    <td class="lt-act" style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
   </tr>`;
+  };
   const rowHtml = cari ? cariRowHtml : kasaRowHtml;
   const cardHtml = cari ? cariCard : kasaCard;
   // Mobil kompakt tablo satırı: Tarih · İşlem Adı · Açıklama · Tutar · Güncel Bakiye
@@ -7464,7 +7478,7 @@ async function viewAccountLedger(c) {
   // Sabit sütun genişlikleri — sayfalar arası "başlık daralması" olmasın (Açıklama esner/wrap)
   const colgroup = cari
     ? `<colgroup><col style="width:92px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:120px"><col style="width:110px"><col style="width:96px"></colgroup>`
-    : `<colgroup><col style="width:92px"><col style="width:120px"><col><col style="width:130px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:96px"></colgroup>`;
+    : `<colgroup><col style="width:92px"><col style="width:146px"><col><col style="width:130px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:104px"></colgroup>`;
   const tfoot = !rows.length ? "" : (cari
     ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
     : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
