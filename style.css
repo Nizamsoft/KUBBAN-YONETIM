@@ -428,6 +428,7 @@ table.data input.num { text-align: right; }
 .hc-badge .brand-logo { width: 28px; height: 28px; }
 .hc-nm { font-size: 13px; font-weight: 700; color: var(--ink-faint, #8b8172); }
 .hc-vl { font-size: clamp(15px, 3.6vw, 20px); font-weight: 800; color: var(--ink, #241d15); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.hc-vl.neg { color: var(--danger, #c0392b); }
 .hcard.kasa::before { background: #2e9e52; }   .hcard.kasa .hc-badge { background: #e7f5ec; }
 .hcard.banka::before { background: #3b7dd8; }  .hcard.banka .hc-badge { background: #e8f0fb; }
 .hcard.bloke::before { background: #d69a2a; }  .hcard.bloke .hc-badge { background: #fbf1dc; }

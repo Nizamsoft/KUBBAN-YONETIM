@@ -639,8 +639,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.239";
+const APP_VERSION = "2026.240";
 const CHANGELOG = [
+  { version: "2026.240", date: "2026-08-14", items: [
+    "💼 Hesaplar üst kartı artık 'GENEL TOPLAM' yerine VARLIKLAR − BORÇLAR farkını (net) gösteriyor; alt satırda Varlıklar ve Borçlar toplamları ayrı ayrı (🟢/🔴)",
+    "🔴 Hesaplar'da Borçlar (320) kartı artık kırmızı ve eksi işaretli (−) gösteriliyor (negatif bakiyeli diğer kartlar da)",
+    "↕️ Hesap grubuna girince sıralama işaretli değere göre: Borç grubu (3xx) küçükten büyüğe (en büyük borç üstte), Varlık grubu (1xx) büyükten küçüğe (negatif bakiyeler — ör. −250.000 — en alta iner). Önceden mutlak değere göre sıralandığından negatifler yanlış yerde çıkıyordu",
+  ]},
   { version: "2026.239", date: "2026-08-14", items: [
     "🧾 Hareket düzenleme penceresi sadeleşti: üstteki büyük renkli tutar kartı ve sarı 'bağlı kayıt' bandı kaldırıldı. Hesap artık listenin en üstünde normal bir satır (Tarih'in üstünde); dokununca hesabı değiştirir. Tarih değeri artık diğer satırlar gibi sağa hizalı (kayma giderildi)",
   ]},
@@ -1838,8 +1843,12 @@ async function viewHesapGrup(c) {
   const childrenOf = (pid) => accounts.filter((a) => a.parentId === pid);
   const rolled = (a) => childrenOf(a.id).reduce((s, ch) => s + rolled(ch), cur(a));
   const total = rolled(parent);
+  // Sıralama (işaretli değere göre — negatiflere dikkat):
+  //   Borç grubu (3xx, ör. 320): KÜÇÜKTEN büyüğe → en büyük borç (en negatif) üstte
+  //   Varlık grubu (1xx): BÜYÜKTEN küçüğe → en büyük bakiye üstte, negatifler en altta
+  const borcGrup = String(parent.code || "").startsWith("3");
   const kids = childrenOf(id).map((a) => ({ a, bal: rolled(a), n: childrenOf(a.id).length }))
-    .sort((x, y) => Math.abs(y.bal) - Math.abs(x.bal));
+    .sort((x, y) => borcGrup ? (x.bal - y.bal) : (y.bal - x.bal));
 
   const t = $("#page-title"); if (t) t.textContent = `${parent.code || ""} ${parent.name || ""}`.trim();
   const from = encodeURIComponent("hesap-grup?id=" + id);
@@ -5147,6 +5156,11 @@ async function viewHesaplar(c) {
 
   const rolled = (a) => (kids.get(a.id) || []).reduce((s, ch) => s + rolled(ch), cur(a));
   const grand = roots.reduce((s, a) => s + rolled(a), 0);
+  // Varlıklar (1xx: kasa/banka/bloke/alıcı…) − Borçlar (3xx: tedarikçi…) = NET fark
+  const isLiaRoot = (a) => String(a.code || "").startsWith("3");
+  let varlikT = 0, borcT = 0;
+  roots.forEach((a) => { const b = rolled(a); if (isLiaRoot(a)) borcT += Math.abs(b); else varlikT += b; });
+  const netFark = varlikT - borcT;
 
   const childCount = (a) => (kids.get(a.id) || []).length;
 
@@ -5193,17 +5207,19 @@ async function viewHesaplar(c) {
     <div class="acc-hero brand${accHeroBg ? " has-bg" : ""}"${accHeroBg ? ` style="background-image:url('${accHeroBg}')"` : ""}>
       <div class="ah-brand"><img src="${esc(COMPANY.logo || "")}" alt="" onerror="this.style.display='none'" /><div><div class="ah-brand-nm">${esc(COMPANY.name || "")}</div>${COMPANY.subtitle ? `<div class="ah-brand-sub">${esc(COMPANY.subtitle)}</div>` : ""}</div></div>
       <div class="ah-panel">
-        <div class="ah-label">GENEL TOPLAM</div>
-        <div class="ah-total" style="${grand < 0 ? "color:#ffd9d0" : ""}">${fmtTRY(grand)}</div>
-        <div class="ah-sub">🗂️ ${roots.length} ana hesap · 🧾 ${accounts.length} hesap${subCount ? ` · 🔖 ${subCount} alt` : ""}</div>
+        <div class="ah-label">VARLIKLAR − BORÇLAR</div>
+        <div class="ah-total" style="${netFark < 0 ? "color:#ffd9d0" : ""}">${fmtTRY(netFark)}</div>
+        <div class="ah-sub">🟢 Varlıklar ${fmtTRY(varlikT)} &nbsp;·&nbsp; 🔴 Borçlar ${fmtTRY(borcT)}</div>
       </div>
     </div>
-    <div class="hesap-cards">${cardData.map((d) => `<a class="hcard ${d.cls}${d.wide ? " wide" : ""}" data-code="${d.code}"${d.acc ? ` data-id="${d.acc.id}"` : ""} href="#">
+    <div class="hesap-cards">${cardData.map((d) => {
+      const neg = d.code === "320" || d.bal < -0.005;   // Borçlar (ve negatif bakiyeler) kırmızı + eksi
+      return `<a class="hcard ${d.cls}${d.wide ? " wide" : ""}" data-code="${d.code}"${d.acc ? ` data-id="${d.acc.id}"` : ""} href="#">
       <span class="hc-code">${d.code}</span>
       <span class="hc-badge">${accIconInner(d.acc || { code: d.code })}</span>
       <span class="hc-nm">${esc(d.label)}</span>
-      <span class="hc-vl">${Math.round(Math.abs(d.bal)).toLocaleString("tr-TR")} ₺</span>
-    </a>`).join("")}</div>
+      <span class="hc-vl${neg ? " neg" : ""}">${neg ? "−" : ""}${Math.round(Math.abs(d.bal)).toLocaleString("tr-TR")} ₺</span>
+    </a>`; }).join("")}</div>
     <div class="toolbar acc-tools">
       <div class="acc-search">
         <input id="acc-q" type="search" autocomplete="off" placeholder="🔍 Hesap ara — ör. 'Ga' → Garanti Bankası" />
