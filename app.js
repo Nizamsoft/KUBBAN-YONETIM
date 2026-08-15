@@ -639,8 +639,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.241";
+const APP_VERSION = "2026.242";
 const CHANGELOG = [
+  { version: "2026.242", date: "2026-08-14", items: [
+    "🧊 Hesaplar üst kartındaki panel de BUZLU CAM oldu (arkadaki görsel bulanıklaşıyor, kenar + parlaklık). Alt satırdaki Varlıklar/Borçlar rakamları artık tam sığıyor (her biri ayrı satırda, ortada, kırpılmadan)",
+    "🧮 Hesaplar 'Varlıklar − Borçlar' hesabında Borçlar artık YALNIZ 320 Tedarikçiler'i sayıyor; diğer 3xx borç hesapları (335/336/340 vb.) NET'e katılmıyor ('diğer borçlar' gösterilmiyor)",
+  ]},
   { version: "2026.241", date: "2026-08-14", items: [
     "🧊 Dashboard Günün Cirosu kartındaki İkram/İskonto kutuları artık BUZLU CAM (frosted glass): arkadaki görsel/altın hafifçe bulanıklaşıyor, ince kenar ve üst parlaklıkla cam hissi; rakamlar net kalıyor",
   ]},
@@ -5163,10 +5167,14 @@ async function viewHesaplar(c) {
 
   const rolled = (a) => (kids.get(a.id) || []).reduce((s, ch) => s + rolled(ch), cur(a));
   const grand = roots.reduce((s, a) => s + rolled(a), 0);
-  // Varlıklar (1xx: kasa/banka/bloke/alıcı…) − Borçlar (3xx: tedarikçi…) = NET fark
-  const isLiaRoot = (a) => String(a.code || "").startsWith("3");
+  // Varlıklar (1xx: kasa/banka/bloke/alıcı…) − Borçlar (yalnız 320 Tedarikçiler) = NET fark.
+  // Diğer 3xx borç hesapları (335/336/340 vb.) NET'e katılmaz — "diğer borçlar" gösterilmez.
   let varlikT = 0, borcT = 0;
-  roots.forEach((a) => { const b = rolled(a); if (isLiaRoot(a)) borcT += Math.abs(b); else varlikT += b; });
+  roots.forEach((a) => {
+    const c = String(a.code || ""), b = rolled(a);
+    if (c === "320") borcT += Math.abs(b);
+    else if (!c.startsWith("3")) varlikT += b;
+  });
   const netFark = varlikT - borcT;
 
   const childCount = (a) => (kids.get(a.id) || []).length;
@@ -5216,7 +5224,7 @@ async function viewHesaplar(c) {
       <div class="ah-panel">
         <div class="ah-label">VARLIKLAR − BORÇLAR</div>
         <div class="ah-total" style="${netFark < 0 ? "color:#ffd9d0" : ""}">${fmtTRY(netFark)}</div>
-        <div class="ah-sub">🟢 Varlıklar ${fmtTRY(varlikT)} &nbsp;·&nbsp; 🔴 Borçlar ${fmtTRY(borcT)}</div>
+        <div class="ah-sub"><span>🟢 Varlıklar ${fmtTRY(varlikT)}</span><span>🔴 Borçlar ${fmtTRY(borcT)}</span></div>
       </div>
     </div>
     <div class="hesap-cards">${cardData.map((d) => {
