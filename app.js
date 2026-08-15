@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.258";
+const APP_VERSION = "2026.259";
 const CHANGELOG = [
+  { version: "2026.259", date: "2026-08-15", items: [
+    "📈 Nakit Akış Raporu — BEKLEYEN BLOKE ÇÖZÜMLERİ öngörüye eklendi: Banka blokelerinde (Garanti Blokesi · T.Finans Blokesi) henüz çözülmemiş paralar, VALÖR (serbest kalma) tarihlerinde ilgili banka sekmesinde yeşil 'Giren' öngörüsü olarak görünür (ör. 20.08'de Garanti'ye 100.000 ₺ bloke çözülecek → o gün bakiyeye eklenir). Detay kartında 'Bloke: … Çekimi' satırlarıyla ayrı görünür. Kurallar: yalnız gelecekteki valörler (valörü geçmiş çözülmemişler eklenmez); yemek kartları (Edenred, Multinet…) dahil değil; bir hesabın öngörü toplamı o hesabın hâlâ blokedeki bakiyesini aşmaz (zaten çözülmüşler bankada gerçek giriş olarak görünmeye devam eder)",
+  ]},
   { version: "2026.258", date: "2026-08-15", items: [
     "📈 Nakit Akış Raporu — çoklu hesap seçimi: Üstteki hesap sekmeleri artık aç/kapa çalışıyor; birden çok seçebilirsin (ör. Garanti + T.Finans) ve seçilenlerin Giren/Çıkan/Güncel Bakiye değerleri TOPLANARAK tek tabloda gösterilir. En az bir hesap her zaman seçili kalır. Giren/Çıkan'a dokununca açılan detay kartında kalemler hesaba göre AYRI AYRI gruplanır (her grubun kendi ara toplamı + genel Toplam)",
   ]},
@@ -10486,6 +10489,33 @@ async function viewNakitAkisRapor(c) {
   const dailyIn = Object.assign({ garanti: 0, tfinans: 0, nakit: 0 }, (cfgDoc && cfgDoc.dailyIn) || {});
   const accByKey = {};
   NA_ACCS.forEach((a) => { accByKey[a.key] = accounts.find((x) => String(x.code) === a.code) || null; });
+
+  // BLOKE ÇÖZÜM ÖNGÖRÜSÜ — banka blokelerinin (108) çözülmemiş bakiyesi, gelecekteki
+  // valör (serbest kalma) tarihlerinde ilgili banka sekmesine "Giren" öngörüsü olur.
+  // Garanti Blokesi → garanti, T.Finans Blokesi → tfinans (yemek kartları hariç).
+  // Çözülmüş olanlar zaten bankada gerçek giriş olarak görünür; burada yalnız BEKLEYEN
+  // blokeler var. Bir hesabın öngörü toplamı, o hesabın hâlâ blokedeki bakiyesini AŞMAZ.
+  const _naNow = new Date(); _naNow.setHours(0, 0, 0, 0);
+  const _naTodayISO = isoOfD(_naNow);
+  const blokeFwdByKey = { garanti: {}, tfinans: {}, nakit: {} };
+  accounts.filter((a) => String(a.code || "").startsWith("108") && a.parentId).forEach((a) => {
+    const s = normTr(a.name || "");
+    if (!s.includes("bloke")) return;
+    const key = s.includes("garanti") ? "garanti" : s.includes("finans") ? "tfinans" : null;
+    if (!key) return;
+    const es = entries.filter((e) => e.accountId === a.id);
+    let cap = parseNum(a.openingBalance) + es.reduce((sum, e) => sum + naDelta(e), 0);   // blokede kalan
+    if (cap <= 0.005) return;
+    es.filter((e) => parseNum(e.borc) > 0 && e.valor && e.valor > _naTodayISO)
+      .sort((x, y) => (x.valor < y.valor ? -1 : x.valor > y.valor ? 1 : 0))
+      .forEach((e) => {
+        if (cap <= 0.005) return;
+        const amt = Math.min(parseNum(e.borc), cap); cap -= amt;
+        const lbl = "Bloke: " + (e.aciklama || e.sahis || "Çekim");
+        (blokeFwdByKey[key][e.valor] || (blokeFwdByKey[key][e.valor] = [])).push({ t: lbl, a: amt });
+      });
+  });
+
   const selKeys = new Set(["garanti"]); const fwd = 90;   // çoklu seçim: birden çok hesap seçilince TOPLANIR
 
   c.innerHTML = `
@@ -10500,7 +10530,7 @@ async function viewNakitAkisRapor(c) {
       </table>
     </div>
     <div id="na-pop"></div>
-    <div class="pv-fhint" style="margin-top:10px">Üstten birden çok hesap seçebilirsin — <b>toplanır</b> (kartta ayrı ayrı görünür). Giren/Çıkan'a dokun → ne olduğu çıkar. Bugüne kadar <b>gerçek</b>, sonrası <b>öngörü</b>.</div>`;
+    <div class="pv-fhint" style="margin-top:10px">Üstten birden çok hesap seçebilirsin — <b>toplanır</b> (kartta ayrı ayrı görünür). Giren/Çıkan'a dokun → ne olduğu çıkar. Bugüne kadar <b>gerçek</b>, sonrası <b>öngörü</b> (öngörülen giriş + tekrarlanan kalemler + <b>bekleyen bloke çözümleri</b>).</div>`;
 
   function compute(key) {
     const acc = accByKey[key];
@@ -10545,6 +10575,9 @@ async function viewNakitAkisRapor(c) {
           if (it.type === "gelir") { giren += amt; gd.push({ t: it.name, a: amt }); }
           else { cikan += amt; cd.push({ t: it.name, a: amt }); }
         });
+        // Bu banka blokesinin bu valör tarihinde çözülecek (bekleyen) tutarları
+        const bl = blokeFwdByKey[key] && blokeFwdByKey[key][iso];
+        if (bl) bl.forEach((x) => { giren += x.a; gd.push({ t: x.t, a: x.a }); });
       }
       run += giren - cikan;
       days.push({ iso, dObj: new Date(d), future, isToday, giren, cikan, gd, cd, bal: run });
