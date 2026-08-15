@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.245";
+const APP_VERSION = "2026.246";
 const CHANGELOG = [
+  { version: "2026.246", date: "2026-08-14", items: [
+    "🔀 Hesabı düzenlerken kodun ön-ekini değiştirmek (ör. 321.60 → 320.60) artık hesabı otomatik olarak o ANA hesabın (320 Tedarikçiler) ALTINA taşıyor — ayrıca '📁 Değiştir' düğmesine gerek yok. Kod değişince cari hareketler de yeni koda taşınır. Böylece yanlış grupta kalan hesaplar (ör. 320'ye ait olup 321'de tanımlananlar) tek adımda doğru gruba geçer",
+  ]},
   { version: "2026.245", date: "2026-08-14", items: [
     "📊 Hesap defteri (PC tablo) daha okunur tasarıma geçti: altın başlık, satır aralı (zebra) + üzerine gelince vurgu, solda yön şeridi (giren yeşil / çıkan kırmızı), İşlem Adı renkli rozet (Bloke Çözüm yeşil · Komisyon amber · diğerleri nötr), Giren yeşil / Çıkan kırmızı, Güncel Bakiye kalın. Mobil kompakt liste değişmedi",
   ]},
@@ -5667,19 +5670,34 @@ function accModal(acc, parent, opts) {
         await addDoc(C.accounts(), { ...payload, createdAt: serverTimestamp() });
         await logAction("Ekleme", "Hesap", `${payload.code || ""} ${payload.name}`);
       } else {
+        // Kod ön-eki değiştiyse (ör. 321.60 → 320.60) ve o ön-ekte bir ANA hesap varsa,
+        // hesabı otomatik olarak o ana hesabın ALTINA taşı (parent'ı düzelt) — "📁 Değiştir"e gerek kalmadan.
+        if (!movedParent && String(payload.code || "").includes(".")) {
+          const newPre = String(payload.code).split(".")[0].trim();
+          const oldPre = String(acc.code || "").split(".")[0].trim();
+          if (newPre && newPre !== oldPre) {
+            const root = allAcc.find((x) => !x.parentId && String(x.code || "").trim() === newPre);
+            if (root && root.id !== acc.id && root.id !== acc.parentId) {
+              payload.parentId = root.id; payload.parentCode = root.code;
+              if (root.type) payload.type = root.type;
+            }
+          }
+        }
         await updateDoc(doc(db, "accounts", acc.id), payload);
-        // Grup değişti + kod değişti → cari hareketler (koda bağlı) yeni koda taşınır
+        // Kod değişti → cari hareketler (koda bağlı) yeni koda taşınır (grup değişse de değişmese de)
         const oldCode = String(acc.code || "").trim(), newCode = String(payload.code || "").trim();
-        if (movedParent && oldCode && newCode && oldCode !== newCode) {
-          toast("Hareketler yeni koda taşınıyor…", "info");
+        if (oldCode && newCode && oldCode !== newCode) {
           const all = await fetchAll(C.currentMovements).catch(() => []);
           const mine = all.filter((mv) => String(mv.code || "").trim() === oldCode);
-          for (let i = 0; i < mine.length; i += 150) {
-            const b = writeBatch(db);
-            mine.slice(i, i + 150).forEach((x) => b.update(doc(db, "currentMovements", x.id), { code: newCode }));
-            await b.commit();
+          if (mine.length) {
+            toast("Hareketler yeni koda taşınıyor…", "info");
+            for (let i = 0; i < mine.length; i += 150) {
+              const b = writeBatch(db);
+              mine.slice(i, i + 150).forEach((x) => b.update(doc(db, "currentMovements", x.id), { code: newCode }));
+              await b.commit();
+            }
           }
-          await logAction("Taşıma", "Hesap", `${oldCode} → ${newCode} ${payload.name} (${mine.length} hareket)`);
+          await logAction("Taşıma", "Hesap", `${oldCode} → ${newCode} ${payload.name}${mine.length ? ` (${mine.length} hareket)` : ""}`);
         } else {
           await logAction("Düzenleme", "Hesap", `${payload.code || ""} ${payload.name}`);
         }
