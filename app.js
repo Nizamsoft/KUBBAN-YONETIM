@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.253";
+const APP_VERSION = "2026.254";
 const CHANGELOG = [
+  { version: "2026.254", date: "2026-08-15", items: [
+    "🏷️ Kasa nakit çıkışları artık 'MASRAF - Ana Kasa' adıyla görünüyor. GELECEK: Kasa (100) hesabına elle hareket eklerken Çıkan tutar girince işlem adı otomatik 'MASRAF - Ana Kasa' gelir (boşsa ya da 'Nakit' yazıyorsa). GEÇMİŞ: Ayarlar → Kayıt & Kontrol → 'Kasa Nakit Çıkışlarını Düzelt' düğmesiyle, işlem adı 'Nakit' olan tüm kasa çıkışları tek seferde 'MASRAF - Ana Kasa' yapılır (girişlere/Giren kayıtlara dokunulmaz, kaç kayıt güncellendiği bildirilir)",
+  ]},
   { version: "2026.253", date: "2026-08-14", items: [
     "↩️ RAM önbelleği (v2026.252) geri alındı — uygulama açılışında takılmaya yol açıyordu. Sayfa geçişleri yine eski (çalışan) yöntemle. Anında-geçiş çalışması ileride daha güvenli bir yolla tekrar denenecek",
   ]},
@@ -1823,6 +1826,7 @@ async function viewAyarlar(c) {
     { title: "🗂️ Kayıt & Kontrol", items: [
       { ic: "📋", label: "Tüm Kayıtlar", desc: "Tüm hareketleri gör / düzenle / sil", path: "tum-kayitlar", admin: true },
       { ic: "⚖️", label: "Bakiye Karşılaştır", desc: "Eski program bakiyeleriyle kontrol", path: "bakiye-karsilastir", admin: true },
+      { ic: "🏷️", label: "Kasa 'Nakit' Çıkışlarını Düzelt", desc: "Geçmiş nakit çıkışlarını 'MASRAF - Ana Kasa' yap", action: "fix-kasa-masraf", admin: true },
     ]},
     { title: "⚙️ Sistem", items: [
       { ic: "👥", label: "Kullanıcılar", desc: "Kullanıcı ekle / yetki", path: "kullanicilar", admin: true },
@@ -1853,10 +1857,54 @@ async function viewAyarlar(c) {
       if (!items.length) return "";
       return `<div class="ayr-sec">
         <div class="ayr-hd">${s.title}${s.desc ? `<small>${esc(s.desc)}</small>` : ""}</div>
-        ${items.map((it) => `<a class="ayr-it" href="#/${it.path}"><span class="i">${it.ic}</span><span class="m"><b>${esc(it.label)}</b><span>${esc(it.desc || "")}</span></span><span class="ar">›</span></a>`).join("")}
+        ${items.map((it) => it.action
+          ? `<a class="ayr-it" href="#" data-action="${it.action}"><span class="i">${it.ic}</span><span class="m"><b>${esc(it.label)}</b><span>${esc(it.desc || "")}</span></span><span class="ar">›</span></a>`
+          : `<a class="ayr-it" href="#/${it.path}"><span class="i">${it.ic}</span><span class="m"><b>${esc(it.label)}</b><span>${esc(it.desc || "")}</span></span><span class="ar">›</span></a>`).join("")}
       </div>`;
     }).join("")}
   </div>`;
+
+  // Kasa 'Nakit' çıkışlarını 'MASRAF - Ana Kasa' olarak düzelt (tek seferlik bakım)
+  const fixBtn = $('[data-action="fix-kasa-masraf"]', c);
+  if (fixBtn) fixBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    fixKasaMasraf(fixBtn);
+  });
+}
+
+// Geçmiş kasa (100) hareketlerinden işlem adı "Nakit" olan ve ÇIKAN tutarı olanların
+// adını "MASRAF - Ana Kasa" yapar. Girişlere (Giren) ve "MASRAF" olanlara dokunmaz.
+async function fixKasaMasraf(btn) {
+  const [accounts, entries] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  const kasaIds = new Set(
+    accounts.filter((a) => String(a.code || "").startsWith("100") || a.type === "kasa").map((a) => a.id)
+  );
+  const targets = entries.filter((e) => {
+    const isKasa = kasaIds.has(e.accountId) || String(e.accountCode || "").startsWith("100");
+    return isKasa && normTr(e.islemAdi || "") === "nakit" && parseNum(e.cikan) > 0.005;
+  });
+  if (!targets.length) { toast("Düzeltilecek 'Nakit' çıkış kaydı bulunamadı.", "info"); return; }
+  if (!confirm(`${targets.length} kasa 'Nakit' çıkış kaydının işlem adı "MASRAF - Ana Kasa" yapılacak.\nDevam edilsin mi?`)) return;
+  const orig = btn.querySelector("b")?.textContent;
+  const setLbl = (t) => { const b = btn.querySelector("b"); if (b) b.textContent = t; };
+  try {
+    for (let i = 0; i < targets.length; i += 400) {
+      const b = writeBatch(db);
+      targets.slice(i, i + 400).forEach((e) =>
+        b.update(doc(db, "accountEntries", e.id), { islemAdi: "MASRAF - Ana Kasa", updatedAt: serverTimestamp() }));
+      await b.commit();
+      setLbl(`İşleniyor… ${Math.min(i + 400, targets.length)}/${targets.length}`);
+    }
+    await logAction("Düzeltme", "Hesap Hareketi", `Kasa 'Nakit' çıkışları → 'MASRAF - Ana Kasa' · ${targets.length} kayıt`);
+    if (orig) setLbl(orig);
+    toast(`${targets.length} kayıt "MASRAF - Ana Kasa" olarak güncellendi.`, "ok");
+  } catch (e) {
+    if (orig) setLbl(orig);
+    toast("Güncellenemedi: " + e.message, "err");
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -7818,6 +7866,18 @@ function entryModal(acc, entry, opts) {
   };
   $$("input, select", body).forEach((el) => { el.addEventListener("input", paintAmounts); el.addEventListener("change", paintAmounts); });
   paintAmounts();
+  // Kasa (100) hesabında ÇIKAN (nakit çıkış) girilince işlem adı otomatik "MASRAF - Ana Kasa" gelir.
+  // Alan boşsa ya da "Nakit" yazıyorsa doldurulur; kullanıcı elle değiştirdiyse dokunulmaz.
+  const isKasaAcc = !cari && (String(acc.code || "").startsWith("100") || acc.type === "kasa");
+  if (isKasaAcc) {
+    const cikanEl = $("#e-cikan", body), islemEl = $("#e-islem", body);
+    if (cikanEl && islemEl) {
+      cikanEl.addEventListener("input", () => {
+        const k = normTr(islemEl.value || "");
+        if (parseNum(cikanEl.value) > 0.005 && (k === "" || k === "nakit")) islemEl.value = "MASRAF - Ana Kasa";
+      });
+    }
+  }
   // Hesabı değiştir/taşı — üstteki bant ve alttaki "Taşı" butonu aynı işlevi çağırır (bankalardaki gibi aranabilir seçici)
   async function doMoveAccount() {
     const accs = await fetchAll(C.accounts).catch(() => []);
@@ -7902,9 +7962,13 @@ function entryModal(acc, entry, opts) {
       const giren = parseNum($("#e-giren", body).value);
       const cikan = parseNum($("#e-cikan", body).value);
       if (!giren && !cikan) return toast("Giren ya da çıkan tutar girin.", "err");
+      let islemAdi = $("#e-islem", body).value.trim();
+      // Kasa (100) nakit çıkışı: işlem adı boş ya da "Nakit" ise "MASRAF - Ana Kasa" yaz
+      if (isKasaAcc && cikan > 0.005 && !giren && (islemAdi === "" || normTr(islemAdi) === "nakit"))
+        islemAdi = "MASRAF - Ana Kasa";
       payload = {
         ...base,
-        islemAdi: $("#e-islem", body).value.trim(),
+        islemAdi,
         rapor: $("#e-rapor", body).value.trim(),
         giren, cikan,
       };
