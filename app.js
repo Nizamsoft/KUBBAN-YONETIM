@@ -641,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.250";
+const APP_VERSION = "2026.251";
 const CHANGELOG = [
+  { version: "2026.251", date: "2026-08-14", items: [
+    "🎨 Hesap defteri (PC) kasa görünümü: Giren (yeşil) ve Çıkan (kırmızı) tutarlar artık daha CANLI ve kalın; sol yön şeritleri belirginleşti. 'Gün Sonu' işlemi artık defterde YEŞİL 'Nakit Giriş' rozetiyle görünüyor (ödemeyle karışmıyor). Rapor sütunu genişletildi — 'Personel Harcamaları' gibi metinler artık tam görünüyor",
+  ]},
   { version: "2026.250", date: "2026-08-14", items: [
     "📌 Hesap Planı'nda bir hesabı düzenleyip/taşıyıp/silince artık sayfa HİÇ yeniden çizilmiyor: ekran neyse aynen kalıyor — açık gruplar, scroll, ✎ düzenleme modu (kalem) ve 0️⃣ filtresi korunuyor. Sadece o hesabın satırı bulunduğu yerden düşüyor; grup toplamları (ör. 321/320 yanındaki tutar) ve üstteki kart (Varlıklar−Borçlar) ANINDA güncelleniyor. (Önceki 'hafızaya alıp yeniden çiz' yöntemi kaldırıldı)",
   ]},
@@ -7512,16 +7515,18 @@ async function viewAccountLedger(c) {
   // İşlem adına göre renkli rozet sınıfı (Bloke Çözüm yeşil · Komisyon amber · diğerleri nötr)
   const chipCls = (name) => {
     const k = normTr(name || "");
-    if (k.includes("bloke") || k.includes("cozum") || k.includes("cozuld")) return "c-gr";
+    if (k.includes("gun sonu") || k.includes("nakit") || k.includes("bloke") || k.includes("cozum") || k.includes("cozuld") || k.includes("tahsilat")) return "c-gr";
     if (k.includes("komisyon")) return "c-am";
     return "c-nt";
   };
+  // "Gün Sonu" işlem adı defterde "Nakit Giriş" olarak gösterilir (nakit girişi kaydı)
+  const chipText = (name) => (normTr(name) === "gun sonu" ? "Nakit Giriş" : (name || ""));
   const kasaRowHtml = ({ e, bakiye }) => {
     const gi = parseNum(e.giren), ci = parseNum(e.cikan);
     const dir = gi > 0.005 ? " rin" : ci > 0.005 ? " rout" : "";
     return `<tr class="${isHl(e) ? "hl-row" : ""}${dir}">
     <td>${fmtDate(e.date)}</td>
-    <td class="lt-islem">${e.islemAdi ? `<span class="ledger-chip ${chipCls(e.islemAdi)}">${esc(e.islemAdi)}</span>` : ""}</td>
+    <td class="lt-islem">${e.islemAdi ? `<span class="ledger-chip ${chipCls(e.islemAdi)}">${esc(chipText(e.islemAdi))}</span>` : ""}</td>
     <td class="tdwrap">${esc(e.aciklama || "")}</td>
     <td class="lt-muted">${esc(e.rapor || "")}</td>
     <td class="num lt-in">${e.giren ? fmtTRY(gi) : `<span class="lt-dash">—</span>`}</td>
@@ -7591,7 +7596,7 @@ async function viewAccountLedger(c) {
   // Sabit sütun genişlikleri — sayfalar arası "başlık daralması" olmasın (Açıklama esner/wrap)
   const colgroup = cari
     ? `<colgroup><col style="width:92px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:120px"><col style="width:110px"><col style="width:96px"></colgroup>`
-    : `<colgroup><col style="width:92px"><col style="width:146px"><col><col style="width:130px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:104px"></colgroup>`;
+    : `<colgroup><col style="width:92px"><col style="width:146px"><col><col style="width:180px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:104px"></colgroup>`;
   const tfoot = !rows.length ? "" : (cari
     ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
     : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
