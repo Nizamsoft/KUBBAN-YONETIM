@@ -305,6 +305,9 @@ let ledgerFitHandler = null;  // defter yükseklik kilidi (resize dinleyicisi)
 const _scrollMem = new Map();   // navKey -> { win, inner:{lc,lt,bl} }
 let _lastNavKey = null;         // ayrıldığımız sayfanın anahtarı (kaydetmek için)
 let _pendingRestore = null;     // render sırasında geri yüklenecek konum (varsa)
+// Hesap Planı "kaldığın yerde kal": hesap düzenleyip/taşıyıp kaydedince açık gruplar +
+// scroll korunur (toplu düzenlemede sürekli açıp scroll etmemek için).
+const _hesapKeep = { open: new Set(), restore: false };
 const _SCROLL_SELS = { lc: ".ledger-view .ledger-cards", lt: ".ledger-view .ledger-table", bl: ".ba-list" };
 // Sayfa anahtarı: yol + (from hariç) parametreler. Farklı hesap defterleri ayrı ayrı hatırlanır.
 function navKey(hash) {
@@ -641,8 +644,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.248";
+const APP_VERSION = "2026.249";
 const CHANGELOG = [
+  { version: "2026.249", date: "2026-08-14", items: [
+    "📌 Hesap Planı 'kaldığın yerde kal': bir hesabı düzenleyip/taşıyıp/silince artık sayfa sıfırlanmıyor — o an AÇIK olan gruplar (ör. 321) açık kalıyor ve scroll bıraktığın yerde. Yalnız taşıdığın satır listeden düşüyor; sıradaki hesap gözünün önünde. Toplu düzenlemede her seferinde grubu tekrar açıp aşağı kaydırma derdi bitti (menüden yeni girişte gruplar yine kapalı başlar)",
+  ]},
   { version: "2026.248", date: "2026-08-14", items: [
     "🐞 Hesap taşıma düzeltildi: 'Hesabı Düzenle' açıkken '📁 Değiştir' ile grup (ör. 320) seçince form KAPANIYORDU ve Kaydet'e basılamıyordu. Artık pencereler üst üste açılıyor — grup seçici üstte gelir, seçince kapanır, Hesabı Düzenle yerinde kalır ve Kaydet'e basıp taşıyabilirsiniz",
   ]},
@@ -5113,6 +5119,10 @@ async function viewBakiyeKarsilastir(c) {
 }
 
 async function viewHesaplar(c) {
+  // "Kaldığın yerde kal": düzenleme sonrası tazelemede açık grupları + scroll'u koru
+  const keepRestore = _hesapKeep.restore; _hesapKeep.restore = false;
+  const keepY = keepRestore ? (window.scrollY || 0) : 0;
+  if (!keepRestore) _hesapKeep.open.clear();   // menüden yeni girişte gruplar kapalı başlar
   const [accounts, cari, bank, entries, settings] = await Promise.all([
     fetchAll(C.accounts),
     fetchAll(C.currentMovements).catch(() => []),
@@ -5306,7 +5316,7 @@ async function viewHesaplar(c) {
     $$(`.acc-row.sub[data-parent="${id}"]`, c).forEach(bindSubRow);
   };
   const setOpen = (id, open) => {
-    if (open) injectSubs(id);
+    if (open) { injectSubs(id); _hesapKeep.open.add(id); } else _hesapKeep.open.delete(id);
     $$(`.acc-row.sub[data-parent="${id}"]`, c).forEach((r) => r.style.display = open ? "flex" : "none");
     const main = $(`.acc-row.parent[data-id="${id}"]`, c);
     if (main) {
@@ -5323,6 +5333,15 @@ async function viewHesaplar(c) {
       setOpen(row.dataset.id, row.dataset.open !== "1");
     });
   });
+
+  // Düzenleme sonrası tazelemede: önceden açık grupları HEMEN yeniden aç (çökme-titremesi olmasın),
+  // scroll'u da geri getir. route() render'dan sonra scrollTo(0,0) yapar → rAF ile ondan SONRA geri al.
+  if (keepRestore && _hesapKeep.open.size) {
+    [..._hesapKeep.open].forEach((id) => { if ($(`.acc-row.parent[data-id="${id}"]`, c)) setOpen(id, true); });
+    const restoreY = () => window.scrollTo(0, keepY);
+    requestAnimationFrame(restoreY);
+    requestAnimationFrame(() => requestAnimationFrame(restoreY));   // yerleşim oturunca tekrar
+  }
 
   // 5 büyük kart → tıklayınca o hesabın grup listesi (alt hesaplar; Bankalar gibi); alt yoksa → defter.
   // Borçlar(320)/Alacaklar(120) da dahil: dashboard Borç/Alacak sayfasına DEĞİL, kendi grup listesine gider.
@@ -5649,7 +5668,7 @@ function accModal(acc, parent, opts) {
           for (const s of kids) await deleteDoc(doc(db, "accounts", s.id));
           await deleteDoc(doc(db, "accounts", acc.id));
           await logAction("Silme", "Hesap", `${acc.code || ""} ${acc.name || ""}`);
-          m.close(); toast("Silindi.", "ok"); route();
+          m.close(); toast("Silindi.", "ok"); _hesapKeep.restore = true; route();
         });
     });
     delBtn.style.marginRight = "auto"; // sola yasla
@@ -5710,7 +5729,7 @@ function accModal(acc, parent, opts) {
           await logAction("Düzenleme", "Hesap", `${payload.code || ""} ${payload.name}`);
         }
       }
-      m.close(); toast("Kaydedildi.", "ok"); route();
+      m.close(); toast("Kaydedildi.", "ok"); _hesapKeep.restore = true; route();
     } catch (e) { toast("Hata: " + e.message, "err"); }
   }));
   const m = openModal({
