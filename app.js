@@ -87,17 +87,19 @@ function toast(msg, type = "") {
 }
 function openModal({ title, body, footer, onClose }) {
   const root = $("#modal-root");
-  root.innerHTML = `
-    <div class="modal-backdrop">
+  // Üst üste yığılabilir: yeni pencere EKLENİR (innerHTML ile öncekini silmez).
+  // Böylece 'Hesabı Düzenle' açıkken 'Grup Seç' üstte açılır; kapanınca düzenleme kalır.
+  const backdrop = document.createElement("div");
+  backdrop.className = "modal-backdrop";
+  backdrop.innerHTML = `
       <div class="modal">
         <div class="modal-head"><h3>${esc(title)}</h3></div>
         <div class="modal-body"></div>
         <div class="modal-foot"></div>
-      </div>
-    </div>`;
-  const backdrop = $(".modal-backdrop", root);
-  const bodyEl = $(".modal-body", root);
-  const footEl = $(".modal-foot", root);
+      </div>`;
+  root.appendChild(backdrop);
+  const bodyEl = $(".modal-body", backdrop);
+  const footEl = $(".modal-foot", backdrop);
   if (typeof body === "string") bodyEl.innerHTML = body; else bodyEl.appendChild(body);
   (footer || []).forEach((b) => footEl.appendChild(b));
   let closed = false;
@@ -639,8 +641,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.247";
+const APP_VERSION = "2026.248";
 const CHANGELOG = [
+  { version: "2026.248", date: "2026-08-14", items: [
+    "🐞 Hesap taşıma düzeltildi: 'Hesabı Düzenle' açıkken '📁 Değiştir' ile grup (ör. 320) seçince form KAPANIYORDU ve Kaydet'e basılamıyordu. Artık pencereler üst üste açılıyor — grup seçici üstte gelir, seçince kapanır, Hesabı Düzenle yerinde kalır ve Kaydet'e basıp taşıyabilirsiniz",
+  ]},
   { version: "2026.247", date: "2026-08-14", items: [
     "ℹ️ Hesap taşımada '📁 Değiştir' ile grup seçince çıkan mesaj netleşti: 'Yeni kod … — Kaydet'e basınca taşınır'. Grup seçmek tek başına taşımaz; taşımanın olması için Kaydet gerekiyor",
   ]},
