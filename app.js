@@ -639,8 +639,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.243";
+const APP_VERSION = "2026.244";
 const CHANGELOG = [
+  { version: "2026.244", date: "2026-08-14", items: [
+    "🖥️ Hesaplar sayfası da masaüstünde 1080px'de ORTALANIYOR (üst kart, 5 hesap kartı ve Hesap Planı artık uçtan uca gerilmiyor). Telefonda görünüm aynı",
+  ]},
   { version: "2026.243", date: "2026-08-14", items: [
     "🖥️ Masaüstünde (geniş ekran) Dashboard görünümü düzeltildi: içerik artık 1080px'de ORTALANIYOR (uçtan uca gerilmiyordu). Günün Cirosu görseli makul oranda; İkram/İskonto kutuları 720px'de merkezde toplanıyor. Telefonda görünüm aynı",
   ]},
@@ -5228,7 +5231,7 @@ async function viewHesaplar(c) {
   const renderMain = (a) => rowHtml(a, false);
 
   const subCount = accounts.length - realRootCount;
-  c.innerHTML = `
+  c.innerHTML = `<div class="hesap-wrap">
     <div class="acc-hero brand${accHeroBg ? " has-bg" : ""}"${accHeroBg ? ` style="background-image:url('${accHeroBg}')"` : ""}>
       <div class="ah-brand"><img src="${esc(COMPANY.logo || "")}" alt="" onerror="this.style.display='none'" /><div><div class="ah-brand-nm">${esc(COMPANY.name || "")}</div>${COMPANY.subtitle ? `<div class="ah-brand-sub">${esc(COMPANY.subtitle)}</div>` : ""}</div></div>
       <div class="ah-panel">
@@ -5264,7 +5267,7 @@ async function viewHesaplar(c) {
         </span>
       </div>
       <div class="acc-list">${roots.map(renderMain).join("")}</div>
-    </div>`;
+    </div></div>`;
 
   // Bir alt satırın olaylarını bağla (tıkla → defter; ✎ → düzenle)
   const bindSubRow = (row) => {
