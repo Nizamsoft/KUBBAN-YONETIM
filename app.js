@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.281";
+const APP_VERSION = "2026.282";
 const CHANGELOG = [
+  { version: "2026.282", date: "2026-08-16", items: [
+    "📥 108 Garanti Bloke İçe Aktar (Ayarlar → Kayıt & Kontrol): Garanti bloke defteri Excel'ini yükleyince program mevcut 108 Garanti bloke hareketlerini SİLER ve dosyadan (valör tarihleriyle birlikte) yeniden yazar. Kural: BORÇ dolu satır → 'Bloke'ye Gitme' (valör gününde çözülür), ALACAK dolu satır → 'Bloke Çözüm'. Yalnız tutarı olan satırlar alınır (0 tutarlı Sanal Pos/komisyon atlanır); 'Birikmiş Bakiye' açılış satırı olarak gelir.",
+    "🔎 Yüklemeden önce önizleme: kaç 'Bloke'ye Gitme' / 'Bloke Çözüm', toplam borç/alacak, kalan bloke ve gelecek valör günü sayısı gösterilir; onaylayınca toplu yazılır. (Önceki OCR/karşılaştırma yaklaşımı kaldırıldı — valörler artık doğrudan defterden gelir.)",
+  ]},
   { version: "2026.281", date: "2026-08-16", items: [
     "📗 Garanti Bloke Valör Aktarımı (Ayarlar → Kayıt & Kontrol): OCR/görsel yaklaşımı yerine artık Garanti bloke defteri EXCEL'i yükleniyor. Program, dosyadaki satırları programdaki 108 Garanti bloke kayıtlarıyla TARİH + AÇIKLAMA'ya göre eşleştirir ve dosyadaki 'Valör Tarihi' sütununu yazar (içe aktarım valörleri almadığı için buradan tamamlanır).",
     "⚖️ Uygulamadan önce karşılaştırma gösterilir: İşlem Tarihi · Açıklama · Tutar · Mevcut Valör · Excel Valör · Durum (🟢 Yazılacak / 🟠 Değişecek / ⚪ Aynı / eşleşmedi). 'Sadece yazılacak/değişecekleri göster' filtresi var; onaylayınca valörler toplu yazılır. (Bloke takvim OCR karşılaştırması kaldırıldı.)",
@@ -1806,7 +1810,7 @@ const ROUTES = {
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
   "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Sistem", render: viewNakitAkisVeri },
   "nakit-akis-import": { title: "Nakit Akış Geçmişi İçe Aktar", crumb: "Sistem", render: viewNakitAkisImport, admin: true, back: "#/nakit-akis-veri" },
-  "bloke-kontrol":    { title: "Garanti Bloke Valör Aktarımı", crumb: "Ayarlar", render: viewBlokeKontrol, admin: true, back: "#/ayarlar" },
+  "bloke-kontrol":    { title: "108 Garanti Bloke İçe Aktar", crumb: "Ayarlar", render: viewBlokeKontrol, admin: true, back: "#/ayarlar" },
   "gider-gruplari":   { title: "Gider Grupları", crumb: "Sistem", render: viewGiderGruplari },
   "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
   "guncelleme":       { title: "Güncelleme", crumb: "Sistem", render: viewGuncelleme },
@@ -1947,7 +1951,7 @@ async function viewAyarlar(c) {
     { title: "🗂️ Kayıt & Kontrol", items: [
       { ic: "📋", label: "Tüm Kayıtlar", desc: "Tüm hareketleri gör / düzenle / sil", path: "tum-kayitlar", admin: true },
       { ic: "⚖️", label: "Bakiye Karşılaştır", desc: "Eski program bakiyeleriyle kontrol", path: "bakiye-karsilastir", admin: true },
-      { ic: "📗", label: "Garanti Bloke Valör Aktarımı", desc: "Bloke defteri Excel'inden valör tarihlerini yaz", path: "bloke-kontrol", admin: true },
+      { ic: "📥", label: "108 Garanti Bloke İçe Aktar", desc: "Bloke defteri Excel'i · mevcutu sil & valörlü yeniden yaz", path: "bloke-kontrol", admin: true },
       { ic: "🏷️", label: "Kasa 'Nakit' Çıkışlarını Düzelt", desc: "Geçmiş nakit çıkışlarını 'MASRAF - Ana Kasa' yap", action: "fix-kasa-masraf", admin: true },
       { ic: "🔓", label: "Bloke Valör Tarihlerini Düzelt", desc: "Fatura No'daki valör tarihlerini Valör alanına taşı (108.xx)", action: "fix-bloke-valor", admin: true },
     ]},
@@ -10948,10 +10952,12 @@ async function viewKarZarar(c) {
 }
 
 // ===========================================================================
-//  MODÜL: GARANTİ BLOKE VALÖR AKTARIMI / KONTROLÜ
-//  Garanti bloke defterini (Excel) yükle → programdaki 108 bloke kayıtlarıyla
-//  TARİH + AÇIKLAMA'ya göre eşleştir → Excel'deki "Valör Tarihi" sütununu
-//  programa yaz/karşılaştır (içe aktarım valörleri almadığı için).
+//  MODÜL: 108 GARANTİ BLOKE İÇE AKTAR
+//  Garanti bloke defterini (Excel) yükle → mevcut 108 Garanti bloke kayıtlarını
+//  SİL → dosyadan yeniden yaz (valör tarihleriyle). Kural:
+//    • BORÇ dolu satır  → "Bloke'ye Gitme" (valör gününde çözülecek)
+//    • ALACAK dolu satır → "Bloke Çözüm"   (serbest kalan / yatan)
+//  Yalnız tutarı olan satırlar alınır (0 tutarlı Sanal Pos/komisyon atlanır).
 // ===========================================================================
 const _pad2b = (n) => String(n).padStart(2, "0");
 function _xlDate(v) {                    // Excel hücresi → ISO (YYYY-MM-DD)
@@ -10961,34 +10967,38 @@ function _xlDate(v) {                    // Excel hücresi → ISO (YYYY-MM-DD)
   let y = m[3]; if (y.length === 2) y = "20" + y;
   return `${y}-${_pad2b(+m[2])}-${_pad2b(+m[1])}`;
 }
-// Noktalama/boşluk farkını yok sayan gevşek anahtar (açıklama eşleştirmesi için)
-const _looseKey = (s) => normTr(s).replace(/[^0-9a-z]+/g, " ").replace(/\s+/g, " ").trim();
-// Valör Excel'ini çöz → [{date, aciklama, borc, alacak, valor}]
-function parseValorSheet(aoa) {
+// Garanti bloke defteri Excel'ini çöz → [{date, sahis, aciklama, borc, alacak, valor, tur}]
+function parseBlokeSheet(aoa) {
   const rows = aoa || [];
   const norm = (s) => normTr(s);
-  let hi = rows.findIndex((r) => { const j = (r || []).map(norm); return j.some((x) => x === "tarih" || x.startsWith("tarih")) && j.some((x) => x.includes("aciklama")); });
+  let hi = rows.findIndex((r) => { const j = (r || []).map(norm); return j.some((x) => x === "tarih" || x.startsWith("tarih")) && j.some((x) => x.includes("aciklama")) && j.some((x) => x.includes("borc")); });
   if (hi < 0) hi = rows.findIndex((r) => (r || []).some((x) => norm(x).includes("aciklama")));
   if (hi < 0) return [];
   const H = (rows[hi] || []).map(norm);
-  const cTar = H.findIndex((h) => h === "tarih" || (h.startsWith("tarih") && !h.includes("valor")));
-  const cAci = H.findIndex((h) => h.includes("aciklama"));
-  const cBor = H.findIndex((h) => h.includes("borc"));
-  const cAla = H.findIndex((h) => h.includes("alacak"));
-  // valör: başlıkta "valor" varsa o; yoksa satırlarda "Valör Tarihi" etiketli hücrenin BİR SAĞINDAKİ sütun
-  let cVal = H.findIndex((h) => h.includes("valor"));
-  if (cVal < 0) {
-    for (let i = hi + 1; i < Math.min(rows.length, hi + 8); i++) {
-      const li = (rows[i] || []).findIndex((x) => norm(x).includes("valor"));
-      if (li >= 0) { cVal = li + 1; break; }
-    }
+  const col = {
+    tarih: H.findIndex((h) => h === "tarih" || (h.startsWith("tarih") && !h.includes("valor"))),
+    sahis: H.findIndex((h) => h.includes("sahis")),
+    aciklama: H.findIndex((h) => h.includes("aciklama")),
+    borc: H.findIndex((h) => h.includes("borc")),
+    alacak: H.findIndex((h) => h.includes("alacak")),
+    valor: H.findIndex((h) => h.includes("valor")),
+  };
+  if (col.valor < 0) {   // valör başlığı yoksa: satırda "Valör Tarihi" etiketli hücrenin BİR SAĞI
+    for (let i = hi + 1; i < Math.min(rows.length, hi + 8); i++) { const li = (rows[i] || []).findIndex((x) => norm(x).includes("valor")); if (li >= 0) { col.valor = li + 1; break; } }
   }
   const out = [];
   rows.slice(hi + 1).forEach((r) => {
-    const date = cTar >= 0 ? _xlDate(r[cTar]) : "";
-    const aci = cAci >= 0 ? String(r[cAci] ?? "").trim() : "";
-    if (!date || !aci) return;
-    out.push({ date, aciklama: aci, borc: cBor >= 0 ? parseNum(r[cBor]) : 0, alacak: cAla >= 0 ? parseNum(r[cAla]) : 0, valor: cVal >= 0 ? _xlDate(r[cVal]) : "" });
+    const date = col.tarih >= 0 ? _xlDate(r[col.tarih]) : "";
+    const borc = col.borc >= 0 ? parseNum(r[col.borc]) : 0;
+    const alacak = col.alacak >= 0 ? parseNum(r[col.alacak]) : 0;
+    if (!date || (borc <= 0 && alacak <= 0)) return;                 // yalnız tutarı olanlar
+    const aciklama = col.aciklama >= 0 ? String(r[col.aciklama] ?? "").trim() : "";
+    const sahis = col.sahis >= 0 ? String(r[col.sahis] ?? "").trim() : "GARANTİ BANKASI BLOKE HESABI";
+    const valor = col.valor >= 0 ? _xlDate(r[col.valor]) : "";
+    const isOpen = /birikmis|acilis/.test(normTr(aciklama));
+    const net = borc - alacak;
+    const tur = isOpen ? "Açılış" : net > 0 ? "Bloke'ye Gitme" : net < 0 ? "Bloke Çözüm" : "Bloke";
+    out.push({ date, sahis, aciklama, borc, alacak, valor, tur });
   });
   return out;
 }
@@ -10999,87 +11009,79 @@ async function viewBlokeKontrol(c) {
     fetchAll(C.accounts).catch(() => []),
     fetchAll(C.accountEntries).catch(() => []),
   ]);
-  // Garanti bloke (108, garanti) hesap + kayıtları
   const garAccs = accounts.filter((a) => String(a.code || "").startsWith("108") && normTr(a.name || "").includes("bloke") && normTr(a.name || "").includes("garanti"));
-  const accIds = new Set(garAccs.map((a) => a.id));
-  const blokeEntries = entries.filter((e) => accIds.has(e.accountId) || (String(e.accountCode || "").startsWith("108") && normTr(e.sahis || "").includes("garanti") && normTr(e.sahis || "").includes("bloke")));
-  const withVal = blokeEntries.filter((e) => e.valor).length;
+  const acc = garAccs[0] || null;
+  const curCount = acc ? entries.filter((e) => e.accountId === acc.id).length : 0;
 
-  let matched = [];   // {entry, date, aciklama, borc, cur, neu}
+  let parsed = [];   // parse edilen satırlar
 
   c.innerHTML = `<style>
     .bk-wrap{max-width:900px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
     .bk-stat{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-soft,#6f6250);background:var(--surface-2,#fbf7ef);border:1px solid var(--line,#eee3cf);padding:5px 10px;border-radius:999px}
     .bk-st{font-size:12.5px;color:var(--gold-dark,#7a5a20);margin-top:8px;min-height:16px}
+    .bk-sum{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px}
+    .bk-sum .chip{font-size:13px;font-weight:700;padding:7px 12px;border-radius:10px}
+    .bk-sum .chip.git{background:#fdeee3;color:#c0632b}.bk-sum .chip.coz{background:#e7f6ec;color:#2f7d4c}
+    .bk-sum .chip.n{background:var(--surface-2,#fbf7ef);color:var(--ink-soft,#6f6250)}
     table.bk-cmp{width:100%;border-collapse:collapse;font-size:12.5px}
     table.bk-cmp th{background:#f2e6c9;color:#7a5a20;padding:8px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.3px;text-align:left;white-space:nowrap}
     table.bk-cmp th.r,table.bk-cmp td.r{text-align:right}
     table.bk-cmp td{padding:6px 9px;border-bottom:1px solid var(--line,#efe7d6);vertical-align:middle}
     table.bk-cmp td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-    table.bk-cmp tr.yeni{background:#eaf6ee}
-    table.bk-cmp tr.farkli{background:#fdefe4}
     table.bk-cmp td.z{color:var(--ink-faint,#b8ad98)}
-    table.bk-cmp td.dur b{font-weight:700}
-    .dur-yeni{color:#2f7d4c}.dur-farkli{color:#c0632b}.dur-ayni{color:#8a7d66}.dur-none{color:#b8ad98}
-    .bk-sum{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:6px}
-    .bk-sum .chip{font-size:13px;font-weight:700;padding:7px 12px;border-radius:10px}
-    .bk-sum .chip.ok{background:#e7f6ec;color:#2f7d4c}.bk-sum .chip.up{background:#fdeee3;color:#c0632b}
-    .bk-sum .chip.n{background:var(--surface-2,#fbf7ef);color:var(--ink-soft,#6f6250)}
+    .tur-git{color:#c0632b;font-weight:700}.tur-coz{color:#2f7d4c;font-weight:700}.tur-ac{color:#7a5a20;font-weight:700}
   </style>
   <div class="bk-wrap">
-    <div class="notice info">📗 Garanti <b>bloke defterini (Excel)</b> yükleyin. Program, dosyadaki satırları <b>108 Garanti bloke</b> kayıtlarıyla <b>tarih + açıklamaya</b> göre eşleştirir ve <b>Valör Tarihi</b> sütununu yazar. Önce karşılaştırma gösterilir; <b>onaylayınca</b> uygulanır. (İçe aktarım valörleri almadığı için buradan tamamlanır.)</div>
+    <div class="notice info">📥 Garanti <b>bloke defteri (Excel)</b> yükleyin. Program mevcut <b>108 Garanti bloke</b> hareketlerini <b>siler</b> ve dosyadan (valör tarihleriyle) yeniden yazar.
+      <br>• <b>Borç</b> dolu satır → <b>Bloke'ye Gitme</b> (valör gününde çözülür) &nbsp;•&nbsp; <b>Alacak</b> dolu satır → <b>Bloke Çözüm</b>. Yalnız tutarı olan satırlar alınır.</div>
+
+    ${acc ? "" : `<div class="notice warn">⚠️ 108 Garanti Bloke hesabı bulunamadı. Önce hesabı oluşturun (108.xx, adı "Garanti … Bloke").</div>`}
 
     <div class="card">
-      <div class="card-head"><h3>1️⃣ Bloke Defteri (Excel)</h3><span class="bk-stat">🏦 Programda ${blokeEntries.length.toLocaleString("tr-TR")} Garanti bloke kaydı · ${withVal.toLocaleString("tr-TR")} valörlü</span></div>
-      ${blokeEntries.length ? "" : `<div class="notice warn" style="margin-top:10px">⚠️ Programda Garanti bloke (108) kaydı bulunamadı. Önce <b>Cari Geçmişi</b> ile bloke hareketlerini aktarın.</div>`}
+      <div class="card-head"><h3>1️⃣ Bloke Defteri (Excel)</h3><span class="bk-stat">🏦 Hedef: ${acc ? esc((acc.code || "") + " · " + (acc.name || "")) : "—"} · şu an ${curCount.toLocaleString("tr-TR")} kayıt</span></div>
       <div id="bk-drop" style="margin-top:12px"></div>
       <div id="bk-st" class="bk-st"></div>
     </div>
 
     <div class="card" id="bk-result-card" style="display:none">
-      <div class="card-head"><h3>2️⃣ Karşılaştırma</h3><span id="bk-cnt" class="hint"></span></div>
+      <div class="card-head"><h3>2️⃣ Önizleme</h3><span id="bk-cnt" class="hint"></span></div>
       <div id="bk-sum" class="bk-sum"></div>
       <div class="toolbar" style="margin:0 0 10px;gap:10px">
-        <label style="font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="bk-onlydiff"> Sadece yazılacak/değişecekleri göster</label>
         <div class="grow"></div>
-        <button class="btn btn-primary btn-sm" id="bk-apply">✅ Valörleri Uygula</button>
+        <button class="btn btn-primary btn-sm" id="bk-apply">🗑️ Mevcutu Sil & İçe Aktar</button>
       </div>
+      <div class="pv-fhint" style="margin:0 0 8px">İlk 200 satır gösteriliyor (tümü aktarılır).</div>
       <div class="table-wrap"><table class="bk-cmp" id="bk-cmp">
-        <thead><tr><th>İşlem Tarihi</th><th>Açıklama</th><th class="r">Tutar</th><th>Mevcut Valör</th><th>Excel Valör</th><th>Durum</th></tr></thead>
+        <thead><tr><th>İşlem Tarihi</th><th>Açıklama</th><th class="r">Borç</th><th class="r">Alacak</th><th>Valör</th><th>Tür</th></tr></thead>
         <tbody></tbody>
       </table></div>
     </div>
   </div>`;
 
-  function classify(m) {
-    if (!m.neu) return { cls: "none", st: "Excel'de yok" };
-    if (!m.cur) return { cls: "yeni", st: "Yazılacak" };
-    if (m.cur === m.neu) return { cls: "ayni", st: "Aynı" };
-    return { cls: "farkli", st: "Değişecek" };
-  }
+  const turCls = (t) => t === "Bloke Çözüm" ? "coz" : t === "Açılış" ? "ac" : "git";
   function render() {
-    const onlyDiff = $("#bk-onlydiff", c) && $("#bk-onlydiff", c).checked;
-    let yeni = 0, farkli = 0, ayni = 0, none = 0, body = "";
-    matched.forEach((m) => {
-      const k = classify(m);
-      if (k.cls === "yeni") yeni++; else if (k.cls === "farkli") farkli++; else if (k.cls === "ayni") ayni++; else none++;
-      if (onlyDiff && k.cls !== "yeni" && k.cls !== "farkli") return;
-      body += `<tr class="${k.cls}">
-        <td>${m.date ? fmtDate(m.date) : "—"}</td>
-        <td>${esc(m.aciklama || "")}</td>
-        <td class="num">${m.borc ? fmtNum(m.borc) + " ₺" : "<span class=\"z\">—</span>"}</td>
-        <td class="${m.cur ? "" : "z"}">${m.cur ? fmtDate(m.cur) : "—"}</td>
-        <td class="${m.neu ? "" : "z"}">${m.neu ? fmtDate(m.neu) : "—"}</td>
-        <td class="dur"><b class="dur-${k.cls}">${k.st}</b></td>
+    const gitR = parsed.filter((r) => r.tur === "Bloke'ye Gitme"), cozR = parsed.filter((r) => r.tur === "Bloke Çözüm");
+    const sumB = parsed.reduce((s, r) => s + r.borc, 0), sumA = parsed.reduce((s, r) => s + r.alacak, 0);
+    const kalan = sumB - sumA;
+    const todayI = todayISO();
+    const fut = parsed.filter((r) => r.borc > 0 && r.valor && r.valor > todayI);
+    $("#bk-sum", c).innerHTML = `
+      <span class="chip git">🟠 ${gitR.length} Bloke'ye Gitme · ${fmtNum(sumB)} ₺</span>
+      <span class="chip coz">🟢 ${cozR.length} Bloke Çözüm · ${fmtNum(sumA)} ₺</span>
+      <span class="chip n">Kalan bloke ${fmtNum(kalan)} ₺ · gelecek valör ${fut.length} gün</span>`;
+    $("#bk-cnt", c).textContent = `${parsed.length.toLocaleString("tr-TR")} satır`;
+    let body = "";
+    parsed.slice(0, 200).forEach((r) => {
+      body += `<tr>
+        <td>${r.date ? fmtDate(r.date) : "—"}</td>
+        <td>${esc(r.aciklama || "")}</td>
+        <td class="num ${r.borc ? "" : "z"}">${r.borc ? fmtNum(r.borc) : "—"}</td>
+        <td class="num ${r.alacak ? "" : "z"}">${r.alacak ? fmtNum(r.alacak) : "—"}</td>
+        <td class="${r.valor ? "" : "z"}">${r.valor ? fmtDate(r.valor) : "—"}</td>
+        <td><b class="tur-${turCls(r.tur)}">${esc(r.tur)}</b></td>
       </tr>`;
     });
-    $("#bk-cmp tbody", c).innerHTML = body || `<tr><td colspan="6" class="z" style="text-align:center;padding:16px">Gösterilecek satır yok.</td></tr>`;
-    $("#bk-sum", c).innerHTML = `
-      <span class="chip ok">🟢 ${yeni} yazılacak</span>
-      <span class="chip up">🟠 ${farkli} değişecek</span>
-      <span class="chip n">⚪ ${ayni} aynı · ${none} eşleşmedi</span>`;
-    $("#bk-cnt", c).textContent = `${matched.length} bloke kaydı`;
-    const btn = $("#bk-apply", c); if (btn) btn.disabled = (yeni + farkli) === 0;
+    $("#bk-cmp tbody", c).innerHTML = body;
   }
 
   $("#bk-drop", c).appendChild(fileDrop(async (file) => {
@@ -11087,41 +11089,50 @@ async function viewBlokeKontrol(c) {
     st.textContent = "⏳ Excel okunuyor…";
     try {
       const aoa = await parseSheetAOA(file);
-      const xrows = parseValorSheet(aoa);
-      if (!xrows.length) { st.textContent = "⚠️ Excel'de uygun sütun (Tarih/Açıklama) bulunamadı."; return; }
-      const exByKey = {};
-      xrows.forEach((x) => { if (x.valor) exByKey[x.date + "|" + _looseKey(x.aciklama)] = x.valor; });
-      matched = blokeEntries.map((e) => {
-        const key = (e.date || "") + "|" + _looseKey(e.aciklama || "");
-        return { entry: e, date: e.date || "", aciklama: e.aciklama || "", borc: parseNum(e.borc), cur: e.valor || "", neu: exByKey[key] || "" };
-      }).sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.aciklama || "").localeCompare(b.aciklama || "", "tr"));
-      const okN = matched.filter((m) => m.neu).length;
-      st.textContent = `✅ Excel: ${xrows.length} satır · programdaki ${matched.length} bloke kaydının ${okN} tanesi eşleşti. Aşağıdan kontrol edip uygulayın.`;
+      parsed = parseBlokeSheet(aoa);
+      if (!parsed.length) { st.textContent = "⚠️ Excel'de tutarı olan bloke satırı bulunamadı (Tarih/Açıklama/Borç/Alacak sütunları)."; return; }
+      parsed.sort((a, b) => (a.date || "").localeCompare(b.date || ""));
+      st.textContent = `✅ ${parsed.length.toLocaleString("tr-TR")} satır okundu. Kontrol edip “Mevcutu Sil & İçe Aktar”a basın.`;
       $("#bk-result-card", c).style.display = "";
       render();
     } catch (e) { st.textContent = "❌ Okunamadı: " + (e && e.message || e); }
   }, ".xlsx,.xls", true));
 
-  $("#bk-onlydiff", c).onchange = render;
-
   $("#bk-apply", c).onclick = async () => {
-    const todo = matched.filter((m) => m.neu && m.neu !== m.cur);
-    if (!todo.length) { toast("Yazılacak valör yok (hepsi güncel).", "info"); return; }
-    if (!confirm(`${todo.length} Garanti bloke kaydının Valör Tarihi yazılacak/güncellenecek.\nDevam edilsin mi?`)) return;
+    if (!acc) { toast("108 Garanti Bloke hesabı yok.", "err"); return; }
+    if (!parsed.length) { toast("Önce Excel yükleyin.", "info"); return; }
+    if (!confirm(`Mevcut ${curCount.toLocaleString("tr-TR")} Garanti bloke kaydı SİLİNECEK ve dosyadan ${parsed.length.toLocaleString("tr-TR")} satır yazılacak.\nDevam edilsin mi?`)) return;
     const btn = $("#bk-apply", c); btn.disabled = true; const orig = btn.textContent;
     try {
-      for (let i = 0; i < todo.length; i += 400) {
+      // 1) Mevcut 108 Garanti bloke kayıtlarını sil
+      const old = entries.filter((e) => e.accountId === acc.id);
+      for (let i = 0; i < old.length; i += 400) {
         const b = writeBatch(db);
-        todo.slice(i, i + 400).forEach((m) => b.update(doc(db, "accountEntries", m.entry.id), { valor: m.neu, updatedAt: serverTimestamp() }));
+        old.slice(i, i + 400).forEach((e) => b.delete(doc(db, "accountEntries", e.id)));
         await b.commit();
-        btn.textContent = `Yazılıyor… ${Math.min(i + 400, todo.length)}/${todo.length}`;
+        btn.textContent = `Siliniyor… ${Math.min(i + 400, old.length)}/${old.length}`;
       }
-      await logAction("Düzeltme", "Hesap Hareketi", `Garanti bloke valör tarihleri Excel'den yazıldı · ${todo.length} kayıt`);
-      todo.forEach((m) => { m.cur = m.neu; m.entry.valor = m.neu; });
+      // 2) Açılış bakiyesini sıfırla (defter Birikmiş Bakiye satırından başlar)
+      try { await updateDoc(doc(db, "accounts", acc.id), { openingBalance: 0, updatedAt: serverTimestamp() }); } catch (_) {}
+      // 3) Yeni kayıtları yaz
+      const now = new Date().toISOString();
+      const docs = parsed.map((r, i) => ({
+        accountId: acc.id, accountCode: String(acc.code || ""),
+        islemNo: i + 1, cariNo: "", date: r.date, sahis: r.sahis,
+        aciklama: r.aciklama, rapor: "", borc: r.borc || 0, alacak: r.alacak || 0,
+        valor: r.valor || "", faturaTuru: r.tur, faturaNo: "",
+        source: "bloke-garanti", createdAt: now,
+      }));
+      for (let i = 0; i < docs.length; i += 800) {
+        const b = writeBatch(db);
+        docs.slice(i, i + 800).forEach((d) => b.set(doc(C.accountEntries()), d));
+        await b.commit();
+        btn.textContent = `Yazılıyor… ${Math.min(i + 800, docs.length)}/${docs.length}`;
+      }
+      await logAction("İçe Aktarma", "Garanti Bloke", `Mevcut ${old.length} silindi · ${docs.length} bloke hareketi yazıldı (valörlü)`);
       btn.textContent = orig; btn.disabled = false;
-      toast(`${todo.length} kaydın valör tarihi güncellendi.`, "ok");
-      render();
-    } catch (e) { btn.textContent = orig; btn.disabled = false; toast("Yazılamadı: " + e.message, "err"); }
+      successAnim(`✅ ${docs.length.toLocaleString("tr-TR")} Garanti bloke hareketi aktarıldı`, () => route());
+    } catch (e) { btn.textContent = orig; btn.disabled = false; toast("Aktarılamadı: " + e.message, "err"); }
   };
 }
 
