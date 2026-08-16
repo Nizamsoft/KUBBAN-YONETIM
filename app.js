@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.289";
+const APP_VERSION = "2026.290";
 const CHANGELOG = [
+  { version: "2026.290", date: "2026-08-16", items: [
+    "🔧 Ayarlar → Kayıt & Kontrol'e 'Bloke: Giren/Çıkan → Borç/Alacak' bakım aracı eklendi. 108 bloke kayıtlarında yanlışlıkla Giren/Çıkan alanında kalmış tutarları Borç/Alacak'a taşır (Giren→Borç, Çıkan→Alacak; giren/çıkan sıfırlanır). Böylece bloke defteri (borç−alacak) ile Hesaplar bakiyesi (giren−çıkan+borç−alacak) EŞİTLENİR — T.Finans gibi farklı görünen bakiyeler tutarlı olur. Yalnız 108 hesaplarında çalışır; Kasa/Banka'ya dokunmaz.",
+  ]},
   { version: "2026.289", date: "2026-08-16", items: [
     "📋 Hesaplar → 108 Blokeli Hesaplar grubunun alt hesap sırası artık sabit: Garanti · T.Finans · Yemek Sepeti · Getir · Tyg · Dsm · Metropal · Edenred · Pluxee · Multinet · Setcard (hesap adına göre; bakiyeden bağımsız).",
   ]},
@@ -1980,6 +1983,7 @@ async function viewAyarlar(c) {
       { ic: "📥", label: "108 Garanti Bloke İçe Aktar", desc: "Bloke defteri Excel'i · mevcutu sil & valörlü yeniden yaz", path: "bloke-kontrol", admin: true },
       { ic: "🏷️", label: "Kasa 'Nakit' Çıkışlarını Düzelt", desc: "Geçmiş nakit çıkışlarını 'MASRAF - Ana Kasa' yap", action: "fix-kasa-masraf", admin: true },
       { ic: "🔓", label: "Bloke Valör Tarihlerini Düzelt", desc: "Fatura No'daki valör tarihlerini Valör alanına taşı (108.xx)", action: "fix-bloke-valor", admin: true },
+      { ic: "🔧", label: "Bloke: Giren/Çıkan → Borç/Alacak", desc: "108 kayıtlarında Giren'i Borç'a, Çıkan'ı Alacak'a taşı (giren/çıkan kalmasın)", action: "fix-bloke-gc", admin: true },
     ]},
     { title: "⚙️ Sistem", items: [
       { ic: "👥", label: "Kullanıcılar", desc: "Kullanıcı ekle / yetki", path: "kullanicilar", admin: true },
@@ -2029,6 +2033,54 @@ async function viewAyarlar(c) {
     ev.preventDefault();
     fixBlokeValor(vdBtn);
   });
+  // Bloke (108.xx) Giren/Çıkan → Borç/Alacak taşı
+  const gcBtn = $('[data-action="fix-bloke-gc"]', c);
+  if (gcBtn) gcBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    fixBlokeGirenCikan(gcBtn);
+  });
+}
+
+// Bloke (108.xx) hesaplarında yanlışlıkla Giren/Çıkan alanına yazılmış tutarları
+// Borç/Alacak'a taşır: yeni borç = borç + giren, yeni alacak = alacak + çıkan; giren/çıkan → 0.
+// Böylece defter (borç−alacak) ile Hesaplar bakiyesi (giren−çıkan+borç−alacak) EŞİTLENİR
+// ve bloke hesaplarında hiç giren/çıkan kalmaz. Kasa/Banka'ya DOKUNMAZ (yalnız 108).
+async function fixBlokeGirenCikan(btn) {
+  const [accounts, entries] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  const blokeIds = new Set(
+    accounts.filter((a) => String(a.code || "").startsWith("108")).map((a) => a.id)
+  );
+  const targets = entries.filter((e) => {
+    const isBloke = blokeIds.has(e.accountId) || String(e.accountCode || "").startsWith("108");
+    return isBloke && (parseNum(e.giren) > 0.005 || parseNum(e.cikan) > 0.005);
+  });
+  if (!targets.length) { toast("Taşınacak Giren/Çıkan bulunamadı — 108 kayıtları zaten borç/alacak.", "info"); return; }
+  if (!confirm(`${targets.length} bloke kaydında Giren → Borç, Çıkan → Alacak taşınacak (giren/çıkan sıfırlanır).\nDevam edilsin mi?`)) return;
+  const orig = btn.querySelector("b")?.textContent;
+  const setLbl = (t) => { const b = btn.querySelector("b"); if (b) b.textContent = t; };
+  try {
+    for (let i = 0; i < targets.length; i += 400) {
+      const b = writeBatch(db);
+      targets.slice(i, i + 400).forEach((e) => {
+        b.update(doc(db, "accountEntries", e.id), {
+          borc: parseNum(e.borc) + parseNum(e.giren),
+          alacak: parseNum(e.alacak) + parseNum(e.cikan),
+          giren: 0, cikan: 0, updatedAt: serverTimestamp(),
+        });
+      });
+      await b.commit();
+      setLbl(`İşleniyor… ${Math.min(i + 400, targets.length)}/${targets.length}`);
+    }
+    await logAction("Düzeltme", "Hesap Hareketi", `Bloke Giren/Çıkan → Borç/Alacak taşındı · ${targets.length} kayıt`);
+    if (orig) setLbl(orig);
+    toast(`${targets.length} bloke kaydı borç/alacak'a taşındı (giren/çıkan sıfırlandı).`, "ok");
+  } catch (e) {
+    if (orig) setLbl(orig);
+    toast("Güncellenemedi: " + e.message, "err");
+  }
 }
 
 // Bloke hesaplarında (108.xx) geçmiş aktarımlarda valör tarihi "Fatura No" alanına
