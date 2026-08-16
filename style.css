@@ -1521,6 +1521,8 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 .npc-card.cik .npc-tot .a { color: var(--danger); } .npc-card.gir .npc-tot .a { color: var(--ok); }
 
 /* ===== Nakit Akış — tek hesap tasarımı ===== */
+/* Nakit Akış: PC'de tabloyu daralt ve sola yasla (sağ taraf şimdilik boş) */
+.na-page { max-width: 600px; }
 .na-tabs { display: flex; gap: 7px; margin-bottom: 10px; }
 .na-tab { flex: 1; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 11px; padding: 9px 6px; text-align: center; cursor: pointer; font-weight: 800; font-size: 13px; color: var(--ink-soft); }
 .na-tab .em { display: block; font-size: 17px; margin-bottom: 2px; }

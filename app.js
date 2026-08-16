@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.265";
+const APP_VERSION = "2026.266";
 const CHANGELOG = [
+  { version: "2026.266", date: "2026-08-15", items: [
+    "🖥️ Nakit Akış Raporu bilgisayarda artık tüm ekrana yayılmıyor: tablo daraltıldı (max 600px) ve SOLA yaslandı; sağ taraf şimdilik boş bırakıldı (ileride oraya özet/ek görünüm eklenebilir). Telefonda görünüm aynı",
+  ]},
   { version: "2026.265", date: "2026-08-15", items: [
     "✨ Açılış (yükleme) ekranı baştan tasarlandı — sade & modern: bol boşluk, ortada büyük net logo (yumuşak süzülme + hafif nefes animasyonu), zarif serif başlık, İNCE altın ilerleme çizgisi, küçük yüzde ve durum yazısı. En altta artık kalın rozet yerine İNCE YAZI kredi: 'Nizam Software'. (Ayarlar'dan logo yüklediysen, o da küçük olarak yazının üstünde çıkar; istemezsen Ayarlar → Sayfa Ayarları'ndan kaldırınca yalnız yazı kalır.) Tüm öğeler sırayla belirir; 'hareket azaltma' açıksa animasyonlar kapanır",
   ]},
@@ -10562,6 +10565,7 @@ async function viewNakitAkisRapor(c) {
   const selKeys = new Set(["garanti"]); const fwd = 90;   // çoklu seçim: birden çok hesap seçilince TOPLANIR
 
   c.innerHTML = `
+    <div class="na-page">
     <div class="na-tabs" id="na-tabs">
       ${NA_ACCS.map((a) => `<div class="na-tab${selKeys.has(a.key) ? " on" : ""}" data-k="${a.key}"><span class="em">${a.key === "nakit" ? "💵" : "🏦"}</span>${esc(a.label)}${accByKey[a.key] ? "" : " ⚠️"}</div>`).join("")}
     </div>
@@ -10572,8 +10576,9 @@ async function viewNakitAkisRapor(c) {
         <tbody id="na-tb"></tbody>
       </table>
     </div>
-    <div id="na-pop"></div>
-    <div class="pv-fhint" style="margin-top:10px">Üstten birden çok hesap seçebilirsin — <b>toplanır</b> (kartta ayrı ayrı görünür). Giren/Çıkan'a dokun → ne olduğu çıkar. Bugüne kadar <b>gerçek</b>, sonrası <b>öngörü</b> (öngörülen giriş + tekrarlanan kalemler + <b>bekleyen bloke çözümleri</b>).</div>`;
+    <div class="pv-fhint" style="margin-top:10px">Üstten birden çok hesap seçebilirsin — <b>toplanır</b> (kartta ayrı ayrı görünür). Giren/Çıkan'a dokun → ne olduğu çıkar. Bugüne kadar <b>gerçek</b>, sonrası <b>öngörü</b> (öngörülen giriş + tekrarlanan kalemler + <b>bekleyen bloke çözümleri</b>).</div>
+    </div>
+    <div id="na-pop"></div>`;
 
   function compute(key) {
     const acc = accByKey[key];
