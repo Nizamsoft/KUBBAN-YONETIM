@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.291";
+const APP_VERSION = "2026.292";
 const CHANGELOG = [
+  { version: "2026.292", date: "2026-08-16", items: [
+    "🧹 Her hesabın düzenleme ('kalem') penceresine '🧹 Defteri Temizle' düğmesi eklendi: o hesabın (grupsa alt hesaplar dahil) TÜM defter kayıtlarını siler. Hesap silinmez, yalnız defteri boşalır (bakiye 0). Onay ister ve GERİ ALINAMAZ.",
+  ]},
   { version: "2026.291", date: "2026-08-16", items: [
     "🧹 Ayarlar → Kayıt & Kontrol'e 'Bloke Defterlerini Temizle' bakım aracı eklendi: Garanti ve T.Finans HARİÇ tüm 108 bloke hesaplarının (Yemek Sepeti, Getir, Tyg, Dsm, Metropal, Edenred, Pluxee, Multinet, Setcard) tüm defter kayıtlarını siler. Hesaplar silinmez, yalnız defter boşalır (bakiye 0). Onay ister ve GERİ ALINAMAZ.",
   ]},
@@ -6126,6 +6129,31 @@ function accModal(acc, parent, opts) {
     });
     delBtn.style.marginRight = "auto"; // sola yasla
     footer.push(delBtn);
+    // 🧹 Defteri Temizle — bu hesabın (grupsa alt hesaplar dahil) TÜM defter kayıtlarını sil.
+    // Hesap silinmez, yalnız defteri boşalır. GERİ ALINAMAZ.
+    const clrBtn = mkBtn("🧹 Defteri Temizle", "", () => {
+      const descIds = new Set([acc.id]);
+      let added = true;
+      while (added) { added = false; allAcc.forEach((a) => { if (a.parentId && descIds.has(a.parentId) && !descIds.has(a.id)) { descIds.add(a.id); added = true; } }); }
+      const multi = descIds.size > 1;
+      confirmDialog(
+        `"${acc.name}" hesabının TÜM defter kayıtları silinecek${multi ? ` (alt hesaplar dahil · ${descIds.size} hesap)` : ""}.\nHesap silinmez, yalnız defteri boşalır (bakiye 0).\n⚠️ Geri alınamaz. Devam edilsin mi?`,
+        async () => {
+          const all = await fetchAll(C.accountEntries).catch(() => []);
+          const targets = all.filter((e) => descIds.has(e.accountId));
+          if (!targets.length) { toast("Bu hesabın defteri zaten boş.", "info"); return; }
+          try {
+            for (let i = 0; i < targets.length; i += 400) {
+              const b = writeBatch(db);
+              targets.slice(i, i + 400).forEach((e) => b.delete(doc(db, "accountEntries", e.id)));
+              await b.commit();
+            }
+            await logAction("Silme", "Hesap Hareketi", `Defter temizlendi · ${acc.code || ""} ${acc.name || ""} · ${targets.length} kayıt`);
+            m.close(); toast(`${targets.length} kayıt silindi · defter temizlendi.`, "ok"); route();
+          } catch (e) { toast("Silinemedi: " + e.message, "err"); }
+        });
+    });
+    footer.push(clrBtn);
   }
   footer.push(mkBtn("Vazgeç", "", () => m.close()));
   footer.push(mkBtn("Kaydet", "btn-primary", async () => {
