@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.286";
+const APP_VERSION = "2026.287";
 const CHANGELOG = [
+  { version: "2026.287", date: "2026-08-16", items: [
+    "🧾 Bloke defteri düzeni: 'İşlem Adı' sütunu artık Tarih'in yanında (2. sütun). İçeriği açıklamaya göre: '…Çekimi Yatan' → Bloke Çözümü (yeşil), '…Çekimi' → Bloke'ye Alma (kırmızı), 'Birikmiş Bakiye' → Açılış (altın). Valör Tarihi en sağda kaldı.",
+    "🔠 Bloke defterinde Açıklama artık 'İlk Harf Büyük' gösteriliyor (ör. 'KREDİ KART ÇEKİMİ YATAN' → 'Kredi Kart Çekimi Yatan') — hem tabloda hem telefonda.",
+  ]},
   { version: "2026.286", date: "2026-08-16", items: [
     "🐛 108 Bloke kaydını düzenleyince 'Kaydet ama güncellemiyor' hatası düzeltildi: düzenleme penceresi 108 bloke hesabını yanlışlıkla Giren/Çıkan (kasa) formu sanıyordu; artık doğru şekilde Borç/Alacak formu açılıyor ve kaydedince defter güncelleniyor.",
   ]},
@@ -7758,7 +7762,7 @@ async function viewAccountLedger(c) {
   const cariCard = ({ e, bakiye }) => `
     <button class="tx-card${isHl(e) ? " tx-hl" : ""}" data-edit="${e.id}">
       <div class="tx-left">
-        <div class="tx-title">${esc(e.aciklama || "Hareket")}</div>
+        <div class="tx-title">${esc(isBloke ? titleCase(e.aciklama || "Hareket") : (e.aciklama || "Hareket"))}</div>
         ${(e.faturaTuru || e.faturaNo) ? `<div class="tx-tag">🧾 ${esc(e.faturaTuru || "")}${e.faturaNo ? " · " + esc(e.faturaNo) : ""}</div>` : ""}
         <div class="tx-sub">${fmtDate(e.date)}</div>
       </div>
@@ -7789,18 +7793,28 @@ async function viewAccountLedger(c) {
     </div>` : "";
 
 
-  // Tablo satırı üreticileri (sayfalama için ayrı)
+  // Bloke İşlem Adı: açıklamaya göre — "…Çekimi Yatan" → Bloke Çözümü (yeşil),
+  // "…Çekimi" → Bloke'ye Alma (kırmızı), "Birikmiş Bakiye" → Açılış. Yedek: tutar yönü.
+  const blokeIslem = (e) => {
+    const a = normTr(e.aciklama || "");
+    if (a.includes("birikmis") || a.includes("acilis")) return { t: "Açılış", c: "var(--gold-dark,#7a5a20)" };
+    if (a.includes("yatan")) return { t: "Bloke Çözümü", c: "var(--ok)" };
+    if (a.includes("cekim")) return { t: "Bloke'ye Alma", c: "var(--danger)" };
+    if (parseNum(e.alacak) > 0) return { t: "Bloke Çözümü", c: "var(--ok)" };
+    if (parseNum(e.borc) > 0) return { t: "Bloke'ye Alma", c: "var(--danger)" };
+    return { t: "", c: "" };
+  };
+  // Tablo satırı üreticileri (sayfalama için ayrı). Bloke'de: İşlem Adı Tarih'in yanında,
+  // Açıklama "İlk Harf Büyük", Valör en sağda.
   const cariRowHtml = ({ e, bakiye }) => `<tr class="${isHl(e) ? "hl-row" : ""}">
     <td>${fmtDate(e.date)}</td>
-    <td class="tdwrap">${esc(e.aciklama || "")}</td>
+    ${isBloke ? (() => { const x = blokeIslem(e); return `<td style="font-weight:700;color:${x.c}">${esc(x.t)}</td>`; })() : ""}
+    <td class="tdwrap">${esc(isBloke ? titleCase(e.aciklama || "") : (e.aciklama || ""))}</td>
     <td class="num">${e.borc ? fmtTRY(parseNum(e.borc)) : "—"}</td>
     <td class="num">${e.alacak ? fmtTRY(parseNum(e.alacak)) : "—"}</td>
     <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
     ${isBloke
-      ? (() => { const vd = blokeVd(e); return `<td style="font-weight:600;${e.valor && e.alacak ? "color:var(--ink-faint)" : e.valor ? "color:var(--ok)" : vd ? "color:var(--ink-soft)" : ""}">${vd || "—"}</td>`
-          + (vd
-            ? `<td style="font-weight:700;color:var(--danger)">Bloke'ye Alma</td>`
-            : `<td style="font-weight:700;color:var(--ok)">Bloke Çözümü</td>`); })()
+      ? (() => { const vd = blokeVd(e); return `<td style="font-weight:600;${e.valor && e.alacak ? "color:var(--ink-faint)" : e.valor ? "color:var(--ok)" : vd ? "color:var(--ink-soft)" : ""}">${vd || "—"}</td>`; })()
       : `<td>${esc(e.faturaTuru || "")}</td><td>${esc(e.faturaNo || "")}</td>`}
     <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
   </tr>`;
@@ -7843,8 +7857,8 @@ async function viewAccountLedger(c) {
     let l1, l2;
     if (cari) {
       if (isBloke) {
-        // Bloke: üstte açıklama (… Çekimi), altta çözüleceği gün (valör)
-        l1 = e.aciklama || e.sahis || "";
+        // Bloke: üstte açıklama (İlk Harf Büyük), altta çözüleceği gün (valör)
+        l1 = titleCase(e.aciklama || e.sahis || "");
         const vd = blokeVd(e);
         l2 = vd ? "🔓 Valör: " + vd : "";
       } else {
@@ -7889,15 +7903,15 @@ async function viewAccountLedger(c) {
         ${heroBtn}
       </div>`;
   const thead = cari
-    ? `<tr><th>Tarih</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>${isBloke ? "<th>Valör Tarihi</th><th>İşlem Adı</th>" : "<th>Fatura Türü</th><th>Fatura No</th>"}<th></th></tr>`
+    ? `<tr><th>Tarih</th>${isBloke ? "<th>İşlem Adı</th>" : ""}<th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>${isBloke ? "<th>Valör Tarihi</th>" : "<th>Fatura Türü</th><th>Fatura No</th>"}<th></th></tr>`
     : `<tr><th>Tarih</th><th>İşlem Adı</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th></tr>`;
   const colCount = cari ? 8 : 8;
   // Sabit sütun genişlikleri — sayfalar arası "başlık daralması" olmasın (Açıklama esner/wrap)
   const colgroup = cari
-    ? `<colgroup><col style="width:92px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px">${isBloke ? '<col style="width:112px"><col style="width:132px">' : '<col style="width:120px"><col style="width:110px">'}<col style="width:96px"></colgroup>`
+    ? `<colgroup><col style="width:92px">${isBloke ? '<col style="width:132px">' : ''}<col><col style="width:150px"><col style="width:150px"><col style="width:150px">${isBloke ? '<col style="width:120px">' : '<col style="width:120px"><col style="width:110px">'}<col style="width:96px"></colgroup>`
     : `<colgroup><col style="width:92px"><col style="width:146px"><col><col style="width:180px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:104px"></colgroup>`;
   const tfoot = !rows.length ? "" : (cari
-    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
+    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="${isBloke ? 5 : 4}">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="${isBloke ? 2 : 3}"></td></tr></tfoot>`
     : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
 
   // Arama için her satıra metin torbası (bir kez hesaplanır — 27.000'de bile hızlı)
