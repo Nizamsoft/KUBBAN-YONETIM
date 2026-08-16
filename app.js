@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.273";
+const APP_VERSION = "2026.274";
 const CHANGELOG = [
+  { version: "2026.274", date: "2026-08-16", items: [
+    "📄 Aylık Ödeme Planı PDF akışı sadeleşti: artık önizleme penceresi YOK — yanındaki ay seçiciden ayı seç, '📄 Ödeme Planı PDF'e bas → doğrudan yazdırma ekranı açılır ('PDF olarak kaydet' ile indirilir). Grup filtresi seçiliyse plan yine o grupla sınırlıdır.",
+    "☑️ PDF'e 'ÖDENDİ' sütunu (boş onay kutusu) eklendi — patron ödedikçe elle tik atabilsin. Plan yine tek sayfaya sığar.",
+  ]},
   { version: "2026.273", date: "2026-08-16", items: [
     "🧩 Tekrarlanan Kalemler tablosu son hâline getirildi: TÜM sütunlar EŞİT genişlik; gruplar → 📋 Kalem (Ad·Rapor·Tür) · 📅 Tarih Bilgileri (Tekrar·En Yakın) · 💰 Ödeme Bilgileri (Hesap·Tutar) · ✅ Durum & İşlem (en sağda tek grup). Gruplar arası KALIN altın dikey ayırıcı + satırlar zebra (belirginlik). İşlem düğmeleri kompakt ikon (✎ Düzenle · 🗑 Sil). Her şey ortalı.",
   ]},
@@ -9826,7 +9830,8 @@ async function viewNakitAkisVeri(c) {
         <option value="">🗂️ Tüm Gruplar</option>
         ${[...new Set(items.map((x) => x.rapor).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr")).map((g) => `<option value="${esc(normTr(g))}">${esc(g)}</option>`).join("")}
       </select>
-      <button class="btn btn-sm" id="cf-plan">📄 Aylık Ödeme Planı</button>
+      <input type="month" id="cf-plan-month" value="${_todayIso.slice(0, 7)}" title="Plan ayı" style="padding:7px 10px;border:1px solid var(--line-strong,#ddd0b8);border-radius:9px;font-size:13px;background:var(--surface,#fff);color:var(--ink,#241d15)" />
+      <button class="btn btn-sm" id="cf-plan">📄 Ödeme Planı PDF</button>
       <div class="grow"></div>
       <button class="btn btn-sm" id="cf-import">📥 Excel'den Aktar</button>
       <button class="btn btn-primary btn-sm" id="cf-add">+ Yeni Tanım</button>
@@ -9877,8 +9882,18 @@ async function viewNakitAkisVeri(c) {
   const gfSel = $("#cf-grup", c);
   const applyGf = () => { const v = gfSel.value; $$(".card table.data tbody tr", c).forEach((tr) => { tr.style.display = (!v || tr.dataset.grup === v) ? "" : "none"; }); };
   if (gfSel) gfSel.onchange = applyGf;
-  // Aylık öngörülen ödeme planı (PDF/yazdır) — seçili grupla sınırlı
-  const cfPlan = $("#cf-plan", c); if (cfPlan) cfPlan.onclick = () => planModal(items, gfSel ? gfSel.value : "");
+  // Aylık öngörülen ödeme planı → önizleme YOK, direkt yazdırma ekranı (PDF olarak kaydet)
+  const cfPlan = $("#cf-plan", c); if (cfPlan) cfPlan.onclick = () => {
+    const mv = ($("#cf-plan-month", c) && $("#cf-plan-month", c).value) || _todayIso.slice(0, 7);
+    const [yy, mm] = mv.split("-").map(Number);
+    const gf = gfSel ? gfSel.value : "";
+    let rows = monthPlan(items, yy, (mm || 1) - 1);
+    if (gf) rows = rows.filter((r) => normTr(r.group) === gf);
+    if (!rows.length) return toast("Bu ay için öngörülen ödeme yok.", "info");
+    const AY = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+    const scoped = gf ? ([...new Set(items.map((x) => x.rapor).filter(Boolean))].find((g) => normTr(g) === gf) || "") : "";
+    printPlan(rows, `${AY[(mm || 1) - 1]} ${yy} Öngörülen Ödemeler`, scoped);
+  };
   $$("[data-edit]", c).forEach((b) => b.onclick = () => cfModal(items.find((x) => x.id === b.dataset.edit)));
   $$("[data-del]", c).forEach((b) => b.onclick = () =>
     confirmDialog("Kalem silinsin mi?", async () => {
@@ -10063,6 +10078,8 @@ function printDoc(title, inner) {
     th{background:#f2e6c9;color:#7a5a20;text-align:left;padding:4px 7px;font-size:8.5px;text-transform:uppercase;letter-spacing:.2px}
     td{padding:3px 7px;border-bottom:1px solid #ece2d1}
     .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    th.chk,td.chk{text-align:center;width:64px}
+    .cbox{display:inline-block;width:14px;height:14px;border:1.5px solid #7a5a20;border-radius:3px;vertical-align:middle}
     tfoot tr.sub td{background:#faf5ea;font-weight:700}
     tfoot tr.gt td{border-top:2px solid #c9a24b;font-weight:800;font-size:11px}
     .foot{margin-top:10px;font-size:9px;color:#9c8e78;text-align:center;line-height:1.5}
@@ -10077,45 +10094,12 @@ function printPlan(rows, title, scoped) {
   const inner = `
     <div class="ph"><div><div class="nm">Güllüoğlu Kübban</div><div class="sub">Öngörülen Ödemeler${scoped ? " · " + esc(scoped) : ""}</div></div>
       <div class="t"><div class="tt">${esc(title)}</div><div class="dt">Yazdırma: ${new Date().toLocaleDateString("tr-TR")}</div></div></div>
-    <table><thead><tr><th>Tarih</th><th>Ödeme Adı</th><th>Grup</th><th>Hesap</th><th class="num">Tutar</th></tr></thead>
-      <tbody>${rows.map((r) => `<tr><td>${fmtDate(r.date)}</td><td>${esc(r.name)}</td><td>${esc(r.group || "—")}</td><td>${accLabel3(r.account)}</td><td class="num">${fmtTRY(r.amount)}</td></tr>`).join("")}</tbody>
-      <tfoot>${Object.entries(byAcc).map(([a, v]) => `<tr class="sub"><td colspan="4">${accLabel3(a)} toplam</td><td class="num">${fmtTRY(v)}</td></tr>`).join("")}
-        <tr class="gt"><td colspan="4">GENEL TOPLAM · ${rows.length} ödeme</td><td class="num">${fmtTRY(tot)}</td></tr></tfoot></table>
+    <table><thead><tr><th>Tarih</th><th>Ödeme Adı</th><th>Grup</th><th>Hesap</th><th class="num">Tutar</th><th class="chk">Ödendi</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr><td>${fmtDate(r.date)}</td><td>${esc(r.name)}</td><td>${esc(r.group || "—")}</td><td>${accLabel3(r.account)}</td><td class="num">${fmtTRY(r.amount)}</td><td class="chk"><span class="cbox"></span></td></tr>`).join("")}</tbody>
+      <tfoot>${Object.entries(byAcc).map(([a, v]) => `<tr class="sub"><td colspan="4">${accLabel3(a)} toplam</td><td class="num">${fmtTRY(v)}</td><td></td></tr>`).join("")}
+        <tr class="gt"><td colspan="4">GENEL TOPLAM · ${rows.length} ödeme</td><td class="num">${fmtTRY(tot)}</td><td></td></tr></tfoot></table>
     <div class="foot">Bu plan uygulamadan üretilmiştir · Öngörüdür, gerçekleşen tutarlar farklılık gösterebilir.</div>`;
   printDoc(title, inner);
-}
-function planModal(items, gfNorm) {
-  const AY = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
-  const now = new Date(); let y = now.getFullYear(), m = now.getMonth();
-  const scopedName = gfNorm ? ([...new Set(items.map((x) => x.rapor).filter(Boolean))].find((g) => normTr(g) === gfNorm) || "") : "";
-  const body = document.createElement("div");
-  let lastRows = [], lastTitle = "";
-  const draw = () => {
-    let rows = monthPlan(items, y, m);
-    if (gfNorm) rows = rows.filter((r) => normTr(r.group) === gfNorm);
-    lastRows = rows; lastTitle = `${AY[m]} ${y} Öngörülen Ödemeler`;
-    const tot = rows.reduce((s, r) => s + r.amount, 0);
-    const byAcc = {}; rows.forEach((r) => { byAcc[r.account] = (byAcc[r.account] || 0) + r.amount; });
-    body.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:12px">
-        <button class="btn btn-sm" data-mv="-1">‹</button>
-        <b style="font-size:15px;min-width:160px;text-align:center">${AY[m]} ${y}${scopedName ? ` · ${esc(scopedName)}` : ""}</b>
-        <button class="btn btn-sm" data-mv="1">›</button>
-      </div>
-      ${rows.length ? `<div class="table-wrap"><table class="data">
-        <thead><tr><th>Tarih</th><th>Ödeme</th><th>Grup</th><th>Hesap</th><th class="num">Tutar</th></tr></thead>
-        <tbody>${rows.map((r) => `<tr><td>${fmtDate(r.date)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.group || "—")}</td><td>${accLabel3(r.account)}</td><td class="num">${fmtTRY(r.amount)}</td></tr>`).join("")}</tbody>
-        <tfoot><tr style="font-weight:800;background:var(--surface-2)"><td colspan="4">TOPLAM · ${rows.length} ödeme</td><td class="num">${fmtTRY(tot)}</td></tr></tfoot>
-      </table></div>
-      <div style="margin-top:10px;font-size:12.5px;color:var(--ink-soft);display:flex;gap:16px;flex-wrap:wrap">${Object.entries(byAcc).map(([a, v]) => `<span>${accLabel3(a)}: <b>${fmtTRY(v)}</b></span>`).join("")}</div>`
-      : `<div class="empty" style="padding:24px"><div class="ico">📄</div><p>Bu ay için öngörülen ödeme yok.</p></div>`}`;
-    body.querySelectorAll("[data-mv]").forEach((b) => b.onclick = () => { m += parseInt(b.dataset.mv); if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } draw(); });
-  };
-  draw();
-  const mm = openModal({ title: "📄 Aylık Ödeme Planı", body, footer: [
-    mkBtn("Kapat", "", () => mm.close()),
-    mkBtn("📄 PDF / Yazdır", "btn-primary", () => printPlan(lastRows, lastTitle, scopedName)),
-  ] });
 }
 function cfModal(item) {
   const isNew = !item;
