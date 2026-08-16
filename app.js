@@ -657,10 +657,10 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.272";
+const APP_VERSION = "2026.273";
 const CHANGELOG = [
-  { version: "2026.272", date: "2026-08-16", items: [
-    "🧩 Tekrarlanan Kalemler tablosu yeniden düzenlendi: sütunlar gruplu iki katlı başlıkla → 📋 Kalem (Ad · Rapor · Tür) · 📅 Tarih Bilgileri (Tekrar · En Yakın Ödeme, ortada) · ✅ Durum · 💰 Ödeme Bilgileri (Hesap · Tutar, en sağda) · İşlem. Tüm başlık ve hücreler ortalandı/hizalandı; gruplar arası dikey ayırıcılar.",
+  { version: "2026.273", date: "2026-08-16", items: [
+    "🧩 Tekrarlanan Kalemler tablosu son hâline getirildi: TÜM sütunlar EŞİT genişlik; gruplar → 📋 Kalem (Ad·Rapor·Tür) · 📅 Tarih Bilgileri (Tekrar·En Yakın) · 💰 Ödeme Bilgileri (Hesap·Tutar) · ✅ Durum & İşlem (en sağda tek grup). Gruplar arası KALIN altın dikey ayırıcı + satırlar zebra (belirginlik). İşlem düğmeleri kompakt ikon (✎ Düzenle · 🗑 Sil). Her şey ortalı.",
   ]},
   { version: "2026.270", date: "2026-08-16", items: [
     "🗓️ Nakit Akış kalemlerinde HAFTALIK artık gerçek haftanın gününe göre çalışıyor: 'Haftalık' seçince 'Haftanın Günü' (Pazartesi…Pazar) sorulur; ör. Tedarikçi Ödemesi → Haftalık · Perşembe = her Perşembe. Ayrıca 'Tek Seferlik' dönem elle de seçilebiliyor (belirli tarih). En Yakın Ödeme ve Aylık Plan bunları doğru hesaplar.",
@@ -9834,33 +9834,33 @@ async function viewNakitAkisVeri(c) {
     <div class="card">
       <div class="card-head"><h3>Tekrarlanan Kalemler</h3><span class="hint">${items.length} kalem</span></div>
       ${items.length ? `<div class="table-wrap"><table class="data cfk-tbl">
+        <colgroup><col><col><col><col><col><col><col><col><col></colgroup>
         <thead>
           <tr class="grp-row">
             <th colspan="3" class="grp gsep">📋 Kalem</th>
             <th colspan="2" class="grp gsep">📅 Tarih Bilgileri</th>
-            <th colspan="1" class="grp gsep">✅ Durum</th>
             <th colspan="2" class="grp gsep">💰 Ödeme Bilgileri</th>
-            <th rowspan="2" class="grp gsep">İşlem</th>
+            <th colspan="2" class="grp gsep">✅ Durum & İşlem</th>
           </tr>
           <tr class="sub-row">
             <th class="gsep">Ad</th><th>Rapor</th><th>Tür</th>
-            <th class="gsep">Tekrar</th><th>En Yakın Ödeme</th>
-            <th class="gsep">Aktiflik</th>
+            <th class="gsep">Tekrar</th><th>En Yakın</th>
             <th class="gsep">Hesap</th><th class="num">Tutar</th>
+            <th class="gsep">Durum</th><th>İşlem</th>
           </tr>
         </thead>
         <tbody>${items.map((x) => `<tr data-grup="${esc(normTr(x.rapor || ""))}">
-          <td class="gsep"><b>${esc(x.name)}</b></td>
-          <td>${esc(x.rapor || "—")}</td>
+          <td class="gsep" title="${esc(x.name)}"><b>${esc(x.name)}</b></td>
+          <td title="${esc(x.rapor || "")}">${esc(x.rapor || "—")}</td>
           <td><span class="tag ${x.type==="gelir"?"ok":"red"}">${x.type==="gelir"?"Gelir":"Gider"}</span></td>
           <td class="gsep">${esc(cfWhen(x))}</td>
           <td style="font-weight:600;${x._nextSoon ? "color:var(--gold-dark,#7a5a20)" : ""}">${x._next ? fmtDate(x._next) : '<span style="color:var(--ink-faint,#9c8e78);font-weight:400">—</span>'}</td>
-          <td class="gsep">${x.active===false?'<span class="tag warn">Pasif</span>':'<span class="tag ok">Aktif</span>'}</td>
           <td class="gsep">${x.account==="tfinans"?"T.Finans":x.account==="nakit"?"Nakit":"Garanti"}</td>
           <td class="num">${fmtTRY(x.amount || 0)}</td>
-          <td class="gsep">
-            <button class="btn btn-sm" data-edit="${x.id}">Düzenle</button>
-            <button class="btn btn-sm btn-danger" data-del="${x.id}">Sil</button>
+          <td class="gsep">${x.active===false?'<span class="tag warn">Pasif</span>':'<span class="tag ok">Aktif</span>'}</td>
+          <td class="cf-act">
+            <button class="cf-ibtn" data-edit="${x.id}" title="Düzenle">✎</button>
+            <button class="cf-ibtn del" data-del="${x.id}" title="Sil">🗑</button>
           </td></tr>`).join("")}</tbody>
       </table></div>`
         : `<div class="empty"><div class="ico">🔄</div><p>Henüz tekrarlanan kalem tanımlanmamış.</p></div>`}

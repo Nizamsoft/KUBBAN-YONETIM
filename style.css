@@ -1526,16 +1526,27 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 /* Form bölüm başlığı (Kalem penceresi: İçerik / Tarih / Tutar Bilgileri) */
 .cf-sec-h { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--gold-dark, #7a5a20); margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line, #ece2d1); }
 .cf-sec-h:first-child { margin-top: 0; }
-/* Tekrarlanan Kalemler tablosu — iki katlı gruplu başlık (Kalem / Ödeme / Tarih) */
+/* Tekrarlanan Kalemler tablosu — iki katlı gruplu başlık, eşit sütun, kalın altın
+   grup ayırıcı + zebra (Tasarım A). Kalem / Tarih / Ödeme / Durum&İşlem grupları. */
+table.data.cfk-tbl { table-layout: fixed; }
 .cfk-tbl thead th.grp { text-align: center; background: #f6ecd0; color: var(--gold-dark, #7a5a20);
   font-size: 10px; letter-spacing: .6px; padding-top: 8px; padding-bottom: 8px; box-shadow: inset 0 -1px 0 var(--line, #ece2d1); }
 .cfk-tbl thead tr.grp-row th { top: 0; }
 .cfk-tbl thead tr.sub-row th { top: 34px; }         /* grup satırının altına yapış */
-.cfk-tbl .gsep { border-left: 2px solid var(--line-strong, #ddd0b8); }   /* grup ayırıcı dikey çizgi */
-.cfk-tbl thead tr.sub-row th.gsep, .cfk-tbl thead tr.grp-row th.gsep { border-left: 2px solid var(--line-strong, #ddd0b8); }
-/* Her şey ortalı ve hizalı (temel .data soluna karşı yüksek özgüllük) */
-table.data.cfk-tbl th, table.data.cfk-tbl td { text-align: center; vertical-align: middle; }
+/* Kalın altın grup ayırıcı — tüm satırlarda görünür */
+.cfk-tbl .gsep { border-left: 3px solid var(--gold-light, #c9a24b); }
+.cfk-tbl thead tr.sub-row th.gsep, .cfk-tbl thead tr.grp-row th.gsep { border-left: 3px solid var(--gold-light, #c9a24b); }
+/* Zebra satırlar */
+.cfk-tbl tbody tr:nth-child(even) { background: var(--surface-2, #fbf7ef); }
+/* Her şey ortalı, hizalı; taşan içerik … ile kırpılır (eşit sütun) */
+table.data.cfk-tbl th, table.data.cfk-tbl td { text-align: center; vertical-align: middle; overflow: hidden; text-overflow: ellipsis; padding: 8px 6px; font-size: 12px; }
 table.data.cfk-tbl td.num, table.data.cfk-tbl th.num { text-align: center; }
+/* İşlem — kompakt ikon düğmeler (✎ / 🗑) */
+.cfk-tbl .cf-act { white-space: nowrap; }
+.cfk-tbl .cf-ibtn { width: 30px; height: 28px; padding: 0; font-size: 13px; margin: 0 2px; cursor: pointer;
+  border: 1px solid var(--line-strong, #ddd0b8); background: var(--surface, #fff); border-radius: 8px; color: var(--ink-soft, #6f6250); }
+.cfk-tbl .cf-ibtn:hover { background: var(--surface-2, #fbf7ef); }
+.cfk-tbl .cf-ibtn.del { color: var(--danger, #c0202c); border-color: #eccdcd; }
 .na-tabs { display: flex; gap: 7px; margin-bottom: 10px; }
 .na-tab { flex: 1; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 11px; padding: 9px 6px; text-align: center; cursor: pointer; font-weight: 800; font-size: 13px; color: var(--ink-soft); }
 .na-tab .em { display: block; font-size: 17px; margin-bottom: 2px; }
