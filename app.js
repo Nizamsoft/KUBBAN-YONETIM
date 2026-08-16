@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.275";
+const APP_VERSION = "2026.276";
 const CHANGELOG = [
+  { version: "2026.276", date: "2026-08-16", items: [
+    "🔓 Bloke (108.xx) hesaplarında GEÇMİŞ valör tarihleri artık görünüyor: geçmiş içe aktarımlarda valör tarihi 'Fatura No' alanına düşmüş olabiliyordu; defter artık valor boşsa Fatura No'daki tarihi otomatik gösteriyor (hem PC tablosunda hem telefonda '🔓 Valör: …' satırında).",
+    "🛠️ Ayarlar → Kayıt & Kontrol'e 'Bloke Valör Tarihlerini Düzelt' bakım aracı eklendi: 108.xx kayıtlarında Fatura No'daki tarihleri kalıcı olarak Valör alanına taşır (Fatura No'ya dokunmaz), kaç kaydın güncellendiğini bildirir.",
+  ]},
   { version: "2026.275", date: "2026-08-16", items: [
     "🔴 Nakit Akış Raporu: bakiye eksiye düşünce artık hücrenin arka planı KIRMIZI OLMUYOR — yalnızca rakam kırmızı yazılıyor (hücre normal/zebra zeminde kalıyor).",
     "🔄 Nakit Akış öngörüsü: bir günde Garanti/T.Finans'ta bloke çözümü VARSA Giren'de artık yalnız BLOKE tutarı gösteriliyor (o gün 'Öngörülen giriş' eklenmiyor, mükerrer olmuyor). Bloke çözümü YOKSA eskisi gibi öngörülen günlük giriş görünür. Her hesap kendi bloke günlerine göre; tekrarlanan kalemler bu kuraldan bağımsız.",
@@ -1923,6 +1927,7 @@ async function viewAyarlar(c) {
       { ic: "📋", label: "Tüm Kayıtlar", desc: "Tüm hareketleri gör / düzenle / sil", path: "tum-kayitlar", admin: true },
       { ic: "⚖️", label: "Bakiye Karşılaştır", desc: "Eski program bakiyeleriyle kontrol", path: "bakiye-karsilastir", admin: true },
       { ic: "🏷️", label: "Kasa 'Nakit' Çıkışlarını Düzelt", desc: "Geçmiş nakit çıkışlarını 'MASRAF - Ana Kasa' yap", action: "fix-kasa-masraf", admin: true },
+      { ic: "🔓", label: "Bloke Valör Tarihlerini Düzelt", desc: "Fatura No'daki valör tarihlerini Valör alanına taşı (108.xx)", action: "fix-bloke-valor", admin: true },
     ]},
     { title: "⚙️ Sistem", items: [
       { ic: "👥", label: "Kullanıcılar", desc: "Kullanıcı ekle / yetki", path: "kullanicilar", admin: true },
@@ -1966,6 +1971,58 @@ async function viewAyarlar(c) {
     ev.preventDefault();
     fixKasaMasraf(fixBtn);
   });
+  // Bloke (108.xx) valör tarihlerini Fatura No'dan Valör alanına taşı
+  const vdBtn = $('[data-action="fix-bloke-valor"]', c);
+  if (vdBtn) vdBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    fixBlokeValor(vdBtn);
+  });
+}
+
+// Bloke hesaplarında (108.xx) geçmiş aktarımlarda valör tarihi "Fatura No" alanına
+// yazılmış olabilir. valor boş ama faturaNo bir tarih içeriyorsa, tarihi ISO'ya
+// çevirip valor alanına taşır (faturaNo'ya dokunmaz — kaynak kalsın).
+async function fixBlokeValor(btn) {
+  const [accounts, entries] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  const blokeIds = new Set(
+    accounts.filter((a) => String(a.code || "").startsWith("108")).map((a) => a.id)
+  );
+  const parseVd = (s) => {
+    const m = String(s || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+    if (!m) return null;
+    const dd = m[1].padStart(2, "0"), mm = m[2].padStart(2, "0"), yy = m[3];
+    if (+mm < 1 || +mm > 12 || +dd < 1 || +dd > 31) return null;
+    return `${yy}-${mm}-${dd}`;
+  };
+  const targets = [];
+  entries.forEach((e) => {
+    const isBloke = blokeIds.has(e.accountId) || String(e.accountCode || "").startsWith("108");
+    if (!isBloke || e.valor) return;
+    const iso = parseVd(e.faturaNo);
+    if (iso) targets.push({ e, iso });
+  });
+  if (!targets.length) { toast("Taşınacak valör tarihi bulunamadı (108.xx).", "info"); return; }
+  if (!confirm(`${targets.length} bloke kaydının Fatura No'daki tarihi Valör alanına taşınacak.\nDevam edilsin mi?`)) return;
+  const orig = btn.querySelector("b")?.textContent;
+  const setLbl = (t) => { const b = btn.querySelector("b"); if (b) b.textContent = t; };
+  try {
+    for (let i = 0; i < targets.length; i += 400) {
+      const b = writeBatch(db);
+      targets.slice(i, i + 400).forEach(({ e, iso }) =>
+        b.update(doc(db, "accountEntries", e.id), { valor: iso, updatedAt: serverTimestamp() }));
+      await b.commit();
+      setLbl(`İşleniyor… ${Math.min(i + 400, targets.length)}/${targets.length}`);
+    }
+    await logAction("Düzeltme", "Hesap Hareketi", `Bloke valör tarihleri Fatura No'dan taşındı · ${targets.length} kayıt`);
+    if (orig) setLbl(orig);
+    toast(`${targets.length} bloke kaydının valör tarihi güncellendi.`, "ok");
+  } catch (e) {
+    if (orig) setLbl(orig);
+    toast("Güncellenemedi: " + e.message, "err");
+  }
 }
 
 // Geçmiş kasa (100) hareketlerinden işlem adı "Nakit" olan ve ÇIKAN tutarı olanların
@@ -7615,6 +7672,13 @@ async function viewAccountLedger(c) {
   const cari = isCari(acc.type) || String(acc.code || "").startsWith("108");
   const isBank = !cari && (String(acc.code || "").startsWith("102") || acc.type === "banka");   // banka: alt satır = Şahıs
   const isBloke = String(acc.code || "").startsWith("108");   // bloke: çözüleceği gün (valör) sütunu gösterilir
+  // Valör tarihi: kayıtta 'valor' varsa onu; yoksa (geçmiş içe aktarımda tarih 'Fatura No'
+  // alanına düşmüş olabilir) faturaNo tarih gibiyse onu göster.
+  const blokeVd = (e) => {
+    if (e.valor) return fmtDate(e.valor);
+    const m = String(e.faturaNo || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+    return m ? `${m[1].padStart(2, "0")}.${m[2].padStart(2, "0")}.${m[3]}` : "";
+  };
   const list = entries.filter((e) => e.accountId === id)
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.islemNo || 0) - (b.islemNo || 0));
   const opening = acc.openingBalance ?? acc.balance ?? 0;
@@ -7687,7 +7751,7 @@ async function viewAccountLedger(c) {
     <td class="num">${e.alacak ? fmtTRY(parseNum(e.alacak)) : "—"}</td>
     <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
     ${isBloke
-      ? `<td style="font-weight:600;${e.valor && e.alacak ? "color:var(--ink-faint)" : e.valor ? "color:var(--ok)" : ""}">${e.valor ? fmtDate(e.valor) : "—"}</td>`
+      ? (() => { const vd = blokeVd(e); return `<td style="font-weight:600;${e.valor && e.alacak ? "color:var(--ink-faint)" : e.valor ? "color:var(--ok)" : vd ? "color:var(--ink-soft)" : ""}">${vd || "—"}</td>`; })()
       : `<td>${esc(e.faturaTuru || "")}</td><td>${esc(e.faturaNo || "")}</td>`}
     <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
   </tr>`;
@@ -7732,7 +7796,8 @@ async function viewAccountLedger(c) {
       if (isBloke) {
         // Bloke: üstte açıklama (… Çekimi), altta çözüleceği gün (valör)
         l1 = e.aciklama || e.sahis || "";
-        l2 = e.valor ? "🔓 Valör: " + fmtDate(e.valor) : "";
+        const vd = blokeVd(e);
+        l2 = vd ? "🔓 Valör: " + vd : "";
       } else {
         l1 = e.aciklama || e.faturaTuru || e.sahis || "";
         l2 = (e.aciklama && (e.faturaTuru || e.sahis))
