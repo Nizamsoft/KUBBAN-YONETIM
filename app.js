@@ -657,8 +657,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.269";
+const APP_VERSION = "2026.270";
 const CHANGELOG = [
+  { version: "2026.270", date: "2026-08-16", items: [
+    "🗓️ Nakit Akış kalemlerinde HAFTALIK artık gerçek haftanın gününe göre çalışıyor: 'Haftalık' seçince 'Haftanın Günü' (Pazartesi…Pazar) sorulur; ör. Tedarikçi Ödemesi → Haftalık · Perşembe = her Perşembe. Ayrıca 'Tek Seferlik' dönem elle de seçilebiliyor (belirli tarih). En Yakın Ödeme ve Aylık Plan bunları doğru hesaplar.",
+    "🧩 'Yeni/Düzenle Kalem' penceresi başlık gruplarına ayrıldı: 📋 İçerik Bilgileri (ad, tür, hesap, rapor, aktif) · 📅 Tarih Bilgileri (dönem + döneme göre ayın günü / haftanın günü / ay / tarih) · 💰 Tutar Bilgileri. Alanlar döneme göre otomatik değişir.",
+    "📄 Aylık Ödeme Planı PDF'i artık TEK SAYFAYA sığacak şekilde sıkıştırıldı (kompakt yazı/satır, A4 dikey, satırlar bölünmez).",
+  ]},
   { version: "2026.269", date: "2026-08-16", items: [
     "📅 Nakit Akış Verileri — 'En Yakın Ödeme' sütunu eklendi: her kalemin bir sonraki ödeme tarihi OTOMATİK hesaplanır (tekrar kuralına göre, öngörüyle birebir) ve liste artık bu tarihe göre SIRALANIR (en yakın üstte). 7 gün içindeki ödemeler altın renkte vurgulanır",
   ]},
@@ -9695,6 +9700,7 @@ async function viewBanka(c) {
 //  MODÜL: NAKİT AKIŞ VERİLERİ (tekrarlanan gelir/gider tanımları)
 // ===========================================================================
 const PERIODS = [
+  { value: "tek", label: "Tek Seferlik" },
   { value: "haftalik", label: "Haftalık" },
   { value: "aylik", label: "Aylık" },
   { value: "3aylik", label: "3 Aylık" },
@@ -9702,13 +9708,16 @@ const PERIODS = [
   { value: "yillik", label: "Yıllık" },
 ];
 const periodLabel = (v) => PERIODS.find((p) => p.value === v)?.label || v;
+// Haftanın günleri (TR: Pazartesi=1 … Pazar=7). JS getDay(): 0=Pazar → 7'ye çevrilir.
+const WEEKDAYS = [{ v: 1, l: "Pazartesi" }, { v: 2, l: "Salı" }, { v: 3, l: "Çarşamba" }, { v: 4, l: "Perşembe" }, { v: 5, l: "Cuma" }, { v: 6, l: "Cumartesi" }, { v: 7, l: "Pazar" }];
+const weekdayLabel = (v) => (WEEKDAYS.find((w) => w.v === (v || 1)) || WEEKDAYS[0]).l;
 // Kalemin ne zaman tekrarlandığını okunur göster (tek seferlik / yıllık-ay / aylık…)
 function cfWhen(x) {
   const p = x.period || "aylik";
   if (p === "tek") return x.date ? "🗓️ " + fmtDate(x.date) : "Tek sefer";
   const g = x.dayOfMonth || 1;
   if (p === "yillik") return x.month ? `Her yıl ${String(g).padStart(2, "0")}.${String(x.month).padStart(2, "0")}` : `Yıllık · ${g}. gün`;
-  if (p === "haftalik") return "Haftalık";
+  if (p === "haftalik") return `Her ${weekdayLabel(x.dayOfWeek)}`;
   if (p === "3aylik") return `3 Aylık · ${g}. gün`;
   if (p === "6aylik") return `6 Aylık · ${g}. gün`;
   return `Ayın ${g}'i`;
@@ -10027,19 +10036,20 @@ function printDoc(title, inner) {
   if (!w) { toast("Açılır pencere engellendi — tarayıcıdan izin verip tekrar dene.", "err"); return; }
   w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${esc(title)}</title><style>
     *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,"Segoe UI",system-ui,Arial}
-    body{padding:24px;color:#241d15}
-    .ph{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid #c9a24b;padding-bottom:12px;margin-bottom:16px}
-    .ph .nm{font-family:Georgia,serif;font-size:21px;font-weight:700}
-    .ph .sub{font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:#8a7550;margin-top:2px}
-    .ph .t{text-align:right}.ph .tt{font-size:16px;font-weight:800}.ph .dt{font-size:11.5px;color:#6f6250;margin-top:2px}
-    table{width:100%;border-collapse:collapse;font-size:12.5px}
-    th{background:#f2e6c9;color:#7a5a20;text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.3px}
-    td{padding:7px 10px;border-bottom:1px solid #ece2d1}
+    body{padding:14px;color:#241d15}
+    .ph{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid #c9a24b;padding-bottom:8px;margin-bottom:10px}
+    .ph .nm{font-family:Georgia,serif;font-size:18px;font-weight:700}
+    .ph .sub{font-size:9px;letter-spacing:2px;text-transform:uppercase;color:#8a7550;margin-top:1px}
+    .ph .t{text-align:right}.ph .tt{font-size:13.5px;font-weight:800}.ph .dt{font-size:10px;color:#6f6250;margin-top:1px}
+    table{width:100%;border-collapse:collapse;font-size:10px}
+    tr{page-break-inside:avoid}
+    th{background:#f2e6c9;color:#7a5a20;text-align:left;padding:4px 7px;font-size:8.5px;text-transform:uppercase;letter-spacing:.2px}
+    td{padding:3px 7px;border-bottom:1px solid #ece2d1}
     .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
     tfoot tr.sub td{background:#faf5ea;font-weight:700}
-    tfoot tr.gt td{border-top:2px solid #c9a24b;font-weight:800;font-size:13.5px}
-    .foot{margin-top:18px;font-size:10.5px;color:#9c8e78;text-align:center;line-height:1.6}
-    @media print{@page{margin:12mm}}
+    tfoot tr.gt td{border-top:2px solid #c9a24b;font-weight:800;font-size:11px}
+    .foot{margin-top:10px;font-size:9px;color:#9c8e78;text-align:center;line-height:1.5}
+    @media print{@page{size:A4 portrait;margin:9mm}body{padding:0}}
   </style></head><body>${inner}
   <script>window.onload=function(){setTimeout(function(){window.print()},250)}<\/script></body></html>`);
   w.document.close();
@@ -10092,46 +10102,68 @@ function planModal(items, gfNorm) {
 }
 function cfModal(item) {
   const isNew = !item;
+  const AYLAR = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+  const nowM = new Date().getMonth() + 1;
   const body = document.createElement("div");
   body.innerHTML = `
-    <div class="field"><label>Kalem Adı</label><input id="cf-name" value="${esc(item?.name || "")}" placeholder="Kira / Personel Maaş / Aylık Ciro" /></div>
+    <div class="cf-sec-h">📋 İçerik Bilgileri</div>
+    <div class="field"><label>Kalem Adı</label><input id="cf-name" value="${esc(item?.name || "")}" placeholder="Kira / Personel Maaş / Tedarikçi Ödemesi" /></div>
     <div class="form-row">
       <div class="field"><label>Tür</label><select id="cf-type">
+        <option value="gider" ${item?.type!=="gelir"?"selected":""}>Gider</option>
         <option value="gelir" ${item?.type==="gelir"?"selected":""}>Gelir</option>
-        <option value="gider" ${item?.type==="gider"?"selected":""}>Gider</option>
       </select></div>
-      <div class="field"><label>Dönem</label><select id="cf-period">
-        ${PERIODS.map((p) => `<option value="${p.value}" ${item?.period===p.value?"selected":""}>${p.label}</option>`).join("")}
-      </select></div>
-    </div>
-    <div class="form-row">
-      <div class="field"><label>Tutar (₺)</label><input id="cf-amount" class="num" value="${item?.amount ?? ""}" /></div>
-      <div class="field"><label>Ayın Günü (1-31)</label><input id="cf-day" class="num" value="${item?.dayOfMonth ?? 1}" /></div>
-    </div>
-    <div class="form-row">
       <div class="field"><label>Hesap</label><select id="cf-account">
         <option value="garanti" ${(item?.account||"garanti")==="garanti"?"selected":""}>Garanti</option>
         <option value="tfinans" ${item?.account==="tfinans"?"selected":""}>T.Finans</option>
         <option value="nakit" ${item?.account==="nakit"?"selected":""}>Nakit</option>
       </select></div>
-      <div class="field"><label>Rapor Kodu <small>(gerçekleşen eşleşmesi)</small></label><input id="cf-rapor" value="${esc(item?.rapor || "")}" placeholder="ör. KDV / MAAŞ" /></div>
     </div>
-    <div class="field"><label><input type="checkbox" id="cf-active" ${item?.active!==false?"checked":""} style="width:auto"> Aktif</label></div>`;
+    <div class="field"><label>Rapor Kodu <small>(gerçekleşen eşleşmesi)</small></label><input id="cf-rapor" value="${esc(item?.rapor || "")}" placeholder="ör. KDV / MAAŞ / SİGORTA" /></div>
+    <div class="field"><label><input type="checkbox" id="cf-active" ${item?.active!==false?"checked":""} style="width:auto"> Aktif</label></div>
+
+    <div class="cf-sec-h">📅 Tarih Bilgileri</div>
+    <div class="field"><label>Dönem (Tekrar)</label><select id="cf-period">
+      ${PERIODS.map((p) => `<option value="${p.value}" ${(item?.period||"aylik")===p.value?"selected":""}>${p.label}</option>`).join("")}
+    </select></div>
+    <div class="form-row" id="cf-r-day">
+      <div class="field"><label>Ayın Günü (1-31)</label><input id="cf-day" class="num" value="${item?.dayOfMonth ?? 1}" /></div>
+      <div class="field" id="cf-r-month"><label>Ay</label><select id="cf-month">${AYLAR.map((a, i) => `<option value="${i+1}" ${(item?.month||nowM)===(i+1)?"selected":""}>${a}</option>`).join("")}</select></div>
+    </div>
+    <div class="field" id="cf-r-dow"><label>Haftanın Günü</label><select id="cf-dow">${WEEKDAYS.map((w) => `<option value="${w.v}" ${(item?.dayOfWeek||1)===w.v?"selected":""}>${w.l}</option>`).join("")}</select></div>
+    <div class="field" id="cf-r-date"><label>Tarih</label><input type="date" id="cf-date" value="${esc(item?.date || todayISO())}" /></div>
+
+    <div class="cf-sec-h">💰 Tutar Bilgileri</div>
+    <div class="field"><label>Tutar (₺)</label><input id="cf-amount" class="num" value="${item?.amount ?? ""}" placeholder="0,00" /></div>`;
+  // Döneme göre doğru tarih alanını göster (haftalık→gün, yıllık→gün+ay, tek→tarih)
+  const syncPeriod = () => {
+    const p = $("#cf-period", body).value;
+    $("#cf-r-day", body).style.display = (p === "haftalik" || p === "tek") ? "none" : "";
+    $("#cf-r-month", body).style.display = (p === "yillik") ? "" : "none";
+    $("#cf-r-dow", body).style.display = (p === "haftalik") ? "" : "none";
+    $("#cf-r-date", body).style.display = (p === "tek") ? "" : "none";
+  };
+  $("#cf-period", body).addEventListener("change", syncPeriod);
+  syncPeriod();
   const m = openModal({
     title: isNew ? "Yeni Tekrarlanan Kalem" : "Kalemi Düzenle",
     body,
     footer: [
       mkBtn("Vazgeç", "", () => m.close()),
       mkBtn("Kaydet", "btn-primary", async () => {
+        const period = $("#cf-period", body).value;
         const payload = {
           name: $("#cf-name", body).value.trim(),
           type: $("#cf-type", body).value,
-          period: $("#cf-period", body).value,
+          period,
           amount: parseNum($("#cf-amount", body).value),
-          dayOfMonth: Math.min(31, Math.max(1, parseInt($("#cf-day", body).value) || 1)),
           account: $("#cf-account", body).value,
           rapor: $("#cf-rapor", body).value.trim(),
           active: $("#cf-active", body).checked,
+          dayOfMonth: Math.min(31, Math.max(1, parseInt($("#cf-day", body).value) || 1)),
+          dayOfWeek: parseInt($("#cf-dow", body).value) || 1,
+          month: parseInt($("#cf-month", body).value) || nowM,
+          date: period === "tek" ? ($("#cf-date", body).value || todayISO()) : "",
           updatedAt: serverTimestamp(),
         };
         if (!payload.name) return toast("Ad gerekli.", "err");
@@ -10164,13 +10196,21 @@ function naOccurs(it, dom, monthOffset) {
   if (p === "yillik") return monthOffset % 12 === 0;
   return true; // aylik / haftalik ≈ her ay o gün
 }
-// Kalem bu güne düşer mi? "tek" (tek seferlik) tam tarihte; yıllıkta ay tutuluyorsa
-// o ayda; diğerleri naOccurs ile. d=Date, iso=YYYY-MM-DD, dom=ayın günü, monthOffset=ay farkı.
+// Kalem bu güne düşer mi? d=Date, iso=YYYY-MM-DD, dom=ayın günü, monthOffset=ay farkı.
+//  tek       → belirli tarihte bir kez
+//  haftalik  → her hafta belirli GÜNde (dayOfWeek 1=Pzt … 7=Paz)
+//  yillik    → ay tutuluyorsa o ayın gününde; yoksa her 12 ayda bir o gün
+//  3/6aylik  → o gün, dönem kadar ayda bir; aylik → her ay o gün
 function naFires(it, d, iso, dom, monthOffset) {
-  if ((it.period || "aylik") === "tek") return it.date === iso;   // belirli tarihte bir kez
-  if ((it.dayOfMonth || 1) !== dom || monthOffset < 0) return false;
-  if (it.period === "yillik" && it.month) return (d.getMonth() + 1) === it.month;  // doğru ay
-  return naOccurs(it, dom, monthOffset);
+  const p = it.period || "aylik";
+  if (p === "tek") return it.date === iso;
+  if (monthOffset < 0) return false;
+  if (p === "haftalik") { const wd = d.getDay() === 0 ? 7 : d.getDay(); return wd === (it.dayOfWeek || 1); }
+  if ((it.dayOfMonth || 1) !== dom) return false;
+  if (p === "yillik") return it.month ? (d.getMonth() + 1) === it.month : monthOffset % 12 === 0;
+  if (p === "3aylik") return monthOffset % 3 === 0;
+  if (p === "6aylik") return monthOffset % 6 === 0;
+  return true; // aylik
 }
 
 // ===========================================================================

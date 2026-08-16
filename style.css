@@ -1523,6 +1523,9 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 /* ===== Nakit Akış — tek hesap tasarımı ===== */
 /* Nakit Akış: PC'de tabloyu daralt ve sola yasla (sağ taraf şimdilik boş) */
 .na-page { max-width: 600px; }
+/* Form bölüm başlığı (Kalem penceresi: İçerik / Tarih / Tutar Bilgileri) */
+.cf-sec-h { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--gold-dark, #7a5a20); margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line, #ece2d1); }
+.cf-sec-h:first-child { margin-top: 0; }
 .na-tabs { display: flex; gap: 7px; margin-bottom: 10px; }
 .na-tab { flex: 1; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 11px; padding: 9px 6px; text-align: center; cursor: pointer; font-weight: 800; font-size: 13px; color: var(--ink-soft); }
 .na-tab .em { display: block; font-size: 17px; margin-bottom: 2px; }
