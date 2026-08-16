@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.285";
+const APP_VERSION = "2026.286";
 const CHANGELOG = [
+  { version: "2026.286", date: "2026-08-16", items: [
+    "🐛 108 Bloke kaydını düzenleyince 'Kaydet ama güncellemiyor' hatası düzeltildi: düzenleme penceresi 108 bloke hesabını yanlışlıkla Giren/Çıkan (kasa) formu sanıyordu; artık doğru şekilde Borç/Alacak formu açılıyor ve kaydedince defter güncelleniyor.",
+  ]},
   { version: "2026.285", date: "2026-08-16", items: [
     "🔎 Çözülme Takvimi — fark olan güne tıkla, hareketleri gör: bir günde fark varsa (ör. 19'unda) o günün 'Fark' hücresi tıklanabilir olur (noktalı altı çizili · ›). Tıklayınca o gün çözülen (valörü o güne denk) tüm bloke hareketleri listelenir (Tarih · Açıklama · Tutar). Listedeki bir harekete tıklayınca kaydın DÜZENLEME ekranı açılır — yanlış girilen tutarı orada düzeltirsin.",
     "🧹 Fark sıfıra çok yakınken (yuvarlama) artık '+0,00' değil, düz '0,00 ₺' (gri, farksız) gösteriliyor; yalnız gerçek fark olan günler tıklanabilir/kırmızı.",
@@ -8188,7 +8191,7 @@ async function viewAccountLedger(c) {
 
 function entryModal(acc, entry, opts) {
   const isNew = !entry;
-  const cari = isCari(acc.type);
+  const cari = isCari(acc.type) || String(acc.code || "").startsWith("108");   // 108 bloke = cari (Borç/Alacak formu)
   const body = document.createElement("div");
   // Dekont detay listesi — her alan ikon + etiket + inline düzenlenebilir değer (D1)
   const accLabel = (acc.code ? acc.code + " " : "") + (acc.name || "");
