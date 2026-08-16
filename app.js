@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.282";
+const APP_VERSION = "2026.283";
 const CHANGELOG = [
+  { version: "2026.283", date: "2026-08-16", items: [
+    "🏷️ Bloke defterine (108.xx) 'İşlem Adı' sütunu eklendi (Valör Tarihi'nin yanında): valör tarihi DOLUYSA kırmızı '<b>Bloke'ye Alma</b>' (blokeye giren, çözülecek), BOŞSA yeşil '<b>Bloke Çözümü</b>' (serbest kalan).",
+    "📅 Yalnız 108 Garanti Bloke defterinde '<b>Çözülme Takvimi</b>' düğmesi: yarından itibaren 45 günün her biri için 1) tarih, 2) o gün çözülecek bloke tutarı (bu hesaptaki valörlerden toplanır), 3) elle 'Gerçek' girişi, 4) canlı 'Fark' sütunu. Garanti'nin gerçek çözüm rakamıyla gün gün karşılaştırma için.",
+  ]},
   { version: "2026.282", date: "2026-08-16", items: [
     "📥 108 Garanti Bloke İçe Aktar (Ayarlar → Kayıt & Kontrol): Garanti bloke defteri Excel'ini yükleyince program mevcut 108 Garanti bloke hareketlerini SİLER ve dosyadan (valör tarihleriyle birlikte) yeniden yazar. Kural: BORÇ dolu satır → 'Bloke'ye Gitme' (valör gününde çözülür), ALACAK dolu satır → 'Bloke Çözüm'. Yalnız tutarı olan satırlar alınır (0 tutarlı Sanal Pos/komisyon atlanır); 'Birikmiş Bakiye' açılış satırı olarak gelir.",
     "🔎 Yüklemeden önce önizleme: kaç 'Bloke'ye Gitme' / 'Bloke Çözüm', toplam borç/alacak, kalan bloke ve gelecek valör günü sayısı gösterilir; onaylayınca toplu yazılır. (Önceki OCR/karşılaştırma yaklaşımı kaldırıldı — valörler artık doğrudan defterden gelir.)",
@@ -7702,6 +7706,7 @@ async function viewAccountLedger(c) {
   const cari = isCari(acc.type) || String(acc.code || "").startsWith("108");
   const isBank = !cari && (String(acc.code || "").startsWith("102") || acc.type === "banka");   // banka: alt satır = Şahıs
   const isBloke = String(acc.code || "").startsWith("108");   // bloke: çözüleceği gün (valör) sütunu gösterilir
+  const isGarantiBloke = isBloke && normTr(acc.name || "").includes("garanti");   // yalnız Garanti bloke: çözülme takvimi
   // Valör tarihi: kayıtta 'valor' varsa onu; yoksa (geçmiş içe aktarımda tarih 'Fatura No'
   // alanına düşmüş olabilir) faturaNo tarih gibiyse onu göster.
   const blokeVd = (e) => {
@@ -7781,7 +7786,10 @@ async function viewAccountLedger(c) {
     <td class="num">${e.alacak ? fmtTRY(parseNum(e.alacak)) : "—"}</td>
     <td class="num" style="font-weight:700;color:${bakiye<0?'var(--danger)':'inherit'}">${fmtTRY(bakiye)}</td>
     ${isBloke
-      ? (() => { const vd = blokeVd(e); return `<td style="font-weight:600;${e.valor && e.alacak ? "color:var(--ink-faint)" : e.valor ? "color:var(--ok)" : vd ? "color:var(--ink-soft)" : ""}">${vd || "—"}</td>`; })()
+      ? (() => { const vd = blokeVd(e); return `<td style="font-weight:600;${e.valor && e.alacak ? "color:var(--ink-faint)" : e.valor ? "color:var(--ok)" : vd ? "color:var(--ink-soft)" : ""}">${vd || "—"}</td>`
+          + (vd
+            ? `<td style="font-weight:700;color:var(--danger)">Bloke'ye Alma</td>`
+            : `<td style="font-weight:700;color:var(--ok)">Bloke Çözümü</td>`); })()
       : `<td>${esc(e.faturaTuru || "")}</td><td>${esc(e.faturaNo || "")}</td>`}
     <td style="text-align:right"><button class="btn btn-sm" data-edit="${e.id}">Düzenle</button></td>
   </tr>`;
@@ -7870,15 +7878,15 @@ async function viewAccountLedger(c) {
         ${heroBtn}
       </div>`;
   const thead = cari
-    ? `<tr><th>Tarih</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>${isBloke ? "<th>Valör Tarihi</th>" : "<th>Fatura Türü</th><th>Fatura No</th>"}<th></th></tr>`
+    ? `<tr><th>Tarih</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>${isBloke ? "<th>Valör Tarihi</th><th>İşlem Adı</th>" : "<th>Fatura Türü</th><th>Fatura No</th>"}<th></th></tr>`
     : `<tr><th>Tarih</th><th>İşlem Adı</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th></tr>`;
-  const colCount = cari ? (isBloke ? 7 : 8) : 8;
+  const colCount = cari ? 8 : 8;
   // Sabit sütun genişlikleri — sayfalar arası "başlık daralması" olmasın (Açıklama esner/wrap)
   const colgroup = cari
-    ? `<colgroup><col style="width:92px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px">${isBloke ? '<col style="width:130px">' : '<col style="width:120px"><col style="width:110px">'}<col style="width:96px"></colgroup>`
+    ? `<colgroup><col style="width:92px"><col><col style="width:150px"><col style="width:150px"><col style="width:150px">${isBloke ? '<col style="width:112px"><col style="width:132px">' : '<col style="width:120px"><col style="width:110px">'}<col style="width:96px"></colgroup>`
     : `<colgroup><col style="width:92px"><col style="width:146px"><col><col style="width:180px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:104px"></colgroup>`;
   const tfoot = !rows.length ? "" : (cari
-    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="${isBloke ? 2 : 3}"></td></tr></tfoot>`
+    ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="3"></td></tr></tfoot>`
     : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
 
   // Arama için her satıra metin torbası (bir kez hesaplanır — 27.000'de bile hızlı)
@@ -7925,7 +7933,7 @@ async function viewAccountLedger(c) {
 
   c.innerHTML = `<div class="ledger-view">` + reviewBar + hero + `
     <div class="card ledger-card">
-      <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span><div class="grow"></div>${rows.length ? pagerHtml : ""}</div>
+      <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span><div class="grow"></div>${isGarantiBloke ? `<button class="btn btn-sm" id="coz-takvim" style="margin-right:8px">📅 Çözülme Takvimi</button>` : ""}${rows.length ? pagerHtml : ""}</div>
       ${rows.length ? filterHtml : ""}
       <div class="ledger-cards">${rows.length ? miniHtml : ""}</div>
       <div class="table-wrap ledger-table"><table class="data">
@@ -8007,6 +8015,64 @@ async function viewAccountLedger(c) {
     const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0; const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = 0;
   });
   renderPage();
+
+  // Çözülme Takvimi (yalnız Garanti bloke): yarından itibaren 45 gün. Her günün program
+  // çözüm tutarı = valörü o gün olan blokelerin (borç) toplamı; 3. sütun elle doldurulur, 4. sütun fark.
+  const cozBtn = $("#coz-takvim", c);
+  if (cozBtn) cozBtn.onclick = () => {
+    const valISO = (e) => {
+      if (e.valor) return e.valor;
+      const m = String(e.faturaNo || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+      return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : "";
+    };
+    const byDay = {};
+    list.forEach((e) => { const v = valISO(e), b = parseNum(e.borc); if (v && b > 0) byDay[v] = (byDay[v] || 0) + b; });
+    const now = new Date(); now.setHours(0, 0, 0, 0);
+    const WK = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
+    const rowsH = [];
+    for (let i = 1; i <= 45; i++) { const d = new Date(now); d.setDate(d.getDate() + i); const iso = isoOfD(d); rowsH.push({ iso, d: new Date(d), prog: byDay[iso] || 0 }); }
+    const totProg = rowsH.reduce((s, r) => s + r.prog, 0);
+    const body = document.createElement("div");
+    body.innerHTML = `<style>
+      .czt-w{max-height:60vh;overflow:auto}
+      .czt{width:100%;border-collapse:collapse;font-size:13px}
+      .czt th{position:sticky;top:0;background:#f2e6c9;color:#7a5a20;padding:8px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.3px;text-align:right;z-index:1}
+      .czt th:first-child{text-align:left}
+      .czt td{padding:5px 9px;border-bottom:1px solid var(--line,#efe7d6);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+      .czt td:first-child{text-align:left;font-weight:600}
+      .czt tr.z td{color:var(--ink-faint,#b8ad98)}
+      .czt input{width:118px;text-align:right;font:inherit;padding:3px 6px;border:1px solid var(--line-strong,#ddd0b8);border-radius:7px;background:var(--surface,#fff);color:var(--ink,#241d15)}
+      .czt td.fk{font-weight:700}
+      .czt tfoot td{position:sticky;bottom:0;background:#faf5ea;font-weight:800;border-top:2px solid var(--gold,#c9a24b)}
+    </style>
+    <div class="czt-w"><table class="czt">
+      <thead><tr><th>Tarih</th><th>Çözülme Tutarı</th><th>Gerçek (elle)</th><th>Fark</th></tr></thead>
+      <tbody>${rowsH.map((r, i) => `<tr class="${r.prog ? "" : "z"}">
+        <td>${fmtDate(r.iso)} <span style="color:var(--ink-faint);font-weight:400">${WK[r.d.getDay()]}</span></td>
+        <td data-prog="${r.prog}">${r.prog ? fmtNum(r.prog) + " ₺" : "—"}</td>
+        <td><input inputmode="decimal" data-real="${i}" placeholder="—"></td>
+        <td class="fk" data-fk="${i}">—</td>
+      </tr>`).join("")}</tbody>
+      <tfoot><tr><td>Toplam · 45 gün</td><td>${fmtNum(totProg)} ₺</td><td></td><td class="fk" data-fktot>—</td></tr></tfoot>
+    </table></div>`;
+    const m = openModal({ title: "📅 Garanti Bloke Çözülme Takvimi (45 gün)", body, footer: [mkBtn("Kapat", "btn-primary", () => m.close())] });
+    const recompute = () => {
+      let ftot = 0, any = false;
+      $$("input[data-real]", body).forEach((inp) => {
+        const i = inp.dataset.real;
+        const prog = parseNum($("td[data-prog]", inp.closest("tr")).dataset.prog);
+        const fkCell = $(`td[data-fk="${i}"]`, body);
+        const rv = inp.value.trim();
+        if (rv === "") { fkCell.textContent = "—"; fkCell.style.color = ""; return; }
+        const fk = prog - parseNum(rv); ftot += fk; any = true;
+        fkCell.textContent = (fk > 0 ? "+" : "") + fmtNum(fk) + " ₺";
+        fkCell.style.color = Math.abs(fk) > 0.5 ? "var(--danger)" : "var(--ok)";
+      });
+      const ft = $("td[data-fktot]", body);
+      if (ft) { ft.textContent = any ? (ftot > 0 ? "+" : "") + fmtNum(ftot) + " ₺" : "—"; ft.style.color = any && Math.abs(ftot) > 0.5 ? "var(--danger)" : ""; }
+    };
+    $$("input[data-real]", body).forEach((inp) => inp.addEventListener("input", recompute));
+  };
 
   // Defter ekrana kilitli: üst (özet + başlık + araçlar) SABİT; yalnız hareket listesi kendi
   // içinde kayar. Kilit tamamen CSS ile (html.route-ledger → html/body/#app-view 100dvh + flex, iç kapsayıcı
