@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.277";
+const APP_VERSION = "2026.278";
 const CHANGELOG = [
+  { version: "2026.278", date: "2026-08-16", items: [
+    "🎯 Garanti Bloke Takvim Kontrolü — okuma düzeltmesi: takvim hücresinde birden çok rakam olduğunda program artık en büyük sayıyı değil, her günün <b>\"Günlük Net\"</b> etiketli tutarını okuyor (artı/eksi işaretiyle birlikte; net eksi de olabilir).",
+    "📅 Sadece <b>bugünden sonraki</b> günler okunup karşılaştırılıyor (bugün 16 ise 17'den itibaren). Karşılaştırma sütunu 'Garanti (Günlük Net)' olarak adlandırıldı.",
+  ]},
   { version: "2026.277", date: "2026-08-16", items: [
     "📸 Yeni: Garanti Bloke Takvim Kontrolü (Ayarlar → Kayıt & Kontrol). Garanti'nin resmî bloke çözüm takvimi görselini yükle → program görseli OCR ile okur (Tesseract) → sen kontrol edip düzeltirsin → programın öngördüğü Garanti bloke çözümleriyle GÜN GÜN karşılaştırılır.",
     "⚖️ Karşılaştırma tablosu: Tarih · Program · Garanti (gerçek) · Fark. Uyuşan günler yeşil ✓, farklı günler kırmızı satır + fark tutarı. Birden çok ay için birden çok görsel yüklenebilir; OCR başarısız olursa tarih/tutarlar elle de girilebilir (okuma tablosu tamamen düzenlenebilir).",
@@ -10941,15 +10945,40 @@ async function loadTesseract() {
   return _tess;
 }
 const _AYLAR_TR = ["ocak", "subat", "mart", "nisan", "mayis", "haziran", "temmuz", "agustos", "eylul", "ekim", "kasim", "aralik"];
-// Bir metin parçası tutar mı? (Türkçe format: 1.234.567,89) — küçük çıplak sayılar (gün) elenir
-function _amtVal(s) {
-  const m = String(s).match(/\d[\d.]*(?:,\d{1,2})?/);
-  if (!m) return 0;
-  let raw = m[0];
-  if (!/[.,]/.test(raw) && raw.length < 4) return 0;       // çıplak 1-3 haneli = gün olabilir, tutar değil
+// Bir metin parçası tutar mı? (Türkçe format: +1.234.567,89) — işaretiyle döner, değilse null
+//  { v: mutlak değer, sign: -1/0/+1 }. Küçük çıplak sayılar (gün) elenir.
+function _amtParse(s) {
+  const m = String(s).match(/([+\-]?)\s*(\d[\d.]*(?:,\d{1,2})?)/);
+  if (!m) return null;
+  let raw = m[2];
+  if (!/[.,]/.test(raw) && raw.length < 4) return null;    // çıplak 1-3 haneli = gün olabilir, tutar değil
   if (/^\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, ""); // yalnız binlik noktalı → noktaları at
   const v = parseNum(raw);
-  return v > 100 ? v : 0;
+  if (!(v > 0)) return null;
+  return { v, sign: m[1] === "-" ? -1 : m[1] === "+" ? 1 : 0 };
+}
+// Sıralı token dizisinden "GÜNLÜK NET" tutarını seç (işaretli). Garanti takviminde her
+// hücrede birden çok rakam olabilir; okunması gereken "Günlük Net" etiketli tutardır
+// (değer üstte, "Günlük Net" etiketi hemen altında). Etiket okunamazsa: işaretli (+/-)
+// tutarı, o da yoksa mutlak değerce en büyüğü seçilir. (Gün token'ı çağırandan hariç.)
+function _netFromTokens(tokens) {
+  let pendSign = 0; const seq = []; let netI = -1;
+  tokens.forEach((t) => {
+    const s = String(t).trim();
+    if (/^[+\-]$/.test(s)) { pendSign = s === "-" ? -1 : 1; return; }   // tek başına işaret
+    if (/net/.test(normTr(s))) { if (netI < 0) netI = seq.length; return; } // "Net" etiketi → tutar dizisindeki konum
+    const a = _amtParse(s);
+    if (a) { const sign = a.sign || pendSign; seq.push({ val: sign < 0 ? -a.v : a.v, signed: a.sign !== 0 || pendSign !== 0 }); pendSign = 0; }
+    else pendSign = 0;
+  });
+  if (!seq.length) return 0;
+  if (netI >= 0) {                       // etiketten hemen ÖNCEKİ tutar (değer üstte)
+    if (netI - 1 >= 0 && seq[netI - 1]) return seq[netI - 1].val;
+    if (seq[netI]) return seq[netI].val; // etiketten önce tutar yoksa sonraki ilk tutar
+  }
+  const signed = seq.filter((a) => a.signed);
+  if (signed.length) return signed[0].val;
+  return seq.reduce((b, a) => Math.abs(a.val) > Math.abs(b.val) ? a : b).val;
 }
 // Sıralı değerleri, aralarındaki boşluk 'gap'ten büyük olunca ayrı kümeye böl → küme ortalamaları
 function _clusterCenters(sorted, gap) {
@@ -10970,25 +10999,27 @@ function _cellsFromWords(words) {
   ws.forEach((w) => { const k = _nearestIdx(bands, w.y) + "|" + _nearestIdx(cols, w.x); (grid[k] || (grid[k] = [])).push(w); });
   const cells = [];
   Object.values(grid).forEach((list) => {
-    list.sort((a, b) => a.y0 - b.y0);
-    let day = null, amount = 0;
+    list.sort((a, b) => (a.y0 - b.y0) || (a.x - b.x));   // hücre içi okuma sırası: üstten alta, soldan sağa
+    let day = null; const rest = [];
     list.forEach((w) => {
-      if (day === null && /^\d{1,2}$/.test(w.t) && +w.t >= 1 && +w.t <= 31) { day = +w.t; return; }
-      const v = _amtVal(w.t); if (v > amount) amount = v;
+      if (day === null && /^\d{1,2}$/.test(w.t) && +w.t >= 1 && +w.t <= 31) day = +w.t;
+      else rest.push(w.t);
     });
-    if (day !== null) cells.push({ day, amount });
+    if (day !== null) cells.push({ day, amount: _netFromTokens(rest) });
   });
   return cells;
 }
-// Konum bilgisi yoksa düz metinden: gün sayısı gör → sonraki tutarlar o güne ait (yeni gün gelene dek)
+// Konum bilgisi yoksa düz metinden: gün gör → yeni gün gelene dek token'lar o hücreye ait,
+// o hücrenin "Günlük Net" tutarı seçilir.
 function _cellsFromText(text) {
   const toks = (text || "").split(/\s+/).filter(Boolean);
-  const cells = []; let cur = null;
+  const cells = []; let day = null, buf = [];
+  const flush = () => { if (day !== null) cells.push({ day, amount: _netFromTokens(buf) }); day = null; buf = []; };
   toks.forEach((t) => {
-    if (/^\d{1,2}$/.test(t) && +t >= 1 && +t <= 31) { if (cur) cells.push(cur); cur = { day: +t, amount: 0 }; return; }
-    const v = _amtVal(t); if (cur && v > cur.amount) cur.amount = v;
+    if (/^\d{1,2}$/.test(t) && +t >= 1 && +t <= 31) { flush(); day = +t; return; }
+    if (day !== null) buf.push(t);
   });
-  if (cur) cells.push(cur);
+  flush();
   return cells;
 }
 // OCR sonucundan Garanti takvimini çöz: ay + yıl + [{iso, amount}]
@@ -11001,9 +11032,9 @@ function parseGarantiTakvim(ocr, fallbackYear) {
   const pad = (n) => String(n).padStart(2, "0");
   const byIso = {};
   if (month && year) cells.forEach((c) => {
-    if (c.day >= 1 && c.day <= 31 && c.amount > 0) {
+    if (c.day >= 1 && c.day <= 31 && c.amount !== 0) {   // Günlük Net eksi de olabilir
       const iso = `${year}-${pad(month)}-${pad(c.day)}`;
-      if (!byIso[iso] || c.amount > byIso[iso]) byIso[iso] = c.amount;   // gürültüde en büyüğü al
+      if (!byIso[iso] || Math.abs(c.amount) > Math.abs(byIso[iso])) byIso[iso] = c.amount;
     }
   });
   return { month, year, rows: Object.entries(byIso).map(([iso, amount]) => ({ iso, amount })).sort((a, b) => a.iso.localeCompare(b.iso)) };
@@ -11027,7 +11058,7 @@ async function viewBlokeKontrol(c) {
       .sort((x, y) => (x.valor < y.valor ? -1 : x.valor > y.valor ? 1 : 0))
       .forEach((e) => { if (cap <= 0.005) return; const amt = Math.min(parseNum(e.borc), cap); cap -= amt; prog[e.valor] = (prog[e.valor] || 0) + amt; });
   });
-  const progDays = Object.keys(prog).filter((d) => d >= todayISO_).length;
+  const progDays = Object.keys(prog).filter((d) => d > todayISO_).length;
   const progTotal = Object.values(prog).reduce((a, b) => a + b, 0);
 
   c.innerHTML = `<style>
@@ -11052,7 +11083,7 @@ async function viewBlokeKontrol(c) {
     .bk-sum .chip.n{background:var(--surface-2,#fbf7ef);color:var(--ink-soft,#6f6250)}
   </style>
   <div class="bk-wrap">
-    <div class="notice info">📸 Garanti'nin resmî <b>bloke çözüm takvimi</b> görselini yükle. Program görseli okur (OCR), sen kontrol edip düzeltirsin, sonra <b>programın öngörüsüyle gün gün karşılaştırılır</b>. Birden çok ay için birden çok görsel yükleyebilirsin.</div>
+    <div class="notice info">📸 Garanti'nin resmî <b>bloke çözüm takvimi</b> görselini yükle. Program her günün <b>"Günlük Net"</b> tutarını okur (OCR), sen kontrol edip düzeltirsin, sonra <b>programın öngörüsüyle gün gün karşılaştırılır</b>. Yalnız <b>bugünden sonraki</b> günler dikkate alınır. Birden çok ay için birden çok görsel yükleyebilirsin.</div>
 
     <div class="card">
       <div class="card-head"><h3>1️⃣ Takvim Görseli</h3><span class="bk-stat">🏦 Program: ${progDays} gün · ${fmtNum(progTotal)} ₺ bekleyen bloke</span></div>
@@ -11062,7 +11093,7 @@ async function viewBlokeKontrol(c) {
     </div>
 
     <div class="card">
-      <div class="card-head"><h3>2️⃣ Oku & Düzelt</h3><span class="hint">OCR yanılabilir — tarih/tutarları kontrol et</span></div>
+      <div class="card-head"><h3>2️⃣ Oku & Düzelt</h3><span class="hint">OCR yanılabilir — "Günlük Net" tutarlarını kontrol et</span></div>
       <div id="bk-tbl"></div>
       <div class="toolbar" style="margin-top:10px;gap:8px">
         <button class="btn btn-sm" id="bk-addrow">+ Satır Ekle</button>
@@ -11073,10 +11104,10 @@ async function viewBlokeKontrol(c) {
     </div>
 
     <div class="card" id="bk-result-card" style="display:none">
-      <div class="card-head"><h3>3️⃣ Karşılaştırma</h3><span class="hint">Gelecek tüm günler</span></div>
+      <div class="card-head"><h3>3️⃣ Karşılaştırma</h3><span class="hint">Bugünden sonraki tüm günler</span></div>
       <div id="bk-sum" class="bk-sum"></div>
       <div class="table-wrap"><table class="bk-cmp" id="bk-cmp">
-        <thead><tr><th>Tarih</th><th>Program</th><th>Garanti (gerçek)</th><th>Fark</th></tr></thead>
+        <thead><tr><th>Tarih</th><th>Program</th><th>Garanti (Günlük Net)</th><th>Fark</th></tr></thead>
         <tbody></tbody>
       </table></div>
     </div>
@@ -11085,7 +11116,7 @@ async function viewBlokeKontrol(c) {
   // Düzenlenebilir okuma tablosu
   const tbl = editableTable([
     { key: "tarih", label: "Tarih", type: "date" },
-    { key: "tutar", label: "Tutar (Garanti)", type: "num" },
+    { key: "tutar", label: "Günlük Net (Garanti)", type: "num" },
   ], []);
   $("#bk-tbl", c).appendChild(tbl.root);
   const seedIso = todayISO_.slice(0, 8) + "01";
@@ -11118,10 +11149,12 @@ async function viewBlokeKontrol(c) {
       });
       const parsed = parseGarantiTakvim(res.data, +todayISO_.slice(0, 4));
       if (!parsed.month) { st.textContent = "⚠️ Ay adı okunamadı. Tarihleri elle girin ya da düzeltin."; }
-      if (!parsed.rows.length) { st.textContent = (parsed.month ? _AYLAR_TR[parsed.month - 1] : "") + " — tutar okunamadı. Elle girebilirsiniz."; return; }
-      addReviewRows(parsed.rows);
+      // Yalnız bugünden SONRAKİ günler (bugün 16 ise 17'den itibaren)
+      const fut = parsed.rows.filter((r) => r.iso > todayISO_);
+      if (!fut.length) { st.textContent = (parsed.month ? KZ_AYLAR[parsed.month - 1] + " " + parsed.year : "") + " — okunacak GELECEK gün/tutar bulunamadı. Elle girebilirsiniz."; return; }
+      addReviewRows(fut);
       const ay = parsed.month ? (KZ_AYLAR[parsed.month - 1] + " " + parsed.year) : "";
-      st.textContent = `✅ ${ay ? ay + ": " : ""}${parsed.rows.length} gün okundu — lütfen kontrol edip düzeltin.`;
+      st.textContent = `✅ ${ay ? ay + ": " : ""}${fut.length} gün okundu (bugünden sonrası) — "Günlük Net" tutarlarını kontrol edip düzeltin.`;
       buildCompare();
     } catch (err) {
       st.textContent = "❌ OCR başarısız: " + (err && err.message || err) + " — tarih/tutarları elle girebilirsiniz.";
@@ -11132,8 +11165,9 @@ async function viewBlokeKontrol(c) {
   // Karşılaştırma
   function buildCompare() {
     const rev = {};
-    tbl.getData().forEach((r) => { if (r.tarih && parseNum(r.tutar) > 0) rev[r.tarih] = (rev[r.tarih] || 0) + parseNum(r.tutar); });
-    const dates = [...new Set([...Object.keys(prog), ...Object.keys(rev)])].filter((d) => d >= todayISO_).sort();
+    tbl.getData().forEach((r) => { if (r.tarih && parseNum(r.tutar) !== 0) rev[r.tarih] = (rev[r.tarih] || 0) + parseNum(r.tutar); });
+    // Yalnız BUGÜNDEN SONRAKİ günler (bugün 16 ise 17'den itibaren)
+    const dates = [...new Set([...Object.keys(prog), ...Object.keys(rev)])].filter((d) => d > todayISO_).sort();
     const card = $("#bk-result-card", c);
     if (!dates.length) { card.style.display = "none"; toast("Karşılaştırılacak gelecek gün yok.", "info"); return; }
     let okN = 0, badN = 0, body = "";
