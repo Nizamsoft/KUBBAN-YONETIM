@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.276";
+const APP_VERSION = "2026.277";
 const CHANGELOG = [
+  { version: "2026.277", date: "2026-08-16", items: [
+    "📸 Yeni: Garanti Bloke Takvim Kontrolü (Ayarlar → Kayıt & Kontrol). Garanti'nin resmî bloke çözüm takvimi görselini yükle → program görseli OCR ile okur (Tesseract) → sen kontrol edip düzeltirsin → programın öngördüğü Garanti bloke çözümleriyle GÜN GÜN karşılaştırılır.",
+    "⚖️ Karşılaştırma tablosu: Tarih · Program · Garanti (gerçek) · Fark. Uyuşan günler yeşil ✓, farklı günler kırmızı satır + fark tutarı. Birden çok ay için birden çok görsel yüklenebilir; OCR başarısız olursa tarih/tutarlar elle de girilebilir (okuma tablosu tamamen düzenlenebilir).",
+  ]},
   { version: "2026.276", date: "2026-08-16", items: [
     "🔓 Bloke (108.xx) hesaplarında GEÇMİŞ valör tarihleri artık görünüyor: geçmiş içe aktarımlarda valör tarihi 'Fatura No' alanına düşmüş olabiliyordu; defter artık valor boşsa Fatura No'daki tarihi otomatik gösteriyor (hem PC tablosunda hem telefonda '🔓 Valör: …' satırında).",
     "🛠️ Ayarlar → Kayıt & Kontrol'e 'Bloke Valör Tarihlerini Düzelt' bakım aracı eklendi: 108.xx kayıtlarında Fatura No'daki tarihleri kalıcı olarak Valör alanına taşır (Fatura No'ya dokunmaz), kaç kaydın güncellendiğini bildirir.",
@@ -1786,6 +1790,7 @@ const ROUTES = {
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
   "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Sistem", render: viewNakitAkisVeri },
   "nakit-akis-import": { title: "Nakit Akış Geçmişi İçe Aktar", crumb: "Sistem", render: viewNakitAkisImport, admin: true, back: "#/nakit-akis-veri" },
+  "bloke-kontrol":    { title: "Garanti Bloke Takvim Kontrolü", crumb: "Ayarlar", render: viewBlokeKontrol, admin: true, back: "#/ayarlar" },
   "gider-gruplari":   { title: "Gider Grupları", crumb: "Sistem", render: viewGiderGruplari },
   "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
   "guncelleme":       { title: "Güncelleme", crumb: "Sistem", render: viewGuncelleme },
@@ -1926,6 +1931,7 @@ async function viewAyarlar(c) {
     { title: "🗂️ Kayıt & Kontrol", items: [
       { ic: "📋", label: "Tüm Kayıtlar", desc: "Tüm hareketleri gör / düzenle / sil", path: "tum-kayitlar", admin: true },
       { ic: "⚖️", label: "Bakiye Karşılaştır", desc: "Eski program bakiyeleriyle kontrol", path: "bakiye-karsilastir", admin: true },
+      { ic: "📸", label: "Garanti Bloke Takvim Kontrolü", desc: "Takvim görselini oku, öngörüyle karşılaştır", path: "bloke-kontrol", admin: true },
       { ic: "🏷️", label: "Kasa 'Nakit' Çıkışlarını Düzelt", desc: "Geçmiş nakit çıkışlarını 'MASRAF - Ana Kasa' yap", action: "fix-kasa-masraf", admin: true },
       { ic: "🔓", label: "Bloke Valör Tarihlerini Düzelt", desc: "Fatura No'daki valör tarihlerini Valör alanına taşı (108.xx)", action: "fix-bloke-valor", admin: true },
     ]},
@@ -10919,6 +10925,236 @@ async function viewKarZarar(c) {
   const perSel = $("#kz-per", c);
   if (perSel) perSel.onchange = () => { sel = perSel.value; draw(); };
   draw();
+}
+
+// ===========================================================================
+//  MODÜL: GARANTİ BLOKE TAKVİM KONTROLÜ
+//  Garanti'nin resmi bloke takvimi görselini yükle → OCR ile oku → düzelt →
+//  programın öngördüğü Garanti bloke çözümleriyle GÜN GÜN karşılaştır.
+//  Kolonlar: Tarih | Program | Garanti (gerçek) | Fark  (uyuşmayanlar kırmızı)
+// ===========================================================================
+let _tess;
+async function loadTesseract() {
+  if (_tess) return _tess;
+  const mod = await import("https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/+esm");
+  _tess = mod.default || mod;
+  return _tess;
+}
+const _AYLAR_TR = ["ocak", "subat", "mart", "nisan", "mayis", "haziran", "temmuz", "agustos", "eylul", "ekim", "kasim", "aralik"];
+// Bir metin parçası tutar mı? (Türkçe format: 1.234.567,89) — küçük çıplak sayılar (gün) elenir
+function _amtVal(s) {
+  const m = String(s).match(/\d[\d.]*(?:,\d{1,2})?/);
+  if (!m) return 0;
+  let raw = m[0];
+  if (!/[.,]/.test(raw) && raw.length < 4) return 0;       // çıplak 1-3 haneli = gün olabilir, tutar değil
+  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, ""); // yalnız binlik noktalı → noktaları at
+  const v = parseNum(raw);
+  return v > 100 ? v : 0;
+}
+// Sıralı değerleri, aralarındaki boşluk 'gap'ten büyük olunca ayrı kümeye böl → küme ortalamaları
+function _clusterCenters(sorted, gap) {
+  const cl = []; let grp = [];
+  sorted.forEach((v) => { if (grp.length && v - grp[grp.length - 1] > gap) { cl.push(grp); grp = []; } grp.push(v); });
+  if (grp.length) cl.push(grp);
+  return cl.map((g) => g.reduce((a, b) => a + b, 0) / g.length);
+}
+const _nearestIdx = (centers, v) => { let bi = 0, bd = Infinity; centers.forEach((c, i) => { const d = Math.abs(c - v); if (d < bd) { bd = d; bi = i; } }); return bi; };
+// OCR kelimelerini (konumlarıyla) takvim hücrelerine kümele → [{day, amount}]
+function _cellsFromWords(words) {
+  const ws = words.map((w) => ({ t: w.text.trim(), x: (w.bbox.x0 + w.bbox.x1) / 2, y: (w.bbox.y0 + w.bbox.y1) / 2, y0: w.bbox.y0, h: Math.max(1, w.bbox.y1 - w.bbox.y0) }));
+  if (!ws.length) return [];
+  const hs = ws.map((w) => w.h).sort((a, b) => a - b); const medH = hs[Math.floor(hs.length / 2)] || 10;
+  const cols = _clusterCenters(ws.map((w) => w.x).sort((a, b) => a - b), medH * 4);
+  const bands = _clusterCenters(ws.map((w) => w.y).sort((a, b) => a - b), medH * 3);
+  const grid = {};
+  ws.forEach((w) => { const k = _nearestIdx(bands, w.y) + "|" + _nearestIdx(cols, w.x); (grid[k] || (grid[k] = [])).push(w); });
+  const cells = [];
+  Object.values(grid).forEach((list) => {
+    list.sort((a, b) => a.y0 - b.y0);
+    let day = null, amount = 0;
+    list.forEach((w) => {
+      if (day === null && /^\d{1,2}$/.test(w.t) && +w.t >= 1 && +w.t <= 31) { day = +w.t; return; }
+      const v = _amtVal(w.t); if (v > amount) amount = v;
+    });
+    if (day !== null) cells.push({ day, amount });
+  });
+  return cells;
+}
+// Konum bilgisi yoksa düz metinden: gün sayısı gör → sonraki tutarlar o güne ait (yeni gün gelene dek)
+function _cellsFromText(text) {
+  const toks = (text || "").split(/\s+/).filter(Boolean);
+  const cells = []; let cur = null;
+  toks.forEach((t) => {
+    if (/^\d{1,2}$/.test(t) && +t >= 1 && +t <= 31) { if (cur) cells.push(cur); cur = { day: +t, amount: 0 }; return; }
+    const v = _amtVal(t); if (cur && v > cur.amount) cur.amount = v;
+  });
+  if (cur) cells.push(cur);
+  return cells;
+}
+// OCR sonucundan Garanti takvimini çöz: ay + yıl + [{iso, amount}]
+function parseGarantiTakvim(ocr, fallbackYear) {
+  const ntext = normTr((ocr && ocr.text) || "");
+  let month = null; _AYLAR_TR.forEach((m, i) => { if (ntext.includes(m)) month = i + 1; });
+  const ym = ntext.match(/\b(20\d{2})\b/); const year = ym ? +ym[1] : fallbackYear;
+  const words = ((ocr && ocr.words) || []).filter((w) => w && w.text && w.text.trim() && w.bbox);
+  const cells = words.length ? _cellsFromWords(words) : _cellsFromText((ocr && ocr.text) || "");
+  const pad = (n) => String(n).padStart(2, "0");
+  const byIso = {};
+  if (month && year) cells.forEach((c) => {
+    if (c.day >= 1 && c.day <= 31 && c.amount > 0) {
+      const iso = `${year}-${pad(month)}-${pad(c.day)}`;
+      if (!byIso[iso] || c.amount > byIso[iso]) byIso[iso] = c.amount;   // gürültüde en büyüğü al
+    }
+  });
+  return { month, year, rows: Object.entries(byIso).map(([iso, amount]) => ({ iso, amount })).sort((a, b) => a.iso.localeCompare(b.iso)) };
+}
+
+async function viewBlokeKontrol(c) {
+  const [accounts, entries] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  // PROGRAMIN öngörüsü: Garanti bloke (108, garanti) çözümleri gün → tutar (gelecek, bakiyeyle sınırlı, FIFO)
+  const now = new Date(); now.setHours(0, 0, 0, 0); const todayISO_ = isoOfD(now);
+  const prog = {};
+  accounts.filter((a) => String(a.code || "").startsWith("108") && a.parentId).forEach((a) => {
+    const s = normTr(a.name || "");
+    if (!s.includes("bloke") || !s.includes("garanti")) return;
+    const es = entries.filter((e) => e.accountId === a.id);
+    let cap = parseNum(a.openingBalance) + es.reduce((sum, e) => sum + naDelta(e), 0);
+    if (cap <= 0.005) return;
+    es.filter((e) => parseNum(e.borc) > 0 && e.valor && e.valor > todayISO_)
+      .sort((x, y) => (x.valor < y.valor ? -1 : x.valor > y.valor ? 1 : 0))
+      .forEach((e) => { if (cap <= 0.005) return; const amt = Math.min(parseNum(e.borc), cap); cap -= amt; prog[e.valor] = (prog[e.valor] || 0) + amt; });
+  });
+  const progDays = Object.keys(prog).filter((d) => d >= todayISO_).length;
+  const progTotal = Object.values(prog).reduce((a, b) => a + b, 0);
+
+  c.innerHTML = `<style>
+    .bk-wrap{max-width:820px;margin:0 auto;display:flex;flex-direction:column;gap:16px}
+    .bk-prev{display:flex;flex-wrap:wrap;gap:10px;margin-top:10px}
+    .bk-prev img{height:88px;border-radius:10px;border:1px solid var(--line,#e6ddcb);object-fit:cover}
+    .bk-stat{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--ink-soft,#6f6250);background:var(--surface-2,#fbf7ef);border:1px solid var(--line,#eee3cf);padding:5px 10px;border-radius:999px}
+    .bk-ocr-st{font-size:12.5px;color:var(--gold-dark,#7a5a20);margin-top:8px;min-height:16px}
+    table.bk-cmp{width:100%;border-collapse:collapse;font-size:13px}
+    table.bk-cmp th{background:#f2e6c9;color:#7a5a20;padding:8px 10px;font-size:11px;text-transform:uppercase;letter-spacing:.3px;text-align:right}
+    table.bk-cmp th:first-child{text-align:left}
+    table.bk-cmp td{padding:7px 10px;border-bottom:1px solid var(--line,#efe7d6);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    table.bk-cmp td:first-child{text-align:left;font-weight:600}
+    table.bk-cmp tr.bad{background:#fdeaea}
+    table.bk-cmp tr.bad td.fark{color:var(--danger,#c0392b);font-weight:800}
+    table.bk-cmp tr.ok td.fark{color:var(--ok,#3a9a5c);font-weight:700}
+    table.bk-cmp td.z{color:var(--ink-faint,#b8ad98)}
+    .bk-sum{display:flex;flex-wrap:wrap;gap:10px;margin-bottom:10px}
+    .bk-sum .chip{font-size:13px;font-weight:700;padding:7px 12px;border-radius:10px}
+    .bk-sum .chip.ok{background:#e7f6ec;color:#2f7d4c}
+    .bk-sum .chip.bad{background:#fdeaea;color:#c0392b}
+    .bk-sum .chip.n{background:var(--surface-2,#fbf7ef);color:var(--ink-soft,#6f6250)}
+  </style>
+  <div class="bk-wrap">
+    <div class="notice info">📸 Garanti'nin resmî <b>bloke çözüm takvimi</b> görselini yükle. Program görseli okur (OCR), sen kontrol edip düzeltirsin, sonra <b>programın öngörüsüyle gün gün karşılaştırılır</b>. Birden çok ay için birden çok görsel yükleyebilirsin.</div>
+
+    <div class="card">
+      <div class="card-head"><h3>1️⃣ Takvim Görseli</h3><span class="bk-stat">🏦 Program: ${progDays} gün · ${fmtNum(progTotal)} ₺ bekleyen bloke</span></div>
+      <div id="bk-drop"></div>
+      <div id="bk-ocr-st" class="bk-ocr-st"></div>
+      <div id="bk-prev" class="bk-prev"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h3>2️⃣ Oku & Düzelt</h3><span class="hint">OCR yanılabilir — tarih/tutarları kontrol et</span></div>
+      <div id="bk-tbl"></div>
+      <div class="toolbar" style="margin-top:10px;gap:8px">
+        <button class="btn btn-sm" id="bk-addrow">+ Satır Ekle</button>
+        <button class="btn btn-sm" id="bk-clear">Temizle</button>
+        <div class="grow"></div>
+        <button class="btn btn-primary btn-sm" id="bk-cmp-btn">⚖️ Karşılaştır</button>
+      </div>
+    </div>
+
+    <div class="card" id="bk-result-card" style="display:none">
+      <div class="card-head"><h3>3️⃣ Karşılaştırma</h3><span class="hint">Gelecek tüm günler</span></div>
+      <div id="bk-sum" class="bk-sum"></div>
+      <div class="table-wrap"><table class="bk-cmp" id="bk-cmp">
+        <thead><tr><th>Tarih</th><th>Program</th><th>Garanti (gerçek)</th><th>Fark</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+    </div>
+  </div>`;
+
+  // Düzenlenebilir okuma tablosu
+  const tbl = editableTable([
+    { key: "tarih", label: "Tarih", type: "date" },
+    { key: "tutar", label: "Tutar (Garanti)", type: "num" },
+  ], []);
+  $("#bk-tbl", c).appendChild(tbl.root);
+  const seedIso = todayISO_.slice(0, 8) + "01";
+  const addReviewRows = (rows) => {
+    // aynı tarih varsa güncelle, yoksa ekle
+    const existing = {};
+    $$("tbody tr", tbl.root).forEach((tr) => { const t = $('[data-key="tarih"]', tr); if (t && t.value) existing[t.value] = tr; });
+    rows.forEach((r) => {
+      const tr = existing[r.iso];
+      if (tr) { const inp = $('[data-key="tutar"]', tr); if (inp) inp.value = fmtNum(r.amount); }
+      else tbl.addRow({ tarih: r.iso, tutar: r.amount });
+    });
+  };
+
+  $("#bk-addrow", c).onclick = () => tbl.addRow({ tarih: seedIso, tutar: "" });
+  $("#bk-clear", c).onclick = () => { tbl.tbody.innerHTML = ""; };
+
+  // Görsel yükleme + OCR
+  const drop = fileDrop(async (file) => {
+    if (!/^image\//.test(file.type)) { toast("Lütfen bir görsel (foto/ekran görüntüsü) yükleyin.", "err"); return; }
+    const url = URL.createObjectURL(file);
+    const img = document.createElement("img"); img.src = url; img.title = file.name;
+    $("#bk-prev", c).appendChild(img);
+    const st = $("#bk-ocr-st", c);
+    st.textContent = "⏳ Görsel okunuyor (ilk seferde dil verisi indirilir, biraz sürebilir)…";
+    try {
+      const T = await loadTesseract();
+      const res = await T.recognize(file, "tur+eng", {
+        logger: (m) => { if (m.status === "recognizing text") st.textContent = `🔎 Okunuyor… %${Math.round((m.progress || 0) * 100)}`; },
+      });
+      const parsed = parseGarantiTakvim(res.data, +todayISO_.slice(0, 4));
+      if (!parsed.month) { st.textContent = "⚠️ Ay adı okunamadı. Tarihleri elle girin ya da düzeltin."; }
+      if (!parsed.rows.length) { st.textContent = (parsed.month ? _AYLAR_TR[parsed.month - 1] : "") + " — tutar okunamadı. Elle girebilirsiniz."; return; }
+      addReviewRows(parsed.rows);
+      const ay = parsed.month ? (KZ_AYLAR[parsed.month - 1] + " " + parsed.year) : "";
+      st.textContent = `✅ ${ay ? ay + ": " : ""}${parsed.rows.length} gün okundu — lütfen kontrol edip düzeltin.`;
+      buildCompare();
+    } catch (err) {
+      st.textContent = "❌ OCR başarısız: " + (err && err.message || err) + " — tarih/tutarları elle girebilirsiniz.";
+    }
+  }, "image/*", true);
+  $("#bk-drop", c).appendChild(drop);
+
+  // Karşılaştırma
+  function buildCompare() {
+    const rev = {};
+    tbl.getData().forEach((r) => { if (r.tarih && parseNum(r.tutar) > 0) rev[r.tarih] = (rev[r.tarih] || 0) + parseNum(r.tutar); });
+    const dates = [...new Set([...Object.keys(prog), ...Object.keys(rev)])].filter((d) => d >= todayISO_).sort();
+    const card = $("#bk-result-card", c);
+    if (!dates.length) { card.style.display = "none"; toast("Karşılaştırılacak gelecek gün yok.", "info"); return; }
+    let okN = 0, badN = 0, body = "";
+    dates.forEach((d) => {
+      const p = prog[d] || 0, g = rev[d] || 0, fark = g - p, bad = Math.abs(fark) > 0.5;
+      if (bad) badN++; else okN++;
+      body += `<tr class="${bad ? "bad" : "ok"}">
+        <td>${fmtDate(d)}</td>
+        <td class="${p ? "" : "z"}">${p ? fmtNum(p) + " ₺" : "—"}</td>
+        <td class="${g ? "" : "z"}">${g ? fmtNum(g) + " ₺" : "—"}</td>
+        <td class="fark">${bad ? (fark > 0 ? "+" : "") + fmtNum(fark) + " ₺" : "✓"}</td>
+      </tr>`;
+    });
+    $("#bk-cmp tbody", c).innerHTML = body;
+    $("#bk-sum", c).innerHTML = `
+      <span class="chip ok">✅ ${okN} gün uyuşuyor</span>
+      <span class="chip bad">⚠️ ${badN} gün farklı</span>
+      <span class="chip n">Toplam ${dates.length} gün</span>`;
+    card.style.display = "";
+  }
+  $("#bk-cmp-btn", c).onclick = buildCompare;
 }
 
 async function viewNakitAkisRapor(c) {
