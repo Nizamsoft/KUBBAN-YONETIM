@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.290";
+const APP_VERSION = "2026.291";
 const CHANGELOG = [
+  { version: "2026.291", date: "2026-08-16", items: [
+    "🧹 Ayarlar → Kayıt & Kontrol'e 'Bloke Defterlerini Temizle' bakım aracı eklendi: Garanti ve T.Finans HARİÇ tüm 108 bloke hesaplarının (Yemek Sepeti, Getir, Tyg, Dsm, Metropal, Edenred, Pluxee, Multinet, Setcard) tüm defter kayıtlarını siler. Hesaplar silinmez, yalnız defter boşalır (bakiye 0). Onay ister ve GERİ ALINAMAZ.",
+  ]},
   { version: "2026.290", date: "2026-08-16", items: [
     "🔧 Ayarlar → Kayıt & Kontrol'e 'Bloke: Giren/Çıkan → Borç/Alacak' bakım aracı eklendi. 108 bloke kayıtlarında yanlışlıkla Giren/Çıkan alanında kalmış tutarları Borç/Alacak'a taşır (Giren→Borç, Çıkan→Alacak; giren/çıkan sıfırlanır). Böylece bloke defteri (borç−alacak) ile Hesaplar bakiyesi (giren−çıkan+borç−alacak) EŞİTLENİR — T.Finans gibi farklı görünen bakiyeler tutarlı olur. Yalnız 108 hesaplarında çalışır; Kasa/Banka'ya dokunmaz.",
   ]},
@@ -1984,6 +1987,7 @@ async function viewAyarlar(c) {
       { ic: "🏷️", label: "Kasa 'Nakit' Çıkışlarını Düzelt", desc: "Geçmiş nakit çıkışlarını 'MASRAF - Ana Kasa' yap", action: "fix-kasa-masraf", admin: true },
       { ic: "🔓", label: "Bloke Valör Tarihlerini Düzelt", desc: "Fatura No'daki valör tarihlerini Valör alanına taşı (108.xx)", action: "fix-bloke-valor", admin: true },
       { ic: "🔧", label: "Bloke: Giren/Çıkan → Borç/Alacak", desc: "108 kayıtlarında Giren'i Borç'a, Çıkan'ı Alacak'a taşı (giren/çıkan kalmasın)", action: "fix-bloke-gc", admin: true },
+      { ic: "🧹", label: "Bloke Defterlerini Temizle", desc: "Garanti & T.Finans HARİÇ tüm 108 bloke hesaplarının defterini sil (geri alınamaz)", action: "clear-bloke-ledgers", admin: true },
     ]},
     { title: "⚙️ Sistem", items: [
       { ic: "👥", label: "Kullanıcılar", desc: "Kullanıcı ekle / yetki", path: "kullanicilar", admin: true },
@@ -2039,6 +2043,49 @@ async function viewAyarlar(c) {
     ev.preventDefault();
     fixBlokeGirenCikan(gcBtn);
   });
+  // Bloke defterlerini temizle (Garanti & T.Finans hariç)
+  const clrBtn = $('[data-action="clear-bloke-ledgers"]', c);
+  if (clrBtn) clrBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    clearBlokeLedgers(clrBtn);
+  });
+}
+
+// 108 bloke hesaplarından GARANTİ ve TÜRKİYE FİNANS HARİÇ hepsinin (Yemek Sepeti, Getir,
+// Tyg, Dsm, Metropal, Edenred, Pluxee, Multinet, Setcard) TÜM defter kayıtlarını siler.
+// Hesaplar silinmez, yalnız defter boşalır. GERİ ALINAMAZ.
+async function clearBlokeLedgers(btn) {
+  const [accounts, entries] = await Promise.all([
+    fetchAll(C.accounts).catch(() => []),
+    fetchAll(C.accountEntries).catch(() => []),
+  ]);
+  const targetAccs = accounts.filter((a) => {
+    if (!String(a.code || "").startsWith("108") || !a.parentId) return false;
+    const n = normTr(a.name || "");
+    return !n.includes("garanti") && !n.includes("finans");   // Garanti & T.Finans hariç
+  });
+  const ids = new Set(targetAccs.map((a) => a.id));
+  const codes = new Set(targetAccs.map((a) => String(a.code || "")));
+  const targets = entries.filter((e) => ids.has(e.accountId) || codes.has(String(e.accountCode || "")));
+  if (!targets.length) { toast("Silinecek kayıt yok — bu bloke hesaplarının defteri zaten boş.", "info"); return; }
+  const names = targetAccs.map((a) => (a.code || "") + " " + (a.name || "").slice(0, 24)).join("\n");
+  if (!confirm(`${targetAccs.length} bloke hesabının (Garanti & T.Finans HARİÇ) TÜM defteri silinecek — ${targets.length} hareket.\n\n${names}\n\n⚠️ Bu işlem GERİ ALINAMAZ. Devam edilsin mi?`)) return;
+  const orig = btn.querySelector("b")?.textContent;
+  const setLbl = (t) => { const b = btn.querySelector("b"); if (b) b.textContent = t; };
+  try {
+    for (let i = 0; i < targets.length; i += 400) {
+      const b = writeBatch(db);
+      targets.slice(i, i + 400).forEach((e) => b.delete(doc(db, "accountEntries", e.id)));
+      await b.commit();
+      setLbl(`Siliniyor… ${Math.min(i + 400, targets.length)}/${targets.length}`);
+    }
+    await logAction("Silme", "Hesap Hareketi", `Bloke defterleri temizlendi (Garanti & T.Finans hariç) · ${targetAccs.length} hesap · ${targets.length} kayıt`);
+    if (orig) setLbl(orig);
+    toast(`${targets.length} kayıt silindi · ${targetAccs.length} bloke hesabının defteri temizlendi.`, "ok");
+  } catch (e) {
+    if (orig) setLbl(orig);
+    toast("Silinemedi: " + e.message, "err");
+  }
 }
 
 // Bloke (108.xx) hesaplarında yanlışlıkla Giren/Çıkan alanına yazılmış tutarları
