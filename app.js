@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.266";
+const APP_VERSION = "2026.267";
 const CHANGELOG = [
+  { version: "2026.267", date: "2026-08-16", items: [
+    "📥 YENİ: Nakit Akış Geçmişi İçe Aktar — eski programdan kalan 'Nakit Akış Verileri' Excel'i yüklenebiliyor (Ayarlar → Geçmiş Yükleme, ya da Nakit Akış Verileri sayfasındaki '📥 Excel'den Aktar'). Dosyadaki ÖDEMELER tablosu okunur: tekrarlı kalemler (aylık/yıllık/haftalık) + tarihi bugünden sonra olan tek seferlik ödemeler; her satır hesabına (Garanti/T.Finans/Nakit), grubuna (rapor kodu) ve tutarına göre eşlenir. Önizleme + onayla yüklenir; geçmiş/ödenmiş taksitler, tutarsızlar ve zaten var olanlar otomatik atlanır. Aktarılanlar Nakit Akış Raporu'nda otomatik görünür",
+    "🔧 Nakit Akış kalemlerine 'tek seferlik (belirli tarih)' desteği eklendi ve yıllık kalemler artık doğru AYDA tekrar ediyor (önceden yıllık kalem ayı tutmuyordu). Nakit Akış Verileri listesinde 'Gün' sütunu 'Tekrar' oldu (ör. 'Her yıl 17.08', '🗓️ 10.09.2026', 'Ayın 6'i')",
+  ]},
   { version: "2026.266", date: "2026-08-15", items: [
     "🖥️ Nakit Akış Raporu bilgisayarda artık tüm ekrana yayılmıyor: tablo daraltıldı (max 600px) ve SOLA yaslandı; sağ taraf şimdilik boş bırakıldı (ileride oraya özet/ek görünüm eklenebilir). Telefonda görünüm aynı",
   ]},
@@ -1754,6 +1758,7 @@ const ROUTES = {
   "kar-zarar":        { title: "Kâr / Zarar Durumu", crumb: "Raporlar", render: viewKarZarar },
   "nakit-akis-rapor": { title: "Nakit Akış Raporu", crumb: "Raporlar", render: viewNakitAkisRapor },
   "nakit-akis-veri":  { title: "Nakit Akış Verileri", crumb: "Sistem", render: viewNakitAkisVeri },
+  "nakit-akis-import": { title: "Nakit Akış Geçmişi İçe Aktar", crumb: "Sistem", render: viewNakitAkisImport, admin: true, back: "#/nakit-akis-veri" },
   "gider-gruplari":   { title: "Gider Grupları", crumb: "Sistem", render: viewGiderGruplari },
   "yedek":            { title: "Yedek / Veri", crumb: "Sistem", render: viewYedek },
   "guncelleme":       { title: "Güncelleme", crumb: "Sistem", render: viewGuncelleme },
@@ -1829,7 +1834,7 @@ const BN_ITEMS = [
 const _bnPaths = (lbl) => (NAV.find((n) => n.label === lbl)?.children || []).map((c) => c.path);
 const AYARLAR_PATHS = ["ayarlar", "cari-import", "kasa-import", "banka-import", "cari-gecmis-import",
   "tum-kayitlar", "bakiye-karsilastir", "kullanicilar", "sayfa-ayarlari", "gider-gruplari",
-  "nakit-akis-veri", "audit", "yedek", "guncelleme", "rapor-arsiv"];
+  "nakit-akis-veri", "nakit-akis-import", "audit", "yedek", "guncelleme", "rapor-arsiv"];
 function bnActiveKey(p) {
   if (p === "dashboard" || p === "borc-alacak") return "dashboard";
   if (p === "hesaplar" || p === "hesap-detay") return "hesaplar";
@@ -1886,6 +1891,7 @@ async function viewAyarlar(c) {
       { ic: "📒", label: "Kasa Geçmişi", desc: "Geçmiş kasa hareketlerini yükle", path: "kasa-import", admin: true },
       { ic: "🏦", label: "Banka Geçmişi", desc: "Geçmiş banka hareketlerini yükle", path: "banka-import", admin: true },
       { ic: "🧾", label: "Cari Geçmişi", desc: "Geçmiş cari hareketlerini yükle", path: "cari-gecmis-import", admin: true },
+      { ic: "🔄", label: "Nakit Akış Geçmişi", desc: "Eski nakit akış ödeme verilerini yükle", path: "nakit-akis-import", admin: true },
     ]},
     { title: "📈 Raporlar", desc: "Rapor arşivi — yeniden düzenlendikçe menüye taşınır", items: [
       { ic: "🗄️", label: "Rapor Arşivi", desc: `${archivedReports().length} rapor arşivde`, path: "rapor-arsiv" },
@@ -9689,6 +9695,17 @@ const PERIODS = [
   { value: "yillik", label: "Yıllık" },
 ];
 const periodLabel = (v) => PERIODS.find((p) => p.value === v)?.label || v;
+// Kalemin ne zaman tekrarlandığını okunur göster (tek seferlik / yıllık-ay / aylık…)
+function cfWhen(x) {
+  const p = x.period || "aylik";
+  if (p === "tek") return x.date ? "🗓️ " + fmtDate(x.date) : "Tek sefer";
+  const g = x.dayOfMonth || 1;
+  if (p === "yillik") return x.month ? `Her yıl ${String(g).padStart(2, "0")}.${String(x.month).padStart(2, "0")}` : `Yıllık · ${g}. gün`;
+  if (p === "haftalik") return "Haftalık";
+  if (p === "3aylik") return `3 Aylık · ${g}. gün`;
+  if (p === "6aylik") return `6 Aylık · ${g}. gün`;
+  return `Ayın ${g}'i`;
+}
 
 // ===========================================================================
 //  MODÜL: TANIMLAMALAR — Gider Grupları
@@ -9776,17 +9793,18 @@ async function viewNakitAkisVeri(c) {
     </div>
     <div class="toolbar">
       <div class="grow"></div>
+      <button class="btn btn-sm" id="cf-import">📥 Excel'den Aktar</button>
       <button class="btn btn-primary btn-sm" id="cf-add">+ Yeni Tanım</button>
     </div>
     <div class="card">
       <div class="card-head"><h3>Tekrarlanan Kalemler</h3><span class="hint">${items.length} kalem</span></div>
       ${items.length ? `<div class="table-wrap"><table class="data">
-        <thead><tr><th>Ad</th><th>Tür</th><th>Hesap</th><th>Gün</th><th>Rapor</th><th class="num">Tutar</th><th>Durum</th><th></th></tr></thead>
+        <thead><tr><th>Ad</th><th>Tür</th><th>Hesap</th><th>Tekrar</th><th>Rapor</th><th class="num">Tutar</th><th>Durum</th><th></th></tr></thead>
         <tbody>${items.map((x) => `<tr>
           <td><b>${esc(x.name)}</b></td>
           <td><span class="tag ${x.type==="gelir"?"ok":"red"}">${x.type==="gelir"?"Gelir":"Gider"}</span></td>
           <td>${x.account==="tfinans"?"T.Finans":x.account==="nakit"?"Nakit":"Garanti"}</td>
-          <td>Ayın ${x.dayOfMonth || 1}'i</td>
+          <td>${esc(cfWhen(x))}</td>
           <td>${esc(x.rapor || "—")}</td>
           <td class="num">${fmtTRY(x.amount || 0)}</td>
           <td>${x.active===false?'<span class="tag warn">Pasif</span>':'<span class="tag ok">Aktif</span>'}</td>
@@ -9804,12 +9822,143 @@ async function viewNakitAkisVeri(c) {
     $("#di-nakit", c).textContent = fmtNum(dailyIn.nakit);
   });
   $("#cf-add").onclick = () => cfModal(null);
+  const cfImp = $("#cf-import", c); if (cfImp) cfImp.onclick = () => { location.hash = "#/nakit-akis-import"; };
   $$("[data-edit]", c).forEach((b) => b.onclick = () => cfModal(items.find((x) => x.id === b.dataset.edit)));
   $$("[data-del]", c).forEach((b) => b.onclick = () =>
     confirmDialog("Kalem silinsin mi?", async () => {
       await deleteDoc(doc(db, "cashflowItems", b.dataset.del));
       toast("Silindi.", "ok"); route();
     }));
+}
+
+// Eski programdan "Nakit Akış Verileri" Excel'ini içe aktar (yalnız Ödemeler tablosu)
+async function viewNakitAkisImport(c) {
+  if (!isAdmin()) { c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`; return; }
+  let parsed = null;
+
+  const render = () => {
+    c.innerHTML = `
+      <div class="notice info">📥 Eski programdan kalan <b>Nakit Akış Verileri</b> Excel'ini yükle. Yalnız <b>Ödemeler</b> tablosu okunur: tekrarlı kalemler (aylık/yıllık/haftalık) + tarihi <b>bugünden sonra</b> olan tek seferlik ödemeler aktarılır. Geçmiş/ödenmiş taksitler, zaten var olanlar ve 'Gelecek gelen para' tablosu atlanır. Aktarılanlar <b>Nakit Akış Raporu</b>'nda otomatik görünür.</div>
+      <div id="na-imp-drop"></div>
+      <div id="na-imp-prev"></div>`;
+    $("#na-imp-drop", c).appendChild(fileDrop((file) => handleFile(file), ".xlsx,.xls,.csv"));
+    if (parsed) renderPreview();
+  };
+
+  async function handleFile(file) {
+    const pv = $("#na-imp-prev", c);
+    pv.innerHTML = `<div class="empty" style="padding:24px"><div class="spinner" style="margin:0 auto"></div><p>Dosya okunuyor…</p></div>`;
+    try { parsed = await parseNakitAkis(file); renderPreview(); }
+    catch (e) { pv.innerHTML = `<div class="notice warn">Okunamadı: ${esc(e.message)}</div>`; }
+  }
+
+  async function parseNakitAkis(file) {
+    const XLSX = await loadXLSX();
+    const buf = await file.arrayBuffer();
+    const wb = XLSX.read(buf, { type: "array", cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(ws, { header: 1, defval: "", raw: true });
+    let hIdx = -1;
+    for (let i = 0; i < Math.min(aoa.length, 40); i++) {
+      if ((aoa[i] || []).slice(0, 22).some((x) => normTr(x).includes("odeme adi"))) { hIdx = i; break; }
+    }
+    if (hIdx < 0) throw new Error("'ÖDEME ADI' başlığı bulunamadı — dosya beklenen biçimde değil.");
+    const H = (aoa[hIdx] || []).map((x) => normTr(x));
+    const colOf = (kw) => { for (let i = 0; i < Math.min(H.length, 24); i++) if (H[i] && H[i].includes(kw)) return i; return -1; };
+    const cAd = colOf("odeme adi"), cGrup = colOf("odeme grubu"), cSekil = colOf("odeme sekli"),
+      cSurek = colOf("odeme surekli"), cTutar = colOf("odeme tutari"), cEn = colOf("en yakin"),
+      cGun = colOf("gunluk"), cNet = colOf("net odeme");
+    if (cAd < 0 || cTutar < 0) throw new Error("Gerekli sütunlar (Ödeme Adı / Tutarı) bulunamadı.");
+
+    const pad2 = (n) => String(n).padStart(2, "0");
+    const toIso = (v) => {
+      if (v instanceof Date && !isNaN(v)) return `${v.getFullYear()}-${pad2(v.getMonth() + 1)}-${pad2(v.getDate())}`;
+      if (typeof v === "string") { const m = v.match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/); if (m) return `${m[3]}-${pad2(m[2])}-${pad2(m[1])}`; }
+      return "";
+    };
+    const accOf = (s) => { const k = normTr(s); return k.includes("finans") ? "tfinans" : k.includes("nakit") ? "nakit" : "garanti"; };
+    const today = todayISO();
+    const existing = await fetchAll(C.cashflowItems).catch(() => []);
+    const seen = new Set(existing.map((x) => normTr(x.name) + "|" + (x.account || "garanti") + "|" + Math.round(parseNum(x.amount))));
+
+    const out = [];
+    for (let i = hIdx + 1; i < aoa.length; i++) {
+      const r = aoa[i] || [];
+      const ad = String(r[cAd] ?? "").trim();
+      if (!ad) continue;
+      const amount = parseNum(r[cTutar]);
+      const grup = cGrup >= 0 ? String(r[cGrup] ?? "").trim() : "";
+      const account = accOf(r[cSekil]);
+      const surek = normTr(cSurek >= 0 ? r[cSurek] : "");
+      const dateIso = (cEn >= 0 ? toIso(r[cEn]) : "") || (cNet >= 0 ? toIso(r[cNet]) : "");
+      let period;
+      if (surek.includes("aylik") && !surek.includes("3") && !surek.includes("6")) period = "aylik";
+      else if (surek.includes("yillik")) period = "yillik";
+      else if (surek.includes("haftalik")) period = "haftalik";
+      else period = "tek";
+      const dObj = dateIso ? new Date(dateIso + "T00:00:00") : null;
+      const dayOfMonth = Math.min(31, Math.max(1, dObj ? dObj.getDate() : (parseNum(r[cGun]) || 1)));
+      const cand = { name: ad, type: "gider", period, amount, account, rapor: grup, dayOfMonth, active: true };
+      if (period === "tek") cand.date = dateIso;
+      if (period === "yillik" && dObj) cand.month = dObj.getMonth() + 1;
+
+      let status = "ok", reason = "";
+      if (amount <= 0.005) { status = "skip"; reason = "Tutar yok"; }
+      else if (period === "tek" && (!dateIso || dateIso < today)) { status = "skip"; reason = dateIso ? "Geçmiş tarih" : "Tarih yok"; }
+      else if (seen.has(normTr(ad) + "|" + account + "|" + Math.round(amount))) { status = "skip"; reason = "Zaten var"; }
+      cand._status = status; cand._reason = reason;
+      out.push(cand);
+    }
+    return { rows: out, okCount: out.filter((x) => x._status === "ok").length };
+  }
+
+  function renderPreview() {
+    const pv = $("#na-imp-prev", c);
+    const { rows, okCount } = parsed;
+    const accL = (a) => a === "tfinans" ? "T.Finans" : a === "nakit" ? "Nakit" : "Garanti";
+    pv.innerHTML = `
+      <div class="toolbar" style="margin-top:14px">
+        <div><b>${rows.length}</b> kalem okundu · <b style="color:var(--ok)">${okCount}</b> aktarılacak · <b style="color:var(--ink-faint)">${rows.length - okCount}</b> atlanacak</div>
+        <div class="grow"></div>
+        <button class="btn btn-primary btn-sm" id="na-imp-go" ${okCount ? "" : "disabled"}>✓ ${okCount} Kalemi Aktar</button>
+      </div>
+      <div class="card"><div class="table-wrap"><table class="data">
+        <thead><tr><th>Ödeme Adı</th><th>Grup</th><th>Hesap</th><th>Tekrar</th><th class="num">Tutar</th><th>Durum</th></tr></thead>
+        <tbody>${rows.map((x) => `<tr style="${x._status === "ok" ? "" : "opacity:.5"}">
+          <td><b>${esc(x.name)}</b></td>
+          <td>${esc(x.rapor || "—")}</td>
+          <td>${accL(x.account)}</td>
+          <td>${esc(cfWhen(x))}</td>
+          <td class="num">${fmtTRY(x.amount)}</td>
+          <td>${x._status === "ok" ? '<span class="tag ok">✓ Aktarılacak</span>' : `<span class="tag warn">⏭ ${esc(x._reason)}</span>`}</td>
+        </tr>`).join("")}</tbody>
+      </table></div></div>`;
+    const go = $("#na-imp-go", c); if (go) go.onclick = () => doImport();
+  }
+
+  async function doImport() {
+    const toAdd = parsed.rows.filter((x) => x._status === "ok").map((x) => {
+      const o = { ...x }; delete o._status; delete o._reason;
+      return { ...o, createdAt: serverTimestamp() };
+    });
+    if (!toAdd.length) return;
+    const go = $("#na-imp-go", c); if (go) { go.disabled = true; go.textContent = "Aktarılıyor…"; }
+    try {
+      for (let i = 0; i < toAdd.length; i += 400) {
+        const b = writeBatch(db);
+        toAdd.slice(i, i + 400).forEach((d) => b.set(doc(C.cashflowItems()), d));
+        await b.commit();
+      }
+      await logAction("İçe Aktarma", "Nakit Akış", `${toAdd.length} kalem (Excel)`);
+      toast(`${toAdd.length} kalem aktarıldı.`, "ok");
+      location.hash = "#/nakit-akis-veri";
+    } catch (e) {
+      toast("Hata: " + e.message, "err");
+      if (go) { go.disabled = false; go.textContent = `✓ ${toAdd.length} Kalemi Aktar`; }
+    }
+  }
+
+  render();
 }
 function cfModal(item) {
   const isNew = !item;
@@ -9884,6 +10033,14 @@ function naOccurs(it, dom, monthOffset) {
   if (p === "6aylik") return monthOffset % 6 === 0;
   if (p === "yillik") return monthOffset % 12 === 0;
   return true; // aylik / haftalik ≈ her ay o gün
+}
+// Kalem bu güne düşer mi? "tek" (tek seferlik) tam tarihte; yıllıkta ay tutuluyorsa
+// o ayda; diğerleri naOccurs ile. d=Date, iso=YYYY-MM-DD, dom=ayın günü, monthOffset=ay farkı.
+function naFires(it, d, iso, dom, monthOffset) {
+  if ((it.period || "aylik") === "tek") return it.date === iso;   // belirli tarihte bir kez
+  if ((it.dayOfMonth || 1) !== dom || monthOffset < 0) return false;
+  if (it.period === "yillik" && it.month) return (d.getMonth() + 1) === it.month;  // doğru ay
+  return naOccurs(it, dom, monthOffset);
 }
 
 // ===========================================================================
@@ -10617,7 +10774,7 @@ async function viewNakitAkisRapor(c) {
         const di = parseNum(dailyIn[key]);
         if (di) { giren += di; gd.push({ t: "Öngörülen giriş", a: di }); }
         its.forEach((it) => {
-          if (!naOccurs(it, dom, monthOffset)) return;
+          if (!naFires(it, d, iso, dom, monthOffset)) return;
           if (raporDone(it.rapor, d.getFullYear(), d.getMonth())) return;
           const amt = parseNum(it.amount);
           if (it.type === "gelir") { giren += amt; gd.push({ t: it.name, a: amt }); }
