@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.284";
+const APP_VERSION = "2026.285";
 const CHANGELOG = [
+  { version: "2026.285", date: "2026-08-16", items: [
+    "🔎 Çözülme Takvimi — fark olan güne tıkla, hareketleri gör: bir günde fark varsa (ör. 19'unda) o günün 'Fark' hücresi tıklanabilir olur (noktalı altı çizili · ›). Tıklayınca o gün çözülen (valörü o güne denk) tüm bloke hareketleri listelenir (Tarih · Açıklama · Tutar). Listedeki bir harekete tıklayınca kaydın DÜZENLEME ekranı açılır — yanlış girilen tutarı orada düzeltirsin.",
+    "🧹 Fark sıfıra çok yakınken (yuvarlama) artık '+0,00' değil, düz '0,00 ₺' (gri, farksız) gösteriliyor; yalnız gerçek fark olan günler tıklanabilir/kırmızı.",
+  ]},
   { version: "2026.284", date: "2026-08-16", items: [
     "📅 Çözülme Takvimi 'Gerçek' sütunu artık ELLE YAZILMIYOR: her gün program çözülme tutarıyla DOLU gelir (fark 0 başlar). Yalnız farklı olan günü (ör. 20'sinde) değiştirirsin; değişiklik tarih bazında veritabanına KALICI kaydedilir (otomatik, 'kaydedildi' onayıyla) — kapatıp açınca aynı gelir, tekrar yazmazsın.",
     "🟠 Değiştirilen günler belirginleşir (altın çerçeveli kutu + pembe satır), fark kırmızı; altta Program/Gerçek/Fark toplamları görünür.",
@@ -8056,6 +8060,10 @@ async function viewAccountLedger(c) {
       .czt input{width:118px;text-align:right;font:inherit;padding:3px 6px;border:1px solid var(--line-strong,#ddd0b8);border-radius:7px;background:var(--surface,#fff);color:var(--ink,#241d15)}
       .czt input.on{border-color:var(--gold,#c9a24b);font-weight:700}
       .czt td.fk{font-weight:700}
+      .czt td.fk.clk{cursor:pointer;text-decoration:underline dotted;text-underline-offset:3px}
+      .czt td.fk.clk::after{content:" ›";font-weight:700}
+      .czt-erow{cursor:pointer}
+      .czt-erow:hover td{background:var(--surface-2,#fbf7ef)}
       .czt tfoot td{position:sticky;bottom:0;background:#faf5ea;font-weight:800;border-top:2px solid var(--gold,#c9a24b)}
     </style>
     <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;color:var(--ink-faint)">Gerçek sütunu program tutarıyla dolu gelir; farklı olan günü değiştir — otomatik kaydedilir. <div class="grow"></div><span id="czt-st" style="color:var(--ok);font-weight:700"></span></div>
@@ -8065,7 +8073,7 @@ async function viewAccountLedger(c) {
         <td>${fmtDate(r.iso)} <span style="color:var(--ink-faint);font-weight:400">${WK[r.d.getDay()]}</span></td>
         <td data-prog="${r.prog}">${r.prog ? fmtNum(r.prog) + " ₺" : "—"}</td>
         <td><input inputmode="decimal" data-real="${i}" data-iso="${r.iso}" value="${gVal(r) ? fmtNum(gVal(r)) : ""}" placeholder="—"></td>
-        <td class="fk" data-fk="${i}">—</td>
+        <td class="fk" data-fk="${i}" data-iso="${r.iso}">—</td>
       </tr>`).join("")}</tbody>
       <tfoot><tr><td>Toplam · 45 gün</td><td>${fmtNum(totProg)} ₺</td><td data-gtot></td><td class="fk" data-fktot>—</td></tr></tfoot>
     </table></div>`;
@@ -8082,11 +8090,13 @@ async function viewAccountLedger(c) {
         inp.classList.toggle("on", overridden);
         tr.classList.toggle("diff", overridden);
         const fk = prog - g; ftot += fk;
-        fkCell.textContent = (fk > 0 ? "+" : "") + fmtNum(fk) + " ₺";
-        fkCell.style.color = Math.abs(fk) > 0.5 ? "var(--danger)" : "var(--ink-faint)";
+        const real = Math.abs(fk) > 0.5;   // sıfıra çok yakınsa fark yok say → "0,00"
+        fkCell.textContent = real ? (fk > 0 ? "+" : "") + fmtNum(fk) + " ₺" : "0,00 ₺";
+        fkCell.style.color = real ? "var(--danger)" : "var(--ink-faint)";
+        fkCell.classList.toggle("clk", real);   // yalnız fark olan gün tıklanabilir
       });
       const gt = $("td[data-gtot]", body); if (gt) gt.textContent = fmtNum(gtot) + " ₺";
-      const ft = $("td[data-fktot]", body); if (ft) { ft.textContent = (ftot > 0 ? "+" : "") + fmtNum(ftot) + " ₺"; ft.style.color = Math.abs(ftot) > 0.5 ? "var(--danger)" : ""; }
+      const ft = $("td[data-fktot]", body); if (ft) { const r = Math.abs(ftot) > 0.5; ft.textContent = r ? (ftot > 0 ? "+" : "") + fmtNum(ftot) + " ₺" : "0,00 ₺"; ft.style.color = r ? "var(--danger)" : ""; }
     };
     let saveT;
     const save = () => {
@@ -8112,6 +8122,30 @@ async function viewAccountLedger(c) {
       });
     });
     recompute();
+
+    // Fark olan günün Fark hücresine tıkla → o gün çözülen (valörü o güne denk) blokeler
+    // listelenir; birine tıklayınca kaydın düzenleme ekranı açılır (yanlış tutarı düzelt).
+    const openDayDetail = (iso) => {
+      const dayE = list.filter((e) => valISO(e) === iso && parseNum(e.borc) > 0)
+        .sort((a, b) => parseNum(b.borc) - parseNum(a.borc));
+      const tot = dayE.reduce((s, e) => s + parseNum(e.borc), 0);
+      const db = document.createElement("div");
+      db.innerHTML = `<div style="font-size:12px;color:var(--ink-faint);margin-bottom:8px">Bu gün çözülen blokeler. Yanlış tutarı bulmak için hareketi tıkla — <b>düzenleme ekranı</b> açılır.</div>
+        <div class="table-wrap"><table class="data" style="font-size:13px">
+          <thead><tr><th>İşlem Tarihi</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead>
+          <tbody>${dayE.length ? dayE.map((e) => `<tr class="czt-erow" data-eid="${esc(e.id)}"><td>${fmtDate(e.date)}</td><td class="tdwrap">${esc(e.aciklama || "")}</td><td class="num">${fmtNum(parseNum(e.borc))} ₺</td></tr>`).join("") : `<tr><td colspan="3" style="text-align:center;color:var(--ink-faint);padding:14px">Bu güne ait bloke bulunamadı.</td></tr>`}</tbody>
+          <tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="2">Toplam · ${dayE.length} kayıt</td><td class="num">${fmtNum(tot)} ₺</td></tr></tfoot>
+        </table></div>`;
+      const dm = openModal({ title: `📋 ${fmtDate(iso)} — Çözülen Blokeler`, body: db, footer: [mkBtn("Kapat", "", () => dm.close())] });
+      $$(".czt-erow", db).forEach((tr) => tr.onclick = () => {
+        const e = list.find((x) => x.id === tr.dataset.eid);
+        if (e) entryModal(acc, e, { nextNo, nextCariNo });
+      });
+    };
+    $(".czt tbody", body).addEventListener("click", (ev) => {
+      const cell = ev.target.closest("td.fk.clk");
+      if (cell && cell.dataset.iso) openDayDetail(cell.dataset.iso);
+    });
   };
 
   // Defter ekrana kilitli: üst (özet + başlık + araçlar) SABİT; yalnız hareket listesi kendi
