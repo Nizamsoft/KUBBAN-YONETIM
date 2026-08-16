@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.263";
+const APP_VERSION = "2026.264";
 const CHANGELOG = [
+  { version: "2026.264", date: "2026-08-15", items: [
+    "🖼️ Açılış ekranı alt logosu artık yuvarlak beyaz 'rozet' çerçeve içinde: altın ince kenarlık + yumuşak gölge (üstteki uygulama ikonuyla aynı dil). Koyu/arka planlı ya da kare logolar da şık, kartın içinde duruyormuş gibi görünür (orantı korunur, kırpılmaz)",
+  ]},
   { version: "2026.263", date: "2026-08-15", items: [
     "🖼️ Açılış (yükleme) ekranına logo eklenebiliyor: Ayarlar → Sayfa Ayarları → 'Açılış (Yükleme) Ekranı Logosu' slotundan bir PNG yükle → uygulama açılırken 'Başlatılıyor…' ekranının EN ALTINDA görünür (şeffaflık korunur, orantısı bozulmaz). Logo cihazda önbelleğe alınır, böylece sonraki açılışlarda anında çıkar",
   ]},
