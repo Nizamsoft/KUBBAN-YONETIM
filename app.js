@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.288";
+const APP_VERSION = "2026.289";
 const CHANGELOG = [
+  { version: "2026.289", date: "2026-08-16", items: [
+    "📋 Hesaplar → 108 Blokeli Hesaplar grubunun alt hesap sırası artık sabit: Garanti · T.Finans · Yemek Sepeti · Getir · Tyg · Dsm · Metropal · Edenred · Pluxee · Multinet · Setcard (hesap adına göre; bakiyeden bağımsız).",
+  ]},
   { version: "2026.288", date: "2026-08-16", items: [
     "🧮 Bloke çözülme tutarı artık NET (Borç − Alacak) hesaplanıyor — aynı satırda hem borç hem küçük bir alacak olduğunda (ör. İşlem 1382: 216.992,85 borç − 14,85 alacak = 216.978,00) eskiden sadece borç alınıp sürekli fark oluşuyordu; artık net alınıyor, o sistematik fark kayboluyor.",
     "🔁 Bu düzeltme 3 yerde: Çözülme Takvimi günlük tutarları, 'Fark → gün detayı' penceresi (artık Borç · Alacak · Net sütunları) ve Nakit Akış Raporu bloke çözüm öngörüsü — hepsi net (borç−alacak) kullanıyor.",
@@ -5459,8 +5462,12 @@ async function viewHesaplar(c) {
   roots.sort(byCode);
   // Alt hesaplar bakiyeye göre (işaretli). 320/336 küçükten büyüğe (en büyük borç üstte),
   // diğerleri büyükten küçüğe. Eşitse koda göre.
+  // 108 Blokeli Hesaplar: kullanıcı tanımlı SABİT sıra (bakiye/koddan bağımsız)
+  const BLOKE_ORDER = ["garanti", "finans", "yemek sepeti", "getir", "tyg", "dsm", "metropal", "edenred", "pluxee", "multinet", "set"];
+  const blokeOi = (a) => { const n = normTr(a.name || ""); const i = BLOKE_ORDER.findIndex((k) => n.includes(k)); return i < 0 ? 999 : i; };
   kids.forEach((arr, pid) => {
     const pc = String(byId.get(pid)?.code || "");
+    if (pc === "108") { arr.sort((x, y) => blokeOi(x) - blokeOi(y) || byCode(x, y)); return; }
     const asc = pc === "320" || pc === "336";
     arr.sort((x, y) => (asc ? cur(x) - cur(y) : cur(y) - cur(x)) || byCode(x, y));
   });
