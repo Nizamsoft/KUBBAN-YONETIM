@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.274";
+const APP_VERSION = "2026.275";
 const CHANGELOG = [
+  { version: "2026.275", date: "2026-08-16", items: [
+    "🔴 Nakit Akış Raporu: bakiye eksiye düşünce artık hücrenin arka planı KIRMIZI OLMUYOR — yalnızca rakam kırmızı yazılıyor (hücre normal/zebra zeminde kalıyor).",
+    "🔄 Nakit Akış öngörüsü: bir günde Garanti/T.Finans'ta bloke çözümü VARSA Giren'de artık yalnız BLOKE tutarı gösteriliyor (o gün 'Öngörülen giriş' eklenmiyor, mükerrer olmuyor). Bloke çözümü YOKSA eskisi gibi öngörülen günlük giriş görünür. Her hesap kendi bloke günlerine göre; tekrarlanan kalemler bu kuraldan bağımsız.",
+  ]},
   { version: "2026.274", date: "2026-08-16", items: [
     "📄 Aylık Ödeme Planı PDF akışı sadeleşti: artık önizleme penceresi YOK — yanındaki ay seçiciden ayı seç, '📄 Ödeme Planı PDF'e bas → doğrudan yazdırma ekranı açılır ('PDF olarak kaydet' ile indirilir). Grup filtresi seçiliyse plan yine o grupla sınırlıdır.",
     "☑️ PDF'e 'ÖDENDİ' sütunu (boş onay kutusu) eklendi — patron ödedikçe elle tik atabilsin. Plan yine tek sayfaya sığar.",
@@ -10942,8 +10946,16 @@ async function viewNakitAkisRapor(c) {
         const o = byDate[iso];
         if (o) { giren = o.in; cikan = o.out; gd.push(...o.inDet); cd.push(...o.outDet); }
       } else {
-        const di = parseNum(dailyIn[key]);
-        if (di) { giren += di; gd.push({ t: "Öngörülen giriş", a: di }); }
+        // O gün bu hesapta bloke çözümü var mı? Varsa GİREN = bloke tutarı (öngörülen
+        // giriş EKLENMEZ); yoksa öngörülen günlük giriş gösterilir.
+        const bl = blokeFwdByKey[key] && blokeFwdByKey[key][iso];
+        if (bl && bl.length) {
+          bl.forEach((x) => { giren += x.a; gd.push({ t: x.t, a: x.a }); });
+        } else {
+          const di = parseNum(dailyIn[key]);
+          if (di) { giren += di; gd.push({ t: "Öngörülen giriş", a: di }); }
+        }
+        // Tekrarlanan gelir/gider kalemleri (bloke kuralından bağımsız — her zaman işlenir)
         its.forEach((it) => {
           if (!naFires(it, d, iso, dom, monthOffset)) return;
           if (raporDone(it.rapor, d.getFullYear(), d.getMonth())) return;
@@ -10951,9 +10963,6 @@ async function viewNakitAkisRapor(c) {
           if (it.type === "gelir") { giren += amt; gd.push({ t: it.name, a: amt }); }
           else { cikan += amt; cd.push({ t: it.name, a: amt }); }
         });
-        // Bu banka blokesinin bu valör tarihinde çözülecek (bekleyen) tutarları
-        const bl = blokeFwdByKey[key] && blokeFwdByKey[key][iso];
-        if (bl) bl.forEach((x) => { giren += x.a; gd.push({ t: x.t, a: x.a }); });
       }
       run += giren - cikan;
       days.push({ iso, dObj: new Date(d), future, isToday, giren, cikan, gd, cd, bal: run });

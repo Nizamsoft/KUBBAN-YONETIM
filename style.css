@@ -1567,16 +1567,16 @@ table.data.cfk-tbl td.num, table.data.cfk-tbl th.num { text-align: center; }
 .na-tbl td.gir.z, .na-tbl td.cik.z { color: var(--ink-faint); font-weight: 400; cursor: default; }
 .na-tbl td.tap { text-decoration: underline dotted; text-underline-offset: 3px; }
 .na-tbl td.tap::after { content: "›"; font-size: 8px; opacity: .55; vertical-align: super; margin-left: 1px; }
-.na-tbl td.bal { font-weight: 800; } .na-tbl td.bal.neg { color: var(--danger); background: #fbeaea; }
-.na-tbl tr.fut td { background: #fffdf6; } .na-tbl tr.fut td.bal.neg { background: #fbeaea; }
+.na-tbl td.bal { font-weight: 800; } .na-tbl td.bal.neg { color: var(--danger); }
+.na-tbl tr.fut td { background: #fffdf6; }
 .na-tbl tr.today td { box-shadow: inset 0 2px 0 var(--gold); } .na-tbl tr.today td.dt { color: var(--gold-dark); }
 
-/* Nakit Akış: öngörülen (gelecek) satırlar soluk; negatif bakiye yine kırmızı */
+/* Nakit Akış: öngörülen (gelecek) satırlar soluk; negatif bakiyede yalnız RAKAM kırmızı (hücre arka planı normal) */
 .na-tbl tr.fut td.dt { color: var(--ink-faint); }
 .na-tbl tr.fut td.gir { color: #86c0a2; }
 .na-tbl tr.fut td.cik { color: #dca6aa; }
 .na-tbl tr.fut td.bal { color: var(--ink-soft); }
-.na-tbl tr.fut td.bal.neg { color: var(--danger); background: #fbeaea; }
+.na-tbl tr.fut td.bal.neg { color: var(--danger); }
 
 /* ===== Ana Ekrana Ekle — kurulum rehberi ===== */
 .a2hs { position: fixed; left: 12px; right: 12px; bottom: 14px; z-index: 3000; display: flex; align-items: center; gap: 12px;
