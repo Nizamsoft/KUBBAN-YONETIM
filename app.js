@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.264";
+const APP_VERSION = "2026.265";
 const CHANGELOG = [
+  { version: "2026.265", date: "2026-08-15", items: [
+    "✨ Açılış (yükleme) ekranı baştan tasarlandı — sade & modern: bol boşluk, ortada büyük net logo (yumuşak süzülme + hafif nefes animasyonu), zarif serif başlık, İNCE altın ilerleme çizgisi, küçük yüzde ve durum yazısı. En altta artık kalın rozet yerine İNCE YAZI kredi: 'Nizam Software'. (Ayarlar'dan logo yüklediysen, o da küçük olarak yazının üstünde çıkar; istemezsen Ayarlar → Sayfa Ayarları'ndan kaldırınca yalnız yazı kalır.) Tüm öğeler sırayla belirir; 'hareket azaltma' açıksa animasyonlar kapanır",
+  ]},
   { version: "2026.264", date: "2026-08-15", items: [
     "🖼️ Açılış ekranı alt logosu artık yuvarlak beyaz 'rozet' çerçeve içinde: altın ince kenarlık + yumuşak gölge (üstteki uygulama ikonuyla aynı dil). Koyu/arka planlı ya da kare logolar da şık, kartın içinde duruyormuş gibi görünür (orantı korunur, kırpılmaz)",
   ]},

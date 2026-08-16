@@ -24,7 +24,7 @@
   <meta name="twitter:description" content="Güllüoğlu Kübban yönetim paneli." />
   <meta name="twitter:image" content="https://nizamsoft.github.io/KUBBAN-YONETIM/apple-touch-icon.jpg" />
   <link rel="manifest" href="manifest.webmanifest?v=2026.196" />
-  <link rel="stylesheet" href="style.css?v=2026.264" />
+  <link rel="stylesheet" href="style.css?v=2026.265" />
 </head>
 <body>
 
@@ -38,8 +38,11 @@
       <div class="loader-pct" id="loader-pct"></div>
       <div class="loader-msg" id="loader-msg">Başlatılıyor…</div>
     </div>
-    <!-- Açılış ekranı alt logosu (Ayarlar → Sayfa Ayarları'ndan eklenir) -->
-    <img id="loader-foot-img" class="loader-foot" alt="" />
+    <!-- Alt kredi: ince yazı + (isteğe bağlı) Ayarlar'dan yüklenen küçük logo -->
+    <div class="loader-foot" id="loader-foot">
+      <img id="loader-foot-img" class="loader-foot-img" alt="" />
+      <div class="loader-credit">Nizam Software</div>
+    </div>
   </div>
 
   <!-- ===================== GİRİŞ EKRANI ===================== -->
@@ -156,6 +159,6 @@
   <div id="modal-root"></div>
   <div id="toasts"></div>
 
-  <script type="module" src="app.js?v=2026.264"></script>
+  <script type="module" src="app.js?v=2026.265"></script>
 </body>
 </html>
