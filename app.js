@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.279";
+const APP_VERSION = "2026.280";
 const CHANGELOG = [
+  { version: "2026.280", date: "2026-08-16", items: [
+    "🎯 Garanti Bloke Takvim okuması yeniden yazıldı (gerçek takvim düzenine göre): artık her tutar GÜN NUMARASINA çıpalanıyor — kuruşlu (virgüllü) 'Günlük Net' değeri, kendi sütununda üstündeki güne atanıyor. Böylece takvimdeki neredeyse tüm günler doğru okunuyor (önceden yalnız birkaçı geliyordu ve günler kayıyordu).",
+    "🧮 Sağ-üstteki renkli rozet sayıları (işlem adedi: 6, 38, 37…) tutar sanılmıyor (kuruşsuz oldukları için elenir). Eksi Günlük Net değerleri (ör. -2.734.654,12) korunuyor, 0,00 günler atlanıyor. Ay adı tam kelime aranıyor — 'Cumartesi' içindeki 'mart' artık Mart ayı sanılmıyor; ayın gün sayısını aşan hatalı günler eleniyor.",
+  ]},
   { version: "2026.279", date: "2026-08-16", items: [
     "🔍 Garanti Bloke Takvim OCR'ı büyük ölçüde iyileştirildi: (1) Tesseract v5'te konumlu kelimeler varsayılan gelmiyordu (blocks:true eklendi) — bu yüzden az sayıda gün okunuyordu; artık ızgara hücreleri konumlarına göre çözümleniyor, çok daha fazla gün yakalanıyor. (2) Görsel okumadan önce ~2x büyütülüyor (küçük yazı daha net). (3) Seyrek metin modu (PSM 11) ile yan yana hücrelerin rakamları birbirine karışmıyor.",
     "🧹 Yanlış tutar filtreleri: '2026' gibi yıl değerleri ve OCR birleşmesinden doğan aşırı büyük sayılar (ör. 46635256971) artık tutar olarak alınmıyor. Yükleme alanı görsel için doğru ipucunu (jpg/png) gösteriyor.",
@@ -10982,96 +10986,80 @@ function _flattenWords(data) {
   }))));
   return out;
 }
-// Bir metin parçası tutar mı? (Türkçe format: +1.234.567,89) — işaretiyle döner, değilse null
-//  { v: mutlak değer, sign: -1/0/+1 }. Gün sayıları / yıllar / OCR birleşmeleri elenir.
-function _amtParse(s) {
-  const m = String(s).match(/([+\-]?)\s*(\d[\d.]*(?:,\d{1,2})?)/);
+// Garanti takvimindeki gerçek tutar HER ZAMAN kuruşludur (",dd") ve genelde işaretlidir
+// (+/-). Sağ-üstteki rozet sayılarında (işlem adedi: 6, 38, 37…) virgül/kuruş yoktur →
+// böylece tutar ile rozet ayrışır. Türkçe biçimi çözer: +663.525,69 → +663525.69.
+function _curParse(s) {
+  const str = String(s).replace(/\s+/g, "");
+  const m = str.match(/[+\-]?\d[\d.]*,\d{2}(?!\d)/);   // kuruşlu değer (ör. 663.525,69)
   if (!m) return null;
-  let raw = m[2];
-  const hasSep = /[.,]/.test(raw);
-  if (!hasSep && raw.length < 4) return null;              // çıplak 1-3 haneli = gün olabilir
-  if (!hasSep && /^(19|20)\d{2}$/.test(raw)) return null;  // 2026 gibi yıl → tutar değil
-  if (/^\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, ""); // yalnız binlik noktalı → noktaları at
-  const v = parseNum(raw);
-  if (!(v > 0) || v > 1e9) return null;                    // 46635256971 gibi OCR birleşmesi → ele
-  return { v, sign: m[1] === "-" ? -1 : m[1] === "+" ? 1 : 0 };
+  const v = parseNum(m[0]);                            // işaret + Türkçe ayraçları çözülür
+  if (!isFinite(v) || Math.abs(v) > 1e9) return null;
+  return { v, signed: /^[+\-]/.test(m[0]) };
 }
-// Sıralı token dizisinden "GÜNLÜK NET" tutarını seç (işaretli). Garanti takviminde her
-// hücrede birden çok rakam olabilir; okunması gereken "Günlük Net" etiketli tutardır
-// (değer üstte, "Günlük Net" etiketi hemen altında). Etiket okunamazsa: işaretli (+/-)
-// tutarı, o da yoksa mutlak değerce en büyüğü seçilir. (Gün token'ı çağırandan hariç.)
-function _netFromTokens(tokens) {
-  let pendSign = 0; const seq = []; let netI = -1;
-  tokens.forEach((t) => {
-    const s = String(t).trim();
-    if (/^[+\-]$/.test(s)) { pendSign = s === "-" ? -1 : 1; return; }   // tek başına işaret
-    if (/net/.test(normTr(s))) { if (netI < 0) netI = seq.length; return; } // "Net" etiketi → tutar dizisindeki konum
-    const a = _amtParse(s);
-    if (a) { const sign = a.sign || pendSign; seq.push({ val: sign < 0 ? -a.v : a.v, signed: a.sign !== 0 || pendSign !== 0 }); pendSign = 0; }
-    else pendSign = 0;
-  });
-  if (!seq.length) return 0;
-  if (netI >= 0) {                       // etiketten hemen ÖNCEKİ tutar (değer üstte)
-    if (netI - 1 >= 0 && seq[netI - 1]) return seq[netI - 1].val;
-    if (seq[netI]) return seq[netI].val; // etiketten önce tutar yoksa sonraki ilk tutar
-  }
-  const signed = seq.filter((a) => a.signed);
-  if (signed.length) return signed[0].val;
-  return seq.reduce((b, a) => Math.abs(a.val) > Math.abs(b.val) ? a : b).val;
+// Sıralı değerlerdeki ardışık boşlukların medyanı (ızgara adımı: sütun genişliği / satır yüksekliği)
+function _medStep(vals) {
+  const s = [...vals].sort((a, b) => a - b); const gaps = [];
+  for (let i = 1; i < s.length; i++) { const g = s[i] - s[i - 1]; if (g > 5) gaps.push(g); }
+  if (!gaps.length) return 0;
+  gaps.sort((a, b) => a - b); return gaps[Math.floor(gaps.length / 2)];
 }
-// Sıralı değerleri, aralarındaki boşluk 'gap'ten büyük olunca ayrı kümeye böl → küme ortalamaları
-function _clusterCenters(sorted, gap) {
-  const cl = []; let grp = [];
-  sorted.forEach((v) => { if (grp.length && v - grp[grp.length - 1] > gap) { cl.push(grp); grp = []; } grp.push(v); });
-  if (grp.length) cl.push(grp);
-  return cl.map((g) => g.reduce((a, b) => a + b, 0) / g.length);
-}
-const _nearestIdx = (centers, v) => { let bi = 0, bd = Infinity; centers.forEach((c, i) => { const d = Math.abs(c - v); if (d < bd) { bd = d; bi = i; } }); return bi; };
-// OCR kelimelerini (konumlarıyla) takvim hücrelerine kümele → [{day, amount}]
+// OCR kelimelerini (konumlarıyla) çöz → [{day, amount}]. Yöntem: GÜN sayılarına çıpala.
+// Her kuruşlu tutarı, kendi sütununda ÜSTÜNDEKİ en yakın gün numarasına ata (gün hücrenin
+// sol-üstünde, tutar ortasında/altında). Rozet sayıları (virgülsüz) doğal olarak elenir.
 function _cellsFromWords(words) {
-  const ws = words.map((w) => ({ t: w.text.trim(), x: (w.bbox.x0 + w.bbox.x1) / 2, y: (w.bbox.y0 + w.bbox.y1) / 2, y0: w.bbox.y0, h: Math.max(1, w.bbox.y1 - w.bbox.y0) }));
-  if (!ws.length) return [];
-  const hs = ws.map((w) => w.h).sort((a, b) => a - b); const medH = hs[Math.floor(hs.length / 2)] || 10;
-  const cols = _clusterCenters(ws.map((w) => w.x).sort((a, b) => a - b), medH * 4);
-  const bands = _clusterCenters(ws.map((w) => w.y).sort((a, b) => a - b), medH * 3);
-  const grid = {};
-  ws.forEach((w) => { const k = _nearestIdx(bands, w.y) + "|" + _nearestIdx(cols, w.x); (grid[k] || (grid[k] = [])).push(w); });
-  const cells = [];
-  Object.values(grid).forEach((list) => {
-    list.sort((a, b) => (a.y0 - b.y0) || (a.x - b.x));   // hücre içi okuma sırası: üstten alta, soldan sağa
-    let day = null; const rest = [];
-    list.forEach((w) => {
-      if (day === null && /^\d{1,2}$/.test(w.t) && +w.t >= 1 && +w.t <= 31) day = +w.t;
-      else rest.push(w.t);
-    });
-    if (day !== null) cells.push({ day, amount: _netFromTokens(rest) });
+  const ws = words.map((w) => ({ t: (w.text || "").trim(), x: (w.bbox.x0 + w.bbox.x1) / 2, y: (w.bbox.y0 + w.bbox.y1) / 2 }));
+  const days = ws.filter((w) => /^\d{1,2}$/.test(w.t) && +w.t >= 1 && +w.t <= 31).map((w) => ({ x: w.x, y: w.y, day: +w.t }));
+  if (!days.length) return [];
+  const colW = _medStep(days.map((d) => d.x)) || 100;
+  const rowH = _medStep(days.map((d) => d.y)) || 100;
+  const signs = ws.filter((w) => /^[+\-]$/.test(w.t));       // ayrık işaret token'ları
+  const curs = [];
+  ws.forEach((w) => {
+    const c = _curParse(w.t); if (!c) return;
+    let val = c.v;
+    if (!c.signed && val > 0) {   // işaret ayrı token ise soldan al (aynı satırda, hemen solunda)
+      const sw = signs.find((s) => Math.abs(s.y - w.y) < rowH * 0.5 && s.x < w.x && w.x - s.x < colW * 0.5);
+      if (sw && sw.t === "-") val = -val;
+    }
+    curs.push({ x: w.x, y: w.y, val });
   });
-  return cells;
+  const byDay = {};
+  curs.forEach((cu) => {
+    // Gün no hücrenin SOL-üstünde, tutar ortasında → tutarın SOLUNDA (aynı hücre içinde,
+    // bir sütun genişliğinden yakın) ve ÜSTÜNDE olan en yakın gün. Böylece sağdaki komşu
+    // günün numarası yanlışlıkla seçilmez.
+    const cand = days.filter((d) => d.x <= cu.x + colW * 0.15 && (cu.x - d.x) < colW * 0.95 && d.y < cu.y + rowH * 0.25);
+    if (!cand.length) return;
+    const day = cand.reduce((b, d) => (d.y > b.y ? d : (d.y === b.y && d.x > b.x ? d : b)));   // en yakın üstteki (aynı satırda soldakine göre en sağdaki)
+    if (byDay[day.day] === undefined || Math.abs(cu.val) > Math.abs(byDay[day.day])) byDay[day.day] = cu.val;
+  });
+  return Object.entries(byDay).map(([day, amount]) => ({ day: +day, amount }));
 }
-// Konum bilgisi yoksa düz metinden: gün gör → yeni gün gelene dek token'lar o hücreye ait,
-// o hücrenin "Günlük Net" tutarı seçilir.
+// Konum bilgisi yoksa düz metinden: gün gör → sonraki kuruşlu tutar o güne ait.
 function _cellsFromText(text) {
   const toks = (text || "").split(/\s+/).filter(Boolean);
-  const cells = []; let day = null, buf = [];
-  const flush = () => { if (day !== null) cells.push({ day, amount: _netFromTokens(buf) }); day = null; buf = []; };
+  const cells = []; let day = null, picked = false;
+  const flush = () => { day = null; picked = false; };
   toks.forEach((t) => {
     if (/^\d{1,2}$/.test(t) && +t >= 1 && +t <= 31) { flush(); day = +t; return; }
-    if (day !== null) buf.push(t);
+    if (day !== null && !picked) { const c = _curParse(t); if (c) { cells.push({ day, amount: c.v }); picked = true; } }
   });
-  flush();
   return cells;
 }
 // OCR sonucundan Garanti takvimini çöz: ay + yıl + [{iso, amount}]
 function parseGarantiTakvim(ocr, fallbackYear) {
   const ntext = normTr((ocr && ocr.text) || "");
-  let month = null; _AYLAR_TR.forEach((m, i) => { if (ntext.includes(m)) month = i + 1; });
+  // Ay adını TAM KELİME olarak ara — "cumartesi" içindeki "mart" yanlış eşleşmesin
+  let month = null; _AYLAR_TR.forEach((m, i) => { if (new RegExp("\\b" + m + "\\b").test(ntext)) month = i + 1; });
   const ym = ntext.match(/\b(20\d{2})\b/); const year = ym ? +ym[1] : fallbackYear;
   const words = ((ocr && ocr.words) || []).filter((w) => w && w.text && w.text.trim() && w.bbox);
   const cells = words.length ? _cellsFromWords(words) : _cellsFromText((ocr && ocr.text) || "");
   const pad = (n) => String(n).padStart(2, "0");
+  const dim = month && year ? new Date(year, month, 0).getDate() : 31;   // ayın gün sayısı
   const byIso = {};
   if (month && year) cells.forEach((c) => {
-    if (c.day >= 1 && c.day <= 31 && c.amount !== 0) {   // Günlük Net eksi de olabilir
+    if (c.day >= 1 && c.day <= dim && c.amount !== 0) {   // Günlük Net eksi de olabilir; geçersiz gün elenir
       const iso = `${year}-${pad(month)}-${pad(c.day)}`;
       if (!byIso[iso] || Math.abs(c.amount) > Math.abs(byIso[iso])) byIso[iso] = c.amount;
     }
