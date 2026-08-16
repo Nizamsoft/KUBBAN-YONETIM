@@ -657,8 +657,13 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.293";
+const APP_VERSION = "2026.294";
 const CHANGELOG = [
+  { version: "2026.294", date: "2026-08-16", items: [
+    "💵 Gün Sonu 'Nakit Girişi' düzeltildi: artık yalnız GERÇEKLEŞEN NAKİT + X kadar yazılıyor — masraflar EKLENMİYOR (zaten gerçekleşen nakitin içinde). Masraflar yine ayrı 'Ödeme' (çıkan) olarak durur; böylece kasa bakiyesi doğru (gerçekleşen + X − masraflar) hesaplanır.",
+    "🛠️ Geçmiş için: Ayarlar → Kayıt & Kontrol → 'Gün Sonu Nakit Girişi'ni Düzelt' — tüm geçmiş Nakit Girişi kayıtlarını kaynağındaki (Gerçekleşen + X) değerine sabitler (içine katılmış masrafları çıkarır). Tekrar çalıştırmak zarar vermez.",
+    "📅 Gün Sonu'ndan oluşan bir kaydı (Nakit Girişi/Masraf/Bloke/Cari) düzenleme ekranında açınca artık 'Bu kayıt Gün Sonu'ndan geldi — Gün Sonu'nu Düzenle' uyarısı + düğmesi çıkıyor. Tıklayınca o günün Gün Sonu kaydı düzenlemeye açılır; kaydedince o güne bağlı TÜM kayıtlar birlikte yenilenir.",
+  ]},
   { version: "2026.293", date: "2026-08-16", items: [
     "🅒 Banka Aktarımı → T.Finans seçilince artık iki seçenek çıkıyor: 'Normal Hesap' (mevcut POS/bloke akışı, değişmedi) ve 'C Hesabı' (yeni). C Hesabı: düz T.Finans ekstresini (İşlem Tarihi · Açıklama · Tutar) okur, Tutar + ise Giren / − ise Çıkan olarak 102.03 hesabına yazar. Önizleme gösterir; İşlem Referansı'na göre MÜKERRERLERİ atlar (dosyayı tekrar yüklesen bile çift kayıt olmaz).",
   ]},
@@ -1994,6 +1999,7 @@ async function viewAyarlar(c) {
       { ic: "🔓", label: "Bloke Valör Tarihlerini Düzelt", desc: "Fatura No'daki valör tarihlerini Valör alanına taşı (108.xx)", action: "fix-bloke-valor", admin: true },
       { ic: "🔧", label: "Bloke: Giren/Çıkan → Borç/Alacak", desc: "108 kayıtlarında Giren'i Borç'a, Çıkan'ı Alacak'a taşı (giren/çıkan kalmasın)", action: "fix-bloke-gc", admin: true },
       { ic: "🧹", label: "Bloke Defterlerini Temizle", desc: "Garanti & T.Finans HARİÇ tüm 108 bloke hesaplarının defterini sil (geri alınamaz)", action: "clear-bloke-ledgers", admin: true },
+      { ic: "💵", label: "Gün Sonu Nakit Girişi'ni Düzelt", desc: "Geçmiş 'Nakit Girişi'nden masrafları çıkar → yalnız Gerçekleşen + X", action: "fix-gunsonu-nakit", admin: true },
     ]},
     { title: "⚙️ Sistem", items: [
       { ic: "👥", label: "Kullanıcılar", desc: "Kullanıcı ekle / yetki", path: "kullanicilar", admin: true },
@@ -2055,6 +2061,52 @@ async function viewAyarlar(c) {
     ev.preventDefault();
     clearBlokeLedgers(clrBtn);
   });
+  // Geçmiş Gün Sonu Nakit Girişi'ni düzelt (masrafsız = Gerçekleşen + X)
+  const gnBtn = $('[data-action="fix-gunsonu-nakit"]', c);
+  if (gnBtn) gnBtn.addEventListener("click", (ev) => {
+    ev.preventDefault();
+    fixGunSonuNakit(gnBtn);
+  });
+}
+
+// Geçmiş gün sonu 'Nakit Girişi' kayıtlarını, kaynağındaki (dayEndRecords) GERÇEKLEŞEN + X
+// değerine sabitler — yani içine katılmış MASRAFLARI çıkarır. Kaynak kaydı bulunamazsa dokunmaz.
+// (Absolut değere set ettiği için tekrar çalıştırmak zarar vermez.)
+async function fixGunSonuNakit(btn) {
+  const [entries, records] = await Promise.all([
+    fetchAll(C.accountEntries).catch(() => []),
+    fetchAll(C.dayEndRecords).catch(() => []),
+  ]);
+  const recByDate = new Map();
+  records.forEach((r) => { if (r.date && !recByDate.has(r.date)) recByDate.set(r.date, r); });
+  const nakitOf = (rec) => {
+    const row = (rec.kasa || []).find((r) => normTr(r.yontem) === "nakit");
+    const g = row && !(row.gerceklesen === "" || row.gerceklesen == null) ? parseNum(row.gerceklesen) : 0;
+    const x = (rec.x === "" || rec.x == null) ? 0 : parseNum(rec.x);
+    return g + x;
+  };
+  const targets = [];
+  entries.filter((e) => e.source === "gunsonu-nakit").forEach((e) => {
+    const rec = recByDate.get(e.gunSonuKey) || recByDate.get(e.date);
+    if (!rec) return;
+    const correct = nakitOf(rec);
+    if (Math.abs(parseNum(e.giren) - correct) > 0.005) targets.push({ id: e.id, correct });
+  });
+  if (!targets.length) { toast("Düzeltilecek Nakit Girişi bulunamadı (zaten Gerçekleşen + X).", "info"); return; }
+  if (!confirm(`${targets.length} geçmiş gün sonu 'Nakit Girişi' düzeltilecek: masraflar çıkarılıp yalnız (Gerçekleşen + X) bırakılacak.\nGeçmiş kasa bakiyeleri buna göre DÜŞECEK.\nDevam edilsin mi?`)) return;
+  const orig = btn.querySelector("b")?.textContent;
+  const setLbl = (t) => { const b = btn.querySelector("b"); if (b) b.textContent = t; };
+  try {
+    for (let i = 0; i < targets.length; i += 400) {
+      const b = writeBatch(db);
+      targets.slice(i, i + 400).forEach((t) => b.update(doc(db, "accountEntries", t.id), { giren: t.correct, updatedAt: serverTimestamp() }));
+      await b.commit();
+      setLbl(`İşleniyor… ${Math.min(i + 400, targets.length)}/${targets.length}`);
+    }
+    await logAction("Düzeltme", "Hesap Hareketi", `Gün Sonu Nakit Girişi masrafsız (Gerçekleşen+X) · ${targets.length} kayıt`);
+    if (orig) setLbl(orig);
+    toast(`${targets.length} Nakit Girişi düzeltildi.`, "ok");
+  } catch (e) { if (orig) setLbl(orig); toast("Güncellenemedi: " + e.message, "err"); }
 }
 
 // 108 bloke hesaplarından GARANTİ ve TÜRKİYE FİNANS HARİÇ hepsinin (Yemek Sepeti, Getir,
@@ -4436,26 +4488,28 @@ async function viewGunSonuAktarim(c) {
       };
     }).filter(Boolean);
 
-    // 100 Kasa: nakit girişi = elle girilen Nakit (Gerçekleşen) + "X" (İkram'dan düşülür alanı, elle)
-    //           + gün içi nakit ödemeler (Masraflar); sonra her ödeme (masraf) kasadan Çıkan yapılır.
+    // 100 Kasa: Nakit Girişi = elle girilen Nakit (Gerçekleşen) + "X" (İkram'dan düşülür alanı).
+    //           MASRAFLAR EKLENMEZ (zaten gerçekleşen nakitin içinde). Masraflar ayrıca Çıkan yazılır.
     const nakitRow = (gsState.kasa || []).find((r) => normTr(r.yontem) === "nakit");
     const nakitGer = nakitRow && !(nakitRow.gerceklesen === "" || nakitRow.gerceklesen == null) ? parseNum(nakitRow.gerceklesen) : 0;   // elle girilen gerçekleşen
     const xNakit = (gsState.x === "" || gsState.x == null) ? 0 : parseNum(gsState.x);   // "X — İkram'dan düşülür" alanı
-    const nakit = nakitGer + xNakit;   // gerçekleşen + X toplanır
+    const nakit = nakitGer + xNakit;   // Nakit Girişi = gerçekleşen + X
     const masrafList = (masraflar || []).filter((m) => parseNum(m.tutar));
     const masrafTot = masrafList.reduce((s, m) => s + parseNum(m.tutar), 0);
     const kasaId = codeToId["100"];
     if (kasaId && (nakit || masrafTot)) {
-      gno++;
-      docs.push({
-        accountId: kasaId, accountCode: "100",
-        islemNo: gno, date: blokePayload.tarih,
-        islemAdi: "Gün Sonu", sahis: "",
-        aciklama: `Nakit Girişi`, rapor: "",
-        giren: nakit + masrafTot, cikan: 0,
-        source: "gunsonu-nakit", gunSonuKey: date,
-        createdAt: serverTimestamp(), createdBy: currentUser.email,
-      });
+      if (nakit > 0.005) {
+        gno++;
+        docs.push({
+          accountId: kasaId, accountCode: "100",
+          islemNo: gno, date: blokePayload.tarih,
+          islemAdi: "Gün Sonu", sahis: "",
+          aciklama: `Nakit Girişi`, rapor: "",
+          giren: nakit, cikan: 0,          // yalnız Gerçekleşen + X
+          source: "gunsonu-nakit", gunSonuKey: date,
+          createdAt: serverTimestamp(), createdBy: currentUser.email,
+        });
+      }
       for (const m of masrafList) {
         gno++;
         docs.push({
@@ -8385,6 +8439,31 @@ function entryModal(acc, entry, opts) {
       ${rowM("💰", "Giren", "e-giren", entry?.giren ?? "", "er-in")}
       ${rowM("💸", "Çıkan", "e-cikan", entry?.cikan ?? "", "er-out")}
     </div>${hidden}`;
+  }
+  // Gün Sonu'ndan otomatik oluşan kayıt: tek tek düzenleme yerine KAYNAĞINI (Gün Sonu) düzenlet
+  if (!isNew && /^gunsonu/.test(String(entry.source || "")) && entry.gunSonuKey) {
+    const srcLbl = { "gunsonu-nakit": "Nakit Girişi", "gunsonu-masraf": "Masraf", "gunsonu-bloke": "Bloke", "gunsonu-cari": "Cari" }[entry.source] || "Gün Sonu";
+    body.insertAdjacentHTML("afterbegin", `<div class="notice warn" style="margin-bottom:14px">⚠️ Bu kayıt <b>Gün Sonu</b>'ndan (${fmtDate(entry.gunSonuKey)}) otomatik oluştu · <b>${esc(srcLbl)}</b>. Tek tek değiştirmek yerine <b>kaynağını düzenle</b> — o güne bağlı tüm kayıtlar birlikte güncellenir.<div style="margin-top:8px"><button type="button" class="btn btn-sm btn-primary" id="e-editsrc">📅 Gün Sonu'nu Düzenle</button></div></div>`);
+    const esBtn = $("#e-editsrc", body);
+    if (esBtn) esBtn.onclick = async () => {
+      esBtn.disabled = true;
+      const recs = await fetchAll(C.dayEndRecords).catch(() => []);
+      const rec = recs.find((r) => r.date === entry.gunSonuKey);
+      if (!rec) { esBtn.disabled = false; return toast("Bu güne ait Gün Sonu kaydı bulunamadı.", "err"); }
+      gsState = {
+        step: 1, date: rec.date || entry.gunSonuKey,
+        kasa: (rec.kasa || []).map((r) => ({ ...r })),
+        brut: rec.brut || 0, iskonto: rec.iskonto || 0, ikram: rec.ikram || 0,
+        x: rec.x == null ? "" : rec.x,
+        cariIslem: (rec.cariIslem || []).map((r) => ({ ...r })),
+        cariTahsilat: (rec.cariTahsilat || []).map((r) => ({ ...r })),
+        masraflar: (rec.masraflar || []).map((r) => ({ ...r })),
+        bloke: rec.bloke ? { ...rec.bloke } : null,
+        recordId: rec.id,
+      };
+      m.close();
+      location.hash = "#/gunsonu-aktarim";
+    };
   }
   wireMoney(body);
   // Tutar satırları: dolu olan renkli, boş/0 soluk gösterilir
