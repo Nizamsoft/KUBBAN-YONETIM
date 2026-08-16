@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.278";
+const APP_VERSION = "2026.279";
 const CHANGELOG = [
+  { version: "2026.279", date: "2026-08-16", items: [
+    "🔍 Garanti Bloke Takvim OCR'ı büyük ölçüde iyileştirildi: (1) Tesseract v5'te konumlu kelimeler varsayılan gelmiyordu (blocks:true eklendi) — bu yüzden az sayıda gün okunuyordu; artık ızgara hücreleri konumlarına göre çözümleniyor, çok daha fazla gün yakalanıyor. (2) Görsel okumadan önce ~2x büyütülüyor (küçük yazı daha net). (3) Seyrek metin modu (PSM 11) ile yan yana hücrelerin rakamları birbirine karışmıyor.",
+    "🧹 Yanlış tutar filtreleri: '2026' gibi yıl değerleri ve OCR birleşmesinden doğan aşırı büyük sayılar (ör. 46635256971) artık tutar olarak alınmıyor. Yükleme alanı görsel için doğru ipucunu (jpg/png) gösteriyor.",
+  ]},
   { version: "2026.278", date: "2026-08-16", items: [
     "🎯 Garanti Bloke Takvim Kontrolü — okuma düzeltmesi: takvim hücresinde birden çok rakam olduğunda program artık en büyük sayıyı değil, her günün <b>\"Günlük Net\"</b> etiketli tutarını okuyor (artı/eksi işaretiyle birlikte; net eksi de olabilir).",
     "📅 Sadece <b>bugünden sonraki</b> günler okunup karşılaştırılıyor (bugün 16 ise 17'den itibaren). Karşılaştırma sütunu 'Garanti (Günlük Net)' olarak adlandırıldı.",
@@ -2363,15 +2367,19 @@ function guessCol(headers, keywords) {
 // ---------------------------------------------------------------------------
 //  ORTAK: Dosya bırakma alanı
 // ---------------------------------------------------------------------------
-function fileDrop(onFile, accept = ".xlsx,.xls,.csv", compact = false) {
+function fileDrop(onFile, accept = ".xlsx,.xls,.csv", compact = false, hint = "") {
+  const isImg = /image/.test(accept);
+  const shortHint = hint || (isImg ? "(jpg / png / görsel)" : "(.xlsx / .xls / .csv)");
+  const longHint = hint || (isImg ? "Görsel (jpg / png / ekran görüntüsü)" : "Excel (.xlsx/.xls) veya .csv");
+  const ico = isImg ? "🖼️" : "📄";
   const wrap = document.createElement("div");
   wrap.className = "filedrop" + (compact ? " sm" : "");
   wrap.innerHTML = compact
-    ? `<div><b>📄 Dosya seç</b> ya da sürükle <span style="color:var(--ink-faint);font-size:11px">(.xlsx / .xls / .csv)</span></div>
+    ? `<div><b>${ico} Dosya seç</b> ya da sürükle <span style="color:var(--ink-faint);font-size:11px">${esc(shortHint)}</span></div>
        <input type="file" accept="${accept}" style="display:none" />`
-    : `<div class="ico">📄</div>
+    : `<div class="ico">${ico}</div>
        <div><b>Dosya seçin</b> ya da buraya sürükleyin</div>
-       <div style="font-size:12px;color:var(--ink-faint);margin-top:4px">Excel (.xlsx/.xls) veya .csv</div>
+       <div style="font-size:12px;color:var(--ink-faint);margin-top:4px">${esc(longHint)}</div>
        <input type="file" accept="${accept}" style="display:none" />`;
   const input = $("input", wrap);
   wrap.addEventListener("click", () => input.click());
@@ -10945,16 +10953,47 @@ async function loadTesseract() {
   return _tess;
 }
 const _AYLAR_TR = ["ocak", "subat", "mart", "nisan", "mayis", "haziran", "temmuz", "agustos", "eylul", "ekim", "kasim", "aralik"];
+// Görseli 2x'e kadar büyütüp canvas döndür (küçük yazılı yoğun takvimlerde OCR isabetini artırır)
+function _imgToCanvas(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const im = new Image();
+    im.onload = () => {
+      const w = im.naturalWidth || im.width, h = im.naturalHeight || im.height;
+      const s = Math.max(1, Math.min(2.5, 2400 / Math.max(w, h, 1)));   // büyük görseli fazla büyütme
+      const cv = document.createElement("canvas");
+      cv.width = Math.round(w * s); cv.height = Math.round(h * s);
+      const ctx = cv.getContext("2d");
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(im, 0, 0, cv.width, cv.height);
+      URL.revokeObjectURL(url); resolve(cv);
+    };
+    im.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    im.src = url;
+  });
+}
+// Tesseract v5 çıktısından kelimeleri (konumlarıyla) düzleştir. v5'te words varsayılan
+// gelmez → blocks:true ile istenir; blocks→paragraphs→lines→words olarak iner.
+function _flattenWords(data) {
+  if (Array.isArray(data.words) && data.words.length) return data.words;
+  const out = [];
+  (data.blocks || []).forEach((b) => (b.paragraphs || []).forEach((p) => (p.lines || []).forEach((l) => (l.words || []).forEach((w) => {
+    if (w && w.text && w.bbox) out.push({ text: w.text, bbox: w.bbox });
+  }))));
+  return out;
+}
 // Bir metin parçası tutar mı? (Türkçe format: +1.234.567,89) — işaretiyle döner, değilse null
-//  { v: mutlak değer, sign: -1/0/+1 }. Küçük çıplak sayılar (gün) elenir.
+//  { v: mutlak değer, sign: -1/0/+1 }. Gün sayıları / yıllar / OCR birleşmeleri elenir.
 function _amtParse(s) {
   const m = String(s).match(/([+\-]?)\s*(\d[\d.]*(?:,\d{1,2})?)/);
   if (!m) return null;
   let raw = m[2];
-  if (!/[.,]/.test(raw) && raw.length < 4) return null;    // çıplak 1-3 haneli = gün olabilir, tutar değil
+  const hasSep = /[.,]/.test(raw);
+  if (!hasSep && raw.length < 4) return null;              // çıplak 1-3 haneli = gün olabilir
+  if (!hasSep && /^(19|20)\d{2}$/.test(raw)) return null;  // 2026 gibi yıl → tutar değil
   if (/^\d{1,3}(\.\d{3})+$/.test(raw)) raw = raw.replace(/\./g, ""); // yalnız binlik noktalı → noktaları at
   const v = parseNum(raw);
-  if (!(v > 0)) return null;
+  if (!(v > 0) || v > 1e9) return null;                    // 46635256971 gibi OCR birleşmesi → ele
   return { v, sign: m[1] === "-" ? -1 : m[1] === "+" ? 1 : 0 };
 }
 // Sıralı token dizisinden "GÜNLÜK NET" tutarını seç (işaretli). Garanti takviminde her
@@ -11142,12 +11181,17 @@ async function viewBlokeKontrol(c) {
     $("#bk-prev", c).appendChild(img);
     const st = $("#bk-ocr-st", c);
     st.textContent = "⏳ Görsel okunuyor (ilk seferde dil verisi indirilir, biraz sürebilir)…";
+    let worker;
     try {
       const T = await loadTesseract();
-      const res = await T.recognize(file, "tur+eng", {
+      const canvas = await _imgToCanvas(file);   // 2x büyütme → küçük yazı daha net okunur
+      worker = await T.createWorker("tur", 1, {
         logger: (m) => { if (m.status === "recognizing text") st.textContent = `🔎 Okunuyor… %${Math.round((m.progress || 0) * 100)}`; },
       });
-      const parsed = parseGarantiTakvim(res.data, +todayISO_.slice(0, 4));
+      await worker.setParameters({ tessedit_pageseg_mode: "11" });   // 11 = seyrek metin: ızgara hücrelerini yan yana birleştirmez
+      const res = await worker.recognize(canvas, {}, { blocks: true });   // v5: konumlu kelimeler için blocks
+      const words = _flattenWords(res.data);
+      const parsed = parseGarantiTakvim({ text: res.data.text, words }, +todayISO_.slice(0, 4));
       if (!parsed.month) { st.textContent = "⚠️ Ay adı okunamadı. Tarihleri elle girin ya da düzeltin."; }
       // Yalnız bugünden SONRAKİ günler (bugün 16 ise 17'den itibaren)
       const fut = parsed.rows.filter((r) => r.iso > todayISO_);
@@ -11158,6 +11202,8 @@ async function viewBlokeKontrol(c) {
       buildCompare();
     } catch (err) {
       st.textContent = "❌ OCR başarısız: " + (err && err.message || err) + " — tarih/tutarları elle girebilirsiniz.";
+    } finally {
+      if (worker) { try { await worker.terminate(); } catch (e) { /* yoksay */ } }
     }
   }, "image/*", true);
   $("#bk-drop", c).appendChild(drop);
