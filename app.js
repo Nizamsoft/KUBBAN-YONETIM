@@ -441,6 +441,15 @@ function showLoader(on) {
   if (on) { el.classList.remove("hidden", "fade-out"); }
   else { el.classList.add("fade-out"); setTimeout(() => el.classList.add("hidden"), 320); }
 }
+// Açılış ekranı alt logosu (Ayarlar → Sayfa Ayarları). Ayarlar buluttan gelene
+// kadar beklememek için localStorage'a önbelleklenir → sonraki açılışlarda ANINDA görünür.
+const LOADER_LOGO_KEY = "kubban_loaderLogo";
+function applyLoaderFoot(src) {
+  const img = document.getElementById("loader-foot-img"); if (!img) return;
+  if (src) { img.src = src; img.classList.add("show"); }
+  else { img.removeAttribute("src"); img.classList.remove("show"); }
+}
+try { const _ll = localStorage.getItem(LOADER_LOGO_KEY); if (_ll) applyLoaderFoot(_ll); } catch (_) {}
 // Açılış yükleme çubuğu: belirli yüzde / belirsiz (indeterminate) mod
 function setLoaderProgress(pct, msg) {
   const fill = $("#loader-fill"), pctEl = $("#loader-pct"), msgEl = $("#loader-msg");
@@ -499,7 +508,14 @@ async function preloadAndStart() {
   await Promise.all(refs.map((ref) => fetchAll(ref).catch(() => []).then(() => {
     done++; setLoaderProgress((done / refs.length) * 100, "Veriler yükleniyor…");
   })));
-  try { applyBankLogos(await fetchAll(C.settings).catch(() => [])); } catch (_) {}
+  try {
+    const _st = await fetchAll(C.settings).catch(() => []);
+    applyBankLogos(_st);
+    // Açılış logosunu buluttan al → önbelleğe yaz (sonraki açılışta anında) → uygula
+    const _ll = (_st.find((s) => s.id === "pageImages") || {}).loaderLogo || "";
+    try { if (_ll) localStorage.setItem(LOADER_LOGO_KEY, _ll); else localStorage.removeItem(LOADER_LOGO_KEY); } catch (_) {}
+    applyLoaderFoot(_ll);
+  } catch (_) {}
   setLoaderProgress(100, "Hazır ✓");
   if (!location.hash) location.hash = "#/dashboard";
   try { await route({ silent: true }); } catch (_) {}   // ilk ekranı perde arkasında hazırla (cache sıcak → anında)
@@ -641,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.262";
+const APP_VERSION = "2026.263";
 const CHANGELOG = [
+  { version: "2026.263", date: "2026-08-15", items: [
+    "🖼️ Açılış (yükleme) ekranına logo eklenebiliyor: Ayarlar → Sayfa Ayarları → 'Açılış (Yükleme) Ekranı Logosu' slotundan bir PNG yükle → uygulama açılırken 'Başlatılıyor…' ekranının EN ALTINDA görünür (şeffaflık korunur, orantısı bozulmaz). Logo cihazda önbelleğe alınır, böylece sonraki açılışlarda anında çıkar",
+  ]},
   { version: "2026.262", date: "2026-08-15", items: [
     "✨ Buzlu cam ailesi birleşti: Dashboard'daki 🎁 İkram / 🏷️ İskonto kutuları ve Hesaplar sayfasındaki üst panel (Varlıklar−Borçlar) artık alt gezinme çubuğuyla aynı krem/altın buzlu cam görünümünde — altın çerçeve, daha belirgin arka bulanıklık ve sıcak ton. Rakamlar yine okunaklı",
   ]},
@@ -10912,8 +10931,13 @@ async function viewSayfaAyarlari(c) {
   if (!isAdmin()) { c.innerHTML = `<div class="notice warn">⚠️ Bu sayfa yalnızca yöneticilere açıktır.</div>`; return; }
   const settings = await fetchAll(C.settings).catch(() => []);
   const cfg = settings.find((s) => s.id === "pageImages") || {};
-  const imgs = { dashboardBanner: cfg.dashboardBanner || "", heroBg: cfg.heroBg || "", accHeroBg: cfg.accHeroBg || "" };
-  const save = async () => { await setDoc(doc(db, "settings", "pageImages"), { ...imgs, updatedAt: serverTimestamp() }); };
+  const imgs = { dashboardBanner: cfg.dashboardBanner || "", heroBg: cfg.heroBg || "", accHeroBg: cfg.accHeroBg || "", loaderLogo: cfg.loaderLogo || "" };
+  const save = async () => {
+    await setDoc(doc(db, "settings", "pageImages"), { ...imgs, updatedAt: serverTimestamp() });
+    // Açılış logosunu önbelleğe de yaz → bir sonraki açılışta anında görünsün
+    try { if (imgs.loaderLogo) localStorage.setItem(LOADER_LOGO_KEY, imgs.loaderLogo); else localStorage.removeItem(LOADER_LOGO_KEY); } catch (_) {}
+    applyLoaderFoot(imgs.loaderLogo || "");
+  };
   // Banka & kurum logoları
   const logoCfg = settings.find((s) => s.id === "bankLogos") || {};
   const logos = { ...(logoCfg.map || {}) };
@@ -10925,6 +10949,7 @@ async function viewSayfaAyarlari(c) {
     { k: "dashboardBanner", ad: "Dashboard Üst Görseli (Banner)", desc: "Dashboard'ın en üstünde geniş bir kart olarak görünür. En iyi sonuç için <b>yatay/geniş</b> bir görsel seç." },
     { k: "heroBg", ad: "Günün Cirosu Kartı Arka Planı", desc: "Ciro kartının arka planı olur; üzerine otomatik <b>koyu degrade perde</b> iner, yazılar net okunur. <b>Yatay</b> görsel önerilir." },
     { k: "accHeroBg", ad: "Hesaplar Üst Kartı Arka Planı", desc: "Hesaplar sayfasındaki 'Genel Toplam' kartının arka planı; üzerine otomatik <b>koyu degrade perde</b> iner. <b>Yatay</b> görsel önerilir." },
+    { k: "loaderLogo", ad: "Açılış (Yükleme) Ekranı Logosu", desc: "Uygulama açılırken 'Başlatılıyor…' ekranının <b>en altında</b> görünür. Şeffaf arka planlı <b>PNG logo</b> önerilir (orantısı korunur)." },
   ];
 
   const render = () => {
@@ -10991,7 +11016,13 @@ async function viewSayfaAyarlari(c) {
     c.querySelectorAll("[data-file]").forEach((inp) => inp.onchange = async (e) => {
       const file = e.target.files && e.target.files[0]; if (!file) return;
       const lb = loadingBar("Görsel hazırlanıyor…");
-      try { imgs[inp.dataset.file] = await imageToDataURL(file, 1400, 0.8); await save(); lb.finish(() => { toast("Görsel kaydedildi.", "ok"); render(); }); }
+      try {
+        // Açılış logosu: şeffaflığı korumak için PNG (logoToDataURL, ~480px); diğerleri geniş JPEG
+        imgs[inp.dataset.file] = inp.dataset.file === "loaderLogo"
+          ? await logoToDataURL(file, 480)
+          : await imageToDataURL(file, 1400, 0.8);
+        await save(); lb.finish(() => { toast("Görsel kaydedildi.", "ok"); render(); });
+      }
       catch (err) { lb.finish(() => toast("Hata: " + err.message, "err")); }
     });
     c.querySelectorAll("[data-rm]").forEach((b) => b.onclick = () => confirmDialog("Görsel kaldırılsın mı?", async () => {

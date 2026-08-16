@@ -73,6 +73,10 @@ button { font-family: inherit; }
 .loader-logo { width: 84px; height: 84px; border-radius: 22px; object-fit: cover; box-shadow: 0 10px 30px rgba(122,90,32,.22); }
 .loader-name { margin-top: 16px; font-size: 20px; font-weight: 800; color: var(--ink); letter-spacing: .2px; }
 .loader-sub { font-size: 12.5px; color: var(--ink-soft); margin-top: 2px; letter-spacing: 2px; text-transform: uppercase; }
+/* Açılış ekranı alt logosu — Ayarlar'dan eklenir; yoksa gizli */
+.loader-foot { position: absolute; left: 50%; bottom: calc(34px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  max-width: 210px; max-height: 78px; width: auto; height: auto; object-fit: contain; opacity: .92; display: none; }
+.loader-foot.show { display: block; animation: viewIn .4s ease; }
 .loader-track { position: relative; width: min(260px, 70vw); height: 7px; border-radius: 999px; background: var(--line); margin-top: 22px; overflow: hidden; }
 .loader-fill { position: absolute; inset: 0 auto 0 0; width: 0%; border-radius: 999px; background: linear-gradient(90deg, var(--gold-dark), var(--gold-light)); transition: width .28s cubic-bezier(.3,.8,.4,1); }
 .loader-track.indet .loader-fill { width: 40% !important; animation: loaderIndet 1.1s ease-in-out infinite; transition: none; }
