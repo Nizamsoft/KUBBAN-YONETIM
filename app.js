@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.292";
+const APP_VERSION = "2026.293";
 const CHANGELOG = [
+  { version: "2026.293", date: "2026-08-16", items: [
+    "🅒 Banka Aktarımı → T.Finans seçilince artık iki seçenek çıkıyor: 'Normal Hesap' (mevcut POS/bloke akışı, değişmedi) ve 'C Hesabı' (yeni). C Hesabı: düz T.Finans ekstresini (İşlem Tarihi · Açıklama · Tutar) okur, Tutar + ise Giren / − ise Çıkan olarak 102.03 hesabına yazar. Önizleme gösterir; İşlem Referansı'na göre MÜKERRERLERİ atlar (dosyayı tekrar yüklesen bile çift kayıt olmaz).",
+  ]},
   { version: "2026.292", date: "2026-08-16", items: [
     "🧹 Her hesabın düzenleme ('kalem') penceresine '🧹 Defteri Temizle' düğmesi eklendi: o hesabın (grupsa alt hesaplar dahil) TÜM defter kayıtlarını siler. Hesap silinmez, yalnız defteri boşalır (bakiye 0). Onay ister ve GERİ ALINAMAZ.",
   ]},
@@ -9087,6 +9090,31 @@ function bkSig(desc) {
   s = s.replace(/[^a-zçğıöşü ]/gi, " ").replace(/\s+/g, " ").trim();
   return s.length >= 3 ? s : String(desc || "").toLocaleLowerCase("tr").replace(/\s+/g, " ").trim().slice(0, 18);
 }
+// T.Finans C Hesabı ekstresi: "07.08.2026 15:59" gibi tarih+saat → ISO (saat atılır)
+function tfcDate(v) {
+  if (v instanceof Date && !isNaN(v)) return bkISO(new Date(v.getFullYear(), v.getMonth(), v.getDate()));
+  const m = String(v || "").match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
+  if (!m) return "";
+  return `${m[3]}-${String(+m[2]).padStart(2, "0")}-${String(+m[1]).padStart(2, "0")}`;
+}
+// T.Finans C Hesabı ekstresini çöz → [{iso, ref, aciklama, tutar}] (tutar işaretli: + giren, − çıkan)
+function tfParseCHesap(aoa) {
+  const low = (x) => String(x ?? "").toLocaleLowerCase("tr");
+  const hi = (aoa || []).findIndex((r) => { const j = (r || []).map(low); return j.some((x) => x.includes("tarih")) && j.some((x) => x.includes("tutar")) && j.some((x) => x.includes("aciklama") || x.includes("açıklama")); });
+  if (hi < 0) throw new Error("Başlık satırı (İşlem Tarihi / Açıklama / Tutar) bulunamadı.");
+  const H = (aoa[hi] || []).map((x) => String(x ?? "").trim());
+  const idx = (ks) => { for (const k of ks) { const i = H.findIndex((h) => low(h).includes(k)); if (i >= 0) return i; } return -1; };
+  const ci = { tarih: idx(["islem tarih", "işlem tarih", "tarih"]), ref: idx(["referans"]), acik: idx(["aciklama", "açıklama"]), tutar: idx(["tutar"]) };
+  const out = [];
+  aoa.slice(hi + 1).forEach((r) => {
+    const iso = tfcDate(r[ci.tarih]);
+    if (!iso) return;
+    const tutar = parseNum(r[ci.tutar]);
+    if (Math.abs(tutar) < 0.005) return;
+    out.push({ iso, ref: ci.ref >= 0 ? String(r[ci.ref] ?? "").trim() : "", aciklama: ci.acik >= 0 ? String(r[ci.acik] ?? "").trim() : "", tutar });
+  });
+  return out;
+}
 // Garanti POS satırını ayrıştır: PK.. KARTKODU AA/GG K: komisyon  → tip gün farkından
 function bkClassifyGaranti(aoa) {
   const low = (x) => String(x).toLocaleLowerCase("tr");
@@ -9258,9 +9286,105 @@ async function viewBanka(c) {
     $$(".bk-c", body).forEach((btn) => btn.onclick = () => {
       const bank = BK_BANKS.find((x) => x.key === btn.dataset.bank);
       if (bank.key === "garanti") renderGaranti(bank);
-      else if (bank.key === "tfinans") renderTFinans(bank);
+      else if (bank.key === "tfinans") renderTFinansPick(bank);
       else renderSoon(bank);
     });
+  }
+
+  // T.Finans seçilince: Normal Hesap mı, C Hesabı mı?
+  function renderTFinansPick(bank) {
+    const body = $("#bk-body");
+    body.innerHTML = `<div class="card">
+      <div class="card-head"><h3>🔵 T. Finans</h3><button class="btn btn-sm" id="bk-back">← Banka</button></div>
+      <div class="ft-q">Hangi hesap?<small>Normal T.Finans mı, yoksa C hesabı mı?</small></div>
+      <div class="bk-choose">
+        <button class="bk-c" id="tf-normal"><span class="ic">🏦</span><span class="t">Normal Hesap</span></button>
+        <button class="bk-c" id="tf-c"><span class="ic">🅒</span><span class="t">C Hesabı</span></button>
+      </div>
+    </div>`;
+    $("#bk-back", body).onclick = chooseBank;
+    $("#tf-normal", body).onclick = () => renderTFinans(bank);
+    $("#tf-c", body).onclick = () => renderTFinansC(bank);
+  }
+
+  // T.Finans C Hesabı: düz banka ekstresi (İşlem Tarihi · Açıklama · Tutar) → 102.03'e Giren/Çıkan.
+  // Mükerrer, İşlem Referansı'na göre atlanır. POS/bloke mantığı yok.
+  function renderTFinansC(bank) {
+    const body = $("#bk-body");
+    const cAcc = allAcc.find((a) => String(a.code || "").trim() === "102.03") || null;
+    if (!cAcc) {
+      body.innerHTML = `<div class="card">
+        <div class="card-head"><h3>🔵 T. Finans · C Hesabı</h3><button class="btn btn-sm" id="bk-back">← T.Finans</button></div>
+        <div class="notice warn">⚠️ <b>102.03</b> kodlu hesap bulunamadı. Önce Hesaplar'dan bu hesabı oluşturun.</div></div>`;
+      $("#bk-back", body).onclick = () => renderTFinansPick(bank);
+      return;
+    }
+    const input = document.createElement("input");
+    input.type = "file"; input.accept = ".xlsx,.xls,.csv"; input.style.display = "none";
+    document.body.appendChild(input);
+    input.onchange = async () => {
+      const file = input.files && input.files[0]; input.remove();
+      if (!file) return;
+      const lb = loadingBar("Dosya okunuyor…");
+      try {
+        const aoa = await parseSheetAOA(file);
+        const rows = tfParseCHesap(aoa);
+        if (!rows.length) { lb.finish(); return toast("Hareket bulunamadı (İşlem Tarihi / Tutar).", "err"); }
+        const entries = await fetchAll(C.accountEntries).catch(() => []);
+        const existRefs = new Set(entries.filter((e) => e.accountId === cAcc.id && e.bankRef).map((e) => String(e.bankRef)));
+        const fresh = rows.filter((r) => !(r.ref && existRefs.has(r.ref)));
+        const skipped = rows.length - fresh.length;
+        lb.finish(() => showTFinansCEditor(bank, cAcc, fresh, skipped));
+      } catch (e) { lb.finish(); toast("Okunamadı: " + e.message, "err"); }
+    };
+    input.click();
+  }
+
+  function showTFinansCEditor(bank, cAcc, rows, skipped) {
+    const body = $("#bk-body");
+    if (!rows.length) {
+      body.innerHTML = `<div class="card">
+        <div class="card-head"><h3>🔵 T.Finans · C Hesabı</h3><button class="btn btn-sm" id="bk-back">← Geri</button></div>
+        <div class="notice info">Yeni hareket yok — dosyadaki ${skipped} satırın hepsi zaten aktarılmış (mükerrer).</div></div>`;
+      $("#bk-back", body).onclick = () => renderTFinansPick(bank);
+      return;
+    }
+    const tot = rows.reduce((a, r) => ({ g: a.g + (r.tutar > 0 ? r.tutar : 0), c: a.c + (r.tutar < 0 ? -r.tutar : 0) }), { g: 0, c: 0 });
+    body.innerHTML = `<div class="card">
+      <div class="card-head"><h3>🔵 T.Finans · C Hesabı <span style="font-weight:400;color:var(--ink-faint);font-size:13px">${esc((cAcc.code || "") + " " + (cAcc.name || ""))}</span></h3><button class="btn btn-sm" id="bk-back">← Geri</button></div>
+      <div class="notice info"><b>${rows.length}</b> yeni hareket${skipped ? ` · <b>${skipped}</b> mükerrer atlandı` : ""} · Giren ${fmtNum(tot.g)} ₺ · Çıkan ${fmtNum(tot.c)} ₺</div>
+      <div class="table-wrap"><table class="data" style="font-size:13px">
+        <thead><tr><th>Tarih</th><th>Açıklama</th><th class="num">Giren</th><th class="num">Çıkan</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr><td>${fmtDate(r.iso)}</td><td class="tdwrap">${esc(r.aciklama)}</td><td class="num" style="color:var(--ok)">${r.tutar > 0 ? fmtNum(r.tutar) + " ₺" : "—"}</td><td class="num" style="color:var(--danger)">${r.tutar < 0 ? fmtNum(-r.tutar) + " ₺" : "—"}</td></tr>`).join("")}</tbody>
+      </table></div>
+      <div class="toolbar" style="margin-top:12px"><div class="grow"></div><button class="btn btn-primary" id="tfc-save">✅ ${rows.length} Hareketi Aktar</button></div>
+    </div>`;
+    $("#bk-back", body).onclick = () => renderTFinansPick(bank);
+    $("#tfc-save", body).onclick = async () => {
+      const btn = $("#tfc-save", body); btn.disabled = true; const orig = btn.textContent;
+      try {
+        const existing = await fetchAll(C.accountEntries).catch(() => []);
+        let no = existing.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+        const now = new Date().toISOString();
+        const docs = rows.map((r) => ({
+          accountId: cAcc.id, accountCode: String(cAcc.code || ""),
+          islemNo: ++no, date: r.iso,
+          islemAdi: r.tutar > 0 ? "Gelen" : "Giden", sahis: "",
+          aciklama: r.aciklama, rapor: "",
+          giren: r.tutar > 0 ? r.tutar : 0, cikan: r.tutar < 0 ? -r.tutar : 0,
+          bankRef: r.ref, source: "banka-tf-c", createdAt: now, createdBy: currentUser.email,
+        }));
+        for (let i = 0; i < docs.length; i += 400) {
+          const b = writeBatch(db);
+          docs.slice(i, i + 400).forEach((d) => b.set(doc(C.accountEntries()), d));
+          await b.commit();
+          btn.textContent = `Yazılıyor… ${Math.min(i + 400, docs.length)}/${docs.length}`;
+        }
+        await logAction("İçe Aktarma", "Banka", `T.Finans C Hesabı (${cAcc.code || ""}) · ${docs.length} hareket`);
+        toast(`${docs.length} hareket aktarıldı.`, "ok");
+        location.hash = "#/hesap-detay?id=" + cAcc.id;
+      } catch (e) { btn.disabled = false; btn.textContent = orig; toast("Aktarılamadı: " + e.message, "err"); }
+    };
   }
 
   function renderSoon(bank) {
