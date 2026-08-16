@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.283";
+const APP_VERSION = "2026.284";
 const CHANGELOG = [
+  { version: "2026.284", date: "2026-08-16", items: [
+    "📅 Çözülme Takvimi 'Gerçek' sütunu artık ELLE YAZILMIYOR: her gün program çözülme tutarıyla DOLU gelir (fark 0 başlar). Yalnız farklı olan günü (ör. 20'sinde) değiştirirsin; değişiklik tarih bazında veritabanına KALICI kaydedilir (otomatik, 'kaydedildi' onayıyla) — kapatıp açınca aynı gelir, tekrar yazmazsın.",
+    "🟠 Değiştirilen günler belirginleşir (altın çerçeveli kutu + pembe satır), fark kırmızı; altta Program/Gerçek/Fark toplamları görünür.",
+  ]},
   { version: "2026.283", date: "2026-08-16", items: [
     "🏷️ Bloke defterine (108.xx) 'İşlem Adı' sütunu eklendi (Valör Tarihi'nin yanında): valör tarihi DOLUYSA kırmızı '<b>Bloke'ye Alma</b>' (blokeye giren, çözülecek), BOŞSA yeşil '<b>Bloke Çözümü</b>' (serbest kalan).",
     "📅 Yalnız 108 Garanti Bloke defterinde '<b>Çözülme Takvimi</b>' düğmesi: yarından itibaren 45 günün her biri için 1) tarih, 2) o gün çözülecek bloke tutarı (bu hesaptaki valörlerden toplanır), 3) elle 'Gerçek' girişi, 4) canlı 'Fark' sütunu. Garanti'nin gerçek çözüm rakamıyla gün gün karşılaştırma için.",
@@ -8016,10 +8020,16 @@ async function viewAccountLedger(c) {
   });
   renderPage();
 
-  // Çözülme Takvimi (yalnız Garanti bloke): yarından itibaren 45 gün. Her günün program
-  // çözüm tutarı = valörü o gün olan blokelerin (borç) toplamı; 3. sütun elle doldurulur, 4. sütun fark.
+  // Çözülme Takvimi (yalnız Garanti bloke): yarından itibaren 45 gün. Program çözüm tutarı =
+  // valörü o gün olan blokelerin (borç) toplamı. "Gerçek" sütunu VARSAYILAN program tutarıyla
+  // dolu gelir; farklı olan günü değiştirince tarih bazında veritabanına (settings) kaydedilir.
   const cozBtn = $("#coz-takvim", c);
-  if (cozBtn) cozBtn.onclick = () => {
+  if (cozBtn) cozBtn.onclick = async () => {
+    cozBtn.disabled = true;
+    let fullGercek = {};
+    try { const sset = await fetchAll(C.settings).catch(() => []); fullGercek = (sset.find((s) => s.id === "blokeCozumGercek") || {}).gercek || {}; } catch (_) {}
+    cozBtn.disabled = false;
+    const map = { ...(fullGercek[acc.id] || {}) };   // bu hesabın gerçek override'ları: tarih → tutar
     const valISO = (e) => {
       if (e.valor) return e.valor;
       const m = String(e.faturaNo || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
@@ -8031,47 +8041,77 @@ async function viewAccountLedger(c) {
     const WK = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
     const rowsH = [];
     for (let i = 1; i <= 45; i++) { const d = new Date(now); d.setDate(d.getDate() + i); const iso = isoOfD(d); rowsH.push({ iso, d: new Date(d), prog: byDay[iso] || 0 }); }
+    const gVal = (r) => (map[r.iso] != null ? map[r.iso] : r.prog);   // gerçek: override varsa o, yoksa program (dolu gelir)
     const totProg = rowsH.reduce((s, r) => s + r.prog, 0);
     const body = document.createElement("div");
     body.innerHTML = `<style>
-      .czt-w{max-height:60vh;overflow:auto}
+      .czt-w{max-height:58vh;overflow:auto}
       .czt{width:100%;border-collapse:collapse;font-size:13px}
       .czt th{position:sticky;top:0;background:#f2e6c9;color:#7a5a20;padding:8px 9px;font-size:11px;text-transform:uppercase;letter-spacing:.3px;text-align:right;z-index:1}
       .czt th:first-child{text-align:left}
       .czt td{padding:5px 9px;border-bottom:1px solid var(--line,#efe7d6);text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
       .czt td:first-child{text-align:left;font-weight:600}
       .czt tr.z td{color:var(--ink-faint,#b8ad98)}
+      .czt tr.diff td{background:#fdefe4}
       .czt input{width:118px;text-align:right;font:inherit;padding:3px 6px;border:1px solid var(--line-strong,#ddd0b8);border-radius:7px;background:var(--surface,#fff);color:var(--ink,#241d15)}
+      .czt input.on{border-color:var(--gold,#c9a24b);font-weight:700}
       .czt td.fk{font-weight:700}
       .czt tfoot td{position:sticky;bottom:0;background:#faf5ea;font-weight:800;border-top:2px solid var(--gold,#c9a24b)}
     </style>
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px;font-size:12px;color:var(--ink-faint)">Gerçek sütunu program tutarıyla dolu gelir; farklı olan günü değiştir — otomatik kaydedilir. <div class="grow"></div><span id="czt-st" style="color:var(--ok);font-weight:700"></span></div>
     <div class="czt-w"><table class="czt">
-      <thead><tr><th>Tarih</th><th>Çözülme Tutarı</th><th>Gerçek (elle)</th><th>Fark</th></tr></thead>
+      <thead><tr><th>Tarih</th><th>Çözülme Tutarı</th><th>Gerçek</th><th>Fark</th></tr></thead>
       <tbody>${rowsH.map((r, i) => `<tr class="${r.prog ? "" : "z"}">
         <td>${fmtDate(r.iso)} <span style="color:var(--ink-faint);font-weight:400">${WK[r.d.getDay()]}</span></td>
         <td data-prog="${r.prog}">${r.prog ? fmtNum(r.prog) + " ₺" : "—"}</td>
-        <td><input inputmode="decimal" data-real="${i}" placeholder="—"></td>
+        <td><input inputmode="decimal" data-real="${i}" data-iso="${r.iso}" value="${gVal(r) ? fmtNum(gVal(r)) : ""}" placeholder="—"></td>
         <td class="fk" data-fk="${i}">—</td>
       </tr>`).join("")}</tbody>
-      <tfoot><tr><td>Toplam · 45 gün</td><td>${fmtNum(totProg)} ₺</td><td></td><td class="fk" data-fktot>—</td></tr></tfoot>
+      <tfoot><tr><td>Toplam · 45 gün</td><td>${fmtNum(totProg)} ₺</td><td data-gtot></td><td class="fk" data-fktot>—</td></tr></tfoot>
     </table></div>`;
     const m = openModal({ title: "📅 Garanti Bloke Çözülme Takvimi (45 gün)", body, footer: [mkBtn("Kapat", "btn-primary", () => m.close())] });
     const recompute = () => {
-      let ftot = 0, any = false;
+      let ftot = 0, gtot = 0;
       $$("input[data-real]", body).forEach((inp) => {
-        const i = inp.dataset.real;
-        const prog = parseNum($("td[data-prog]", inp.closest("tr")).dataset.prog);
+        const tr = inp.closest("tr");
+        const prog = parseNum($("td[data-prog]", tr).dataset.prog);
+        const i = inp.dataset.real, iso = inp.dataset.iso;
         const fkCell = $(`td[data-fk="${i}"]`, body);
-        const rv = inp.value.trim();
-        if (rv === "") { fkCell.textContent = "—"; fkCell.style.color = ""; return; }
-        const fk = prog - parseNum(rv); ftot += fk; any = true;
+        const g = parseNum(inp.value); gtot += g;
+        const overridden = map[iso] != null;
+        inp.classList.toggle("on", overridden);
+        tr.classList.toggle("diff", overridden);
+        const fk = prog - g; ftot += fk;
         fkCell.textContent = (fk > 0 ? "+" : "") + fmtNum(fk) + " ₺";
-        fkCell.style.color = Math.abs(fk) > 0.5 ? "var(--danger)" : "var(--ok)";
+        fkCell.style.color = Math.abs(fk) > 0.5 ? "var(--danger)" : "var(--ink-faint)";
       });
-      const ft = $("td[data-fktot]", body);
-      if (ft) { ft.textContent = any ? (ftot > 0 ? "+" : "") + fmtNum(ftot) + " ₺" : "—"; ft.style.color = any && Math.abs(ftot) > 0.5 ? "var(--danger)" : ""; }
+      const gt = $("td[data-gtot]", body); if (gt) gt.textContent = fmtNum(gtot) + " ₺";
+      const ft = $("td[data-fktot]", body); if (ft) { ft.textContent = (ftot > 0 ? "+" : "") + fmtNum(ftot) + " ₺"; ft.style.color = Math.abs(ftot) > 0.5 ? "var(--danger)" : ""; }
     };
-    $$("input[data-real]", body).forEach((inp) => inp.addEventListener("input", recompute));
+    let saveT;
+    const save = () => {
+      clearTimeout(saveT);
+      const st = $("#czt-st", body); if (st) { st.style.color = "var(--ink-faint)"; st.textContent = "kaydediliyor…"; }
+      saveT = setTimeout(async () => {
+        fullGercek[acc.id] = map;
+        try {
+          await setDoc(doc(db, "settings", "blokeCozumGercek"), { gercek: fullGercek, updatedAt: serverTimestamp() });
+          if (st) { st.style.color = "var(--ok)"; st.textContent = "✓ kaydedildi"; setTimeout(() => { if (st) st.textContent = ""; }, 1600); }
+        } catch (e) { if (st) { st.style.color = "var(--danger)"; st.textContent = "⚠️ kaydedilemedi"; } }
+      }, 500);
+    };
+    $$("input[data-real]", body).forEach((inp) => {
+      inp.addEventListener("input", recompute);
+      inp.addEventListener("change", () => {
+        const iso = inp.dataset.iso;
+        const prog = parseNum($("td[data-prog]", inp.closest("tr")).dataset.prog);
+        const rv = inp.value.trim();
+        if (rv === "") { delete map[iso]; inp.value = prog ? fmtNum(prog) : ""; }   // boş → programa dön
+        else { const v = parseNum(rv); if (Math.abs(v - prog) < 0.005) delete map[iso]; else map[iso] = v; inp.value = v ? fmtNum(v) : ""; }
+        recompute(); save();
+      });
+    });
+    recompute();
   };
 
   // Defter ekrana kilitli: üst (özet + başlık + araçlar) SABİT; yalnız hareket listesi kendi
