@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.268";
+const APP_VERSION = "2026.269";
 const CHANGELOG = [
+  { version: "2026.269", date: "2026-08-16", items: [
+    "📅 Nakit Akış Verileri — 'En Yakın Ödeme' sütunu eklendi: her kalemin bir sonraki ödeme tarihi OTOMATİK hesaplanır (tekrar kuralına göre, öngörüyle birebir) ve liste artık bu tarihe göre SIRALANIR (en yakın üstte). 7 gün içindeki ödemeler altın renkte vurgulanır",
+  ]},
   { version: "2026.268", date: "2026-08-16", items: [
     "🗂️ Nakit Akış Verileri sayfasına GRUP FİLTRESİ eklendi: üstteki 'Tüm Gruplar' listesinden bir grup (ör. Vergi) seçince yalnız o grubun kalemleri listelenir.",
     "📄 YENİ: Aylık Ödeme Planı (PDF) — Nakit Akış Verileri sayfasındaki '📄 Aylık Ödeme Planı' düğmesiyle seçilen ayın (ay ay gezilebilir) öngörülen ödemeleri gün gün listelenir; Garanti/T.Finans/Nakit ara toplamları + genel toplam. 'PDF / Yazdır' ile yeni pencerede yazdırılabilir belge açılır → tarayıcıdan 'PDF olarak kaydet' ile indirilir. Grup filtresi seçiliyse plan da o grupla sınırlanır (ör. sadece Vergi ödemeleri).",
@@ -9781,7 +9784,18 @@ async function viewNakitAkisVeri(c) {
     fetchAll(C.cashflowItems).catch(() => []),
     fetchAll(C.settings).catch(() => []),
   ]);
-  const items = items0.sort((a, b) => (a.type || "").localeCompare(b.type || ""));
+  const items = items0;
+  // Her kalemin bir sonraki (en yakın) ödeme tarihini otomatik hesapla ve ona göre sırala
+  const _todayIso = todayISO();
+  items.forEach((x) => {
+    x._next = nextPayDate(x);
+    x._nextSoon = x._next ? ((new Date(x._next + "T00:00:00") - new Date(_todayIso + "T00:00:00")) / 86400000) <= 7 : false;
+  });
+  items.sort((a, b) => {
+    if (!a._next && !b._next) return (a.type || "").localeCompare(b.type || "");
+    if (!a._next) return 1; if (!b._next) return -1;
+    return a._next.localeCompare(b._next);
+  });
   const cfgDoc = settings.find((s) => s.id === "cashflow");
   const dailyIn = Object.assign({ garanti: 0, tfinans: 0, nakit: 0 }, (cfgDoc && cfgDoc.dailyIn) || {});
   c.innerHTML = `
@@ -9808,12 +9822,13 @@ async function viewNakitAkisVeri(c) {
     <div class="card">
       <div class="card-head"><h3>Tekrarlanan Kalemler</h3><span class="hint">${items.length} kalem</span></div>
       ${items.length ? `<div class="table-wrap"><table class="data">
-        <thead><tr><th>Ad</th><th>Tür</th><th>Hesap</th><th>Tekrar</th><th>Rapor</th><th class="num">Tutar</th><th>Durum</th><th></th></tr></thead>
+        <thead><tr><th>Ad</th><th>Tür</th><th>Hesap</th><th>Tekrar</th><th>En Yakın Ödeme</th><th>Rapor</th><th class="num">Tutar</th><th>Durum</th><th></th></tr></thead>
         <tbody>${items.map((x) => `<tr data-grup="${esc(normTr(x.rapor || ""))}">
           <td><b>${esc(x.name)}</b></td>
           <td><span class="tag ${x.type==="gelir"?"ok":"red"}">${x.type==="gelir"?"Gelir":"Gider"}</span></td>
           <td>${x.account==="tfinans"?"T.Finans":x.account==="nakit"?"Nakit":"Garanti"}</td>
           <td>${esc(cfWhen(x))}</td>
+          <td style="font-weight:600;${x._nextSoon ? "color:var(--gold-dark,#7a5a20)" : ""}">${x._next ? fmtDate(x._next) : '<span style="color:var(--ink-faint,#9c8e78);font-weight:400">—</span>'}</td>
           <td>${esc(x.rapor || "—")}</td>
           <td class="num">${fmtTRY(x.amount || 0)}</td>
           <td>${x.active===false?'<span class="tag warn">Pasif</span>':'<span class="tag ok">Aktif</span>'}</td>
@@ -9976,6 +9991,18 @@ async function viewNakitAkisImport(c) {
   render();
 }
 
+// Bir kalemin bugünden itibaren en yakın (bir sonraki) ödeme tarihi — naFires ile
+// forecast'la birebir. Gelecekte hiç tetiklenmiyorsa (ör. geçmiş tek seferlik) "" döner.
+function nextPayDate(it) {
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  for (let i = 0; i < 400; i++) {
+    const d = new Date(now); d.setDate(d.getDate() + i);
+    const iso = isoOfD(d), dom = d.getDate();
+    const monthOffset = (d.getFullYear() - now.getFullYear()) * 12 + (d.getMonth() - now.getMonth());
+    if (naFires(it, d, iso, dom, monthOffset)) return iso;
+  }
+  return "";
+}
 // Bir ayın (y, m=0-index) öngörülen ÖDEMELERİ (gider kalemleri) — tarih tarih
 function monthPlan(items, y, m) {
   const now = new Date(); now.setHours(0, 0, 0, 0);
