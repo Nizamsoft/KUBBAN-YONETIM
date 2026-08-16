@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.287";
+const APP_VERSION = "2026.288";
 const CHANGELOG = [
+  { version: "2026.288", date: "2026-08-16", items: [
+    "🧮 Bloke çözülme tutarı artık NET (Borç − Alacak) hesaplanıyor — aynı satırda hem borç hem küçük bir alacak olduğunda (ör. İşlem 1382: 216.992,85 borç − 14,85 alacak = 216.978,00) eskiden sadece borç alınıp sürekli fark oluşuyordu; artık net alınıyor, o sistematik fark kayboluyor.",
+    "🔁 Bu düzeltme 3 yerde: Çözülme Takvimi günlük tutarları, 'Fark → gün detayı' penceresi (artık Borç · Alacak · Net sütunları) ve Nakit Akış Raporu bloke çözüm öngörüsü — hepsi net (borç−alacak) kullanıyor.",
+  ]},
   { version: "2026.287", date: "2026-08-16", items: [
     "🧾 Bloke defteri düzeni: 'İşlem Adı' sütunu artık Tarih'in yanında (2. sütun). İçeriği açıklamaya göre: '…Çekimi Yatan' → Bloke Çözümü (yeşil), '…Çekimi' → Bloke'ye Alma (kırmızı), 'Birikmiş Bakiye' → Açılış (altın). Valör Tarihi en sağda kaldı.",
     "🔠 Bloke defterinde Açıklama artık 'İlk Harf Büyük' gösteriliyor (ör. 'KREDİ KART ÇEKİMİ YATAN' → 'Kredi Kart Çekimi Yatan') — hem tabloda hem telefonda.",
@@ -8057,7 +8061,8 @@ async function viewAccountLedger(c) {
       return m ? `${m[3]}-${m[2].padStart(2, "0")}-${m[1].padStart(2, "0")}` : "";
     };
     const byDay = {};
-    list.forEach((e) => { const v = valISO(e), b = parseNum(e.borc); if (v && b > 0) byDay[v] = (byDay[v] || 0) + b; });
+    // Çözülme tutarı = NET (Borç − Alacak) — aynı satırdaki küçük alacak düşülür (fark oluşmasın)
+    list.forEach((e) => { const v = valISO(e); if (!v) return; const net = parseNum(e.borc) - parseNum(e.alacak); if (net > 0) byDay[v] = (byDay[v] || 0) + net; });
     const now = new Date(); now.setHours(0, 0, 0, 0);
     const WK = ["Paz", "Pzt", "Sal", "Çar", "Per", "Cum", "Cmt"];
     const rowsH = [];
@@ -8143,15 +8148,16 @@ async function viewAccountLedger(c) {
     // Fark olan günün Fark hücresine tıkla → o gün çözülen (valörü o güne denk) blokeler
     // listelenir; birine tıklayınca kaydın düzenleme ekranı açılır (yanlış tutarı düzelt).
     const openDayDetail = (iso) => {
-      const dayE = list.filter((e) => valISO(e) === iso && parseNum(e.borc) > 0)
-        .sort((a, b) => parseNum(b.borc) - parseNum(a.borc));
-      const tot = dayE.reduce((s, e) => s + parseNum(e.borc), 0);
+      const netOf = (e) => parseNum(e.borc) - parseNum(e.alacak);
+      const dayE = list.filter((e) => valISO(e) === iso && netOf(e) > 0)
+        .sort((a, b) => netOf(b) - netOf(a));
+      const tot = dayE.reduce((s, e) => s + netOf(e), 0);
       const db = document.createElement("div");
-      db.innerHTML = `<div style="font-size:12px;color:var(--ink-faint);margin-bottom:8px">Bu gün çözülen blokeler. Yanlış tutarı bulmak için hareketi tıkla — <b>düzenleme ekranı</b> açılır.</div>
+      db.innerHTML = `<div style="font-size:12px;color:var(--ink-faint);margin-bottom:8px">Bu gün çözülen blokeler. Çözülme = <b>Borç − Alacak (net)</b>. Yanlış tutarı bulmak için hareketi tıkla — <b>düzenleme ekranı</b> açılır.</div>
         <div class="table-wrap"><table class="data" style="font-size:13px">
-          <thead><tr><th>İşlem Tarihi</th><th>Açıklama</th><th class="num">Tutar</th></tr></thead>
-          <tbody>${dayE.length ? dayE.map((e) => `<tr class="czt-erow" data-eid="${esc(e.id)}"><td>${fmtDate(e.date)}</td><td class="tdwrap">${esc(e.aciklama || "")}</td><td class="num">${fmtNum(parseNum(e.borc))} ₺</td></tr>`).join("") : `<tr><td colspan="3" style="text-align:center;color:var(--ink-faint);padding:14px">Bu güne ait bloke bulunamadı.</td></tr>`}</tbody>
-          <tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="2">Toplam · ${dayE.length} kayıt</td><td class="num">${fmtNum(tot)} ₺</td></tr></tfoot>
+          <thead><tr><th>İşlem Tarihi</th><th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Net</th></tr></thead>
+          <tbody>${dayE.length ? dayE.map((e) => `<tr class="czt-erow" data-eid="${esc(e.id)}"><td>${fmtDate(e.date)}</td><td class="tdwrap">${esc(titleCase(e.aciklama || ""))}</td><td class="num">${e.borc ? fmtNum(parseNum(e.borc)) + " ₺" : "—"}</td><td class="num">${e.alacak ? fmtNum(parseNum(e.alacak)) + " ₺" : "—"}</td><td class="num" style="font-weight:700">${fmtNum(netOf(e))} ₺</td></tr>`).join("") : `<tr><td colspan="5" style="text-align:center;color:var(--ink-faint);padding:14px">Bu güne ait bloke bulunamadı.</td></tr>`}</tbody>
+          <tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="4">Toplam · ${dayE.length} kayıt</td><td class="num">${fmtNum(tot)} ₺</td></tr></tfoot>
         </table></div>`;
       const dm = openModal({ title: `📋 ${fmtDate(iso)} — Çözülen Blokeler`, body: db, footer: [mkBtn("Kapat", "", () => dm.close())] });
       $$(".czt-erow", db).forEach((tr) => tr.onclick = () => {
@@ -11321,11 +11327,12 @@ async function viewNakitAkisRapor(c) {
     const es = entries.filter((e) => e.accountId === a.id);
     let cap = parseNum(a.openingBalance) + es.reduce((sum, e) => sum + naDelta(e), 0);   // blokede kalan
     if (cap <= 0.005) return;
-    es.filter((e) => parseNum(e.borc) > 0 && e.valor && e.valor > _naTodayISO)
+    es.filter((e) => (parseNum(e.borc) - parseNum(e.alacak)) > 0 && e.valor && e.valor > _naTodayISO)
       .sort((x, y) => (x.valor < y.valor ? -1 : x.valor > y.valor ? 1 : 0))
       .forEach((e) => {
         if (cap <= 0.005) return;
-        const amt = Math.min(parseNum(e.borc), cap); cap -= amt;
+        const net = parseNum(e.borc) - parseNum(e.alacak);   // öngörülen çözülme = NET (borç − alacak)
+        const amt = Math.min(net, cap); cap -= amt;
         const lbl = "Bloke: " + (e.aciklama || e.sahis || "Çekim");
         (blokeFwdByKey[key][e.valor] || (blokeFwdByKey[key][e.valor] = [])).push({ t: lbl, a: amt });
       });
