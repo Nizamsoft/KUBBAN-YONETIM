@@ -657,8 +657,12 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.267";
+const APP_VERSION = "2026.268";
 const CHANGELOG = [
+  { version: "2026.268", date: "2026-08-16", items: [
+    "🗂️ Nakit Akış Verileri sayfasına GRUP FİLTRESİ eklendi: üstteki 'Tüm Gruplar' listesinden bir grup (ör. Vergi) seçince yalnız o grubun kalemleri listelenir.",
+    "📄 YENİ: Aylık Ödeme Planı (PDF) — Nakit Akış Verileri sayfasındaki '📄 Aylık Ödeme Planı' düğmesiyle seçilen ayın (ay ay gezilebilir) öngörülen ödemeleri gün gün listelenir; Garanti/T.Finans/Nakit ara toplamları + genel toplam. 'PDF / Yazdır' ile yeni pencerede yazdırılabilir belge açılır → tarayıcıdan 'PDF olarak kaydet' ile indirilir. Grup filtresi seçiliyse plan da o grupla sınırlanır (ör. sadece Vergi ödemeleri).",
+  ]},
   { version: "2026.267", date: "2026-08-16", items: [
     "📥 YENİ: Nakit Akış Geçmişi İçe Aktar — eski programdan kalan 'Nakit Akış Verileri' Excel'i yüklenebiliyor (Ayarlar → Geçmiş Yükleme, ya da Nakit Akış Verileri sayfasındaki '📥 Excel'den Aktar'). Dosyadaki ÖDEMELER tablosu okunur: tekrarlı kalemler (aylık/yıllık/haftalık) + tarihi bugünden sonra olan tek seferlik ödemeler; her satır hesabına (Garanti/T.Finans/Nakit), grubuna (rapor kodu) ve tutarına göre eşlenir. Önizleme + onayla yüklenir; geçmiş/ödenmiş taksitler, tutarsızlar ve zaten var olanlar otomatik atlanır. Aktarılanlar Nakit Akış Raporu'nda otomatik görünür",
     "🔧 Nakit Akış kalemlerine 'tek seferlik (belirli tarih)' desteği eklendi ve yıllık kalemler artık doğru AYDA tekrar ediyor (önceden yıllık kalem ayı tutmuyordu). Nakit Akış Verileri listesinde 'Gün' sütunu 'Tekrar' oldu (ör. 'Her yıl 17.08', '🗓️ 10.09.2026', 'Ayın 6'i')",
@@ -9791,7 +9795,12 @@ async function viewNakitAkisVeri(c) {
         <span>💵 Nakit <b id="di-nakit">${fmtNum(dailyIn.nakit)}</b> ₺</span>
       </div>
     </div>
-    <div class="toolbar">
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px">
+      <select id="cf-grup" style="padding:8px 11px;border:1px solid var(--line-strong,#ddd0b8);border-radius:9px;font-weight:600;font-size:13px;background:var(--surface,#fff);color:var(--ink,#241d15)">
+        <option value="">🗂️ Tüm Gruplar</option>
+        ${[...new Set(items.map((x) => x.rapor).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr")).map((g) => `<option value="${esc(normTr(g))}">${esc(g)}</option>`).join("")}
+      </select>
+      <button class="btn btn-sm" id="cf-plan">📄 Aylık Ödeme Planı</button>
       <div class="grow"></div>
       <button class="btn btn-sm" id="cf-import">📥 Excel'den Aktar</button>
       <button class="btn btn-primary btn-sm" id="cf-add">+ Yeni Tanım</button>
@@ -9800,7 +9809,7 @@ async function viewNakitAkisVeri(c) {
       <div class="card-head"><h3>Tekrarlanan Kalemler</h3><span class="hint">${items.length} kalem</span></div>
       ${items.length ? `<div class="table-wrap"><table class="data">
         <thead><tr><th>Ad</th><th>Tür</th><th>Hesap</th><th>Tekrar</th><th>Rapor</th><th class="num">Tutar</th><th>Durum</th><th></th></tr></thead>
-        <tbody>${items.map((x) => `<tr>
+        <tbody>${items.map((x) => `<tr data-grup="${esc(normTr(x.rapor || ""))}">
           <td><b>${esc(x.name)}</b></td>
           <td><span class="tag ${x.type==="gelir"?"ok":"red"}">${x.type==="gelir"?"Gelir":"Gider"}</span></td>
           <td>${x.account==="tfinans"?"T.Finans":x.account==="nakit"?"Nakit":"Garanti"}</td>
@@ -9823,6 +9832,12 @@ async function viewNakitAkisVeri(c) {
   });
   $("#cf-add").onclick = () => cfModal(null);
   const cfImp = $("#cf-import", c); if (cfImp) cfImp.onclick = () => { location.hash = "#/nakit-akis-import"; };
+  // Grup filtresi: seçilen gruba göre listeyi süz
+  const gfSel = $("#cf-grup", c);
+  const applyGf = () => { const v = gfSel.value; $$(".card table.data tbody tr", c).forEach((tr) => { tr.style.display = (!v || tr.dataset.grup === v) ? "" : "none"; }); };
+  if (gfSel) gfSel.onchange = applyGf;
+  // Aylık öngörülen ödeme planı (PDF/yazdır) — seçili grupla sınırlı
+  const cfPlan = $("#cf-plan", c); if (cfPlan) cfPlan.onclick = () => planModal(items, gfSel ? gfSel.value : "");
   $$("[data-edit]", c).forEach((b) => b.onclick = () => cfModal(items.find((x) => x.id === b.dataset.edit)));
   $$("[data-del]", c).forEach((b) => b.onclick = () =>
     confirmDialog("Kalem silinsin mi?", async () => {
@@ -9959,6 +9974,94 @@ async function viewNakitAkisImport(c) {
   }
 
   render();
+}
+
+// Bir ayın (y, m=0-index) öngörülen ÖDEMELERİ (gider kalemleri) — tarih tarih
+function monthPlan(items, y, m) {
+  const now = new Date(); now.setHours(0, 0, 0, 0);
+  const monthOffset = (y - now.getFullYear()) * 12 + (m - now.getMonth());
+  const days = new Date(y, m + 1, 0).getDate();
+  const active = items.filter((it) => it.active !== false && it.type !== "gelir");
+  const rows = [];
+  for (let d = 1; d <= days; d++) {
+    const dt = new Date(y, m, d); const iso = isoOfD(dt);
+    active.forEach((it) => {
+      if (naFires(it, dt, iso, d, monthOffset))
+        rows.push({ date: iso, name: it.name, group: it.rapor || "", account: it.account || "garanti", amount: parseNum(it.amount) });
+    });
+  }
+  rows.sort((a, b) => a.date.localeCompare(b.date) || (b.amount - a.amount));
+  return rows;
+}
+const accLabel3 = (a) => a === "tfinans" ? "T.Finans" : a === "nakit" ? "Nakit" : "Garanti";
+// Yeni pencerede yazdırılabilir belge aç (kullanıcı 'PDF olarak kaydet' ile indirir)
+function printDoc(title, inner) {
+  const w = window.open("", "_blank", "width=840,height=1000");
+  if (!w) { toast("Açılır pencere engellendi — tarayıcıdan izin verip tekrar dene.", "err"); return; }
+  w.document.write(`<!doctype html><html lang="tr"><head><meta charset="utf-8"><title>${esc(title)}</title><style>
+    *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,"Segoe UI",system-ui,Arial}
+    body{padding:24px;color:#241d15}
+    .ph{display:flex;align-items:flex-end;justify-content:space-between;border-bottom:2px solid #c9a24b;padding-bottom:12px;margin-bottom:16px}
+    .ph .nm{font-family:Georgia,serif;font-size:21px;font-weight:700}
+    .ph .sub{font-size:10.5px;letter-spacing:2px;text-transform:uppercase;color:#8a7550;margin-top:2px}
+    .ph .t{text-align:right}.ph .tt{font-size:16px;font-weight:800}.ph .dt{font-size:11.5px;color:#6f6250;margin-top:2px}
+    table{width:100%;border-collapse:collapse;font-size:12.5px}
+    th{background:#f2e6c9;color:#7a5a20;text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:.3px}
+    td{padding:7px 10px;border-bottom:1px solid #ece2d1}
+    .num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+    tfoot tr.sub td{background:#faf5ea;font-weight:700}
+    tfoot tr.gt td{border-top:2px solid #c9a24b;font-weight:800;font-size:13.5px}
+    .foot{margin-top:18px;font-size:10.5px;color:#9c8e78;text-align:center;line-height:1.6}
+    @media print{@page{margin:12mm}}
+  </style></head><body>${inner}
+  <script>window.onload=function(){setTimeout(function(){window.print()},250)}<\/script></body></html>`);
+  w.document.close();
+}
+function printPlan(rows, title, scoped) {
+  const tot = rows.reduce((s, r) => s + r.amount, 0);
+  const byAcc = {}; rows.forEach((r) => { byAcc[r.account] = (byAcc[r.account] || 0) + r.amount; });
+  const inner = `
+    <div class="ph"><div><div class="nm">Güllüoğlu Kübban</div><div class="sub">Öngörülen Ödemeler${scoped ? " · " + esc(scoped) : ""}</div></div>
+      <div class="t"><div class="tt">${esc(title)}</div><div class="dt">Yazdırma: ${new Date().toLocaleDateString("tr-TR")}</div></div></div>
+    <table><thead><tr><th>Tarih</th><th>Ödeme Adı</th><th>Grup</th><th>Hesap</th><th class="num">Tutar</th></tr></thead>
+      <tbody>${rows.map((r) => `<tr><td>${fmtDate(r.date)}</td><td>${esc(r.name)}</td><td>${esc(r.group || "—")}</td><td>${accLabel3(r.account)}</td><td class="num">${fmtTRY(r.amount)}</td></tr>`).join("")}</tbody>
+      <tfoot>${Object.entries(byAcc).map(([a, v]) => `<tr class="sub"><td colspan="4">${accLabel3(a)} toplam</td><td class="num">${fmtTRY(v)}</td></tr>`).join("")}
+        <tr class="gt"><td colspan="4">GENEL TOPLAM · ${rows.length} ödeme</td><td class="num">${fmtTRY(tot)}</td></tr></tfoot></table>
+    <div class="foot">Bu plan uygulamadan üretilmiştir · Öngörüdür, gerçekleşen tutarlar farklılık gösterebilir.</div>`;
+  printDoc(title, inner);
+}
+function planModal(items, gfNorm) {
+  const AY = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim", "Kasım", "Aralık"];
+  const now = new Date(); let y = now.getFullYear(), m = now.getMonth();
+  const scopedName = gfNorm ? ([...new Set(items.map((x) => x.rapor).filter(Boolean))].find((g) => normTr(g) === gfNorm) || "") : "";
+  const body = document.createElement("div");
+  let lastRows = [], lastTitle = "";
+  const draw = () => {
+    let rows = monthPlan(items, y, m);
+    if (gfNorm) rows = rows.filter((r) => normTr(r.group) === gfNorm);
+    lastRows = rows; lastTitle = `${AY[m]} ${y} Öngörülen Ödemeler`;
+    const tot = rows.reduce((s, r) => s + r.amount, 0);
+    const byAcc = {}; rows.forEach((r) => { byAcc[r.account] = (byAcc[r.account] || 0) + r.amount; });
+    body.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;gap:14px;margin-bottom:12px">
+        <button class="btn btn-sm" data-mv="-1">‹</button>
+        <b style="font-size:15px;min-width:160px;text-align:center">${AY[m]} ${y}${scopedName ? ` · ${esc(scopedName)}` : ""}</b>
+        <button class="btn btn-sm" data-mv="1">›</button>
+      </div>
+      ${rows.length ? `<div class="table-wrap"><table class="data">
+        <thead><tr><th>Tarih</th><th>Ödeme</th><th>Grup</th><th>Hesap</th><th class="num">Tutar</th></tr></thead>
+        <tbody>${rows.map((r) => `<tr><td>${fmtDate(r.date)}</td><td><b>${esc(r.name)}</b></td><td>${esc(r.group || "—")}</td><td>${accLabel3(r.account)}</td><td class="num">${fmtTRY(r.amount)}</td></tr>`).join("")}</tbody>
+        <tfoot><tr style="font-weight:800;background:var(--surface-2)"><td colspan="4">TOPLAM · ${rows.length} ödeme</td><td class="num">${fmtTRY(tot)}</td></tr></tfoot>
+      </table></div>
+      <div style="margin-top:10px;font-size:12.5px;color:var(--ink-soft);display:flex;gap:16px;flex-wrap:wrap">${Object.entries(byAcc).map(([a, v]) => `<span>${accLabel3(a)}: <b>${fmtTRY(v)}</b></span>`).join("")}</div>`
+      : `<div class="empty" style="padding:24px"><div class="ico">📄</div><p>Bu ay için öngörülen ödeme yok.</p></div>`}`;
+    body.querySelectorAll("[data-mv]").forEach((b) => b.onclick = () => { m += parseInt(b.dataset.mv); if (m < 0) { m = 11; y--; } if (m > 11) { m = 0; y++; } draw(); });
+  };
+  draw();
+  const mm = openModal({ title: "📄 Aylık Ödeme Planı", body, footer: [
+    mkBtn("Kapat", "", () => mm.close()),
+    mkBtn("📄 PDF / Yazdır", "btn-primary", () => printPlan(lastRows, lastTitle, scopedName)),
+  ] });
 }
 function cfModal(item) {
   const isNew = !item;
