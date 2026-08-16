@@ -1526,6 +1526,13 @@ table.na-t tr.today td { box-shadow: inset 0 2px 0 var(--gold); background: var(
 /* Form bölüm başlığı (Kalem penceresi: İçerik / Tarih / Tutar Bilgileri) */
 .cf-sec-h { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .5px; color: var(--gold-dark, #7a5a20); margin: 18px 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--line, #ece2d1); }
 .cf-sec-h:first-child { margin-top: 0; }
+/* Tekrarlanan Kalemler tablosu — iki katlı gruplu başlık (Kalem / Ödeme / Tarih) */
+.cfk-tbl thead th.grp { text-align: center; background: #f6ecd0; color: var(--gold-dark, #7a5a20);
+  font-size: 10px; letter-spacing: .6px; padding-top: 8px; padding-bottom: 8px; box-shadow: inset 0 -1px 0 var(--line, #ece2d1); }
+.cfk-tbl thead tr.grp-row th { top: 0; }
+.cfk-tbl thead tr.sub-row th { top: 34px; }         /* grup satırının altına yapış */
+.cfk-tbl .gsep { border-left: 2px solid var(--line-strong, #ddd0b8); }   /* grup ayırıcı dikey çizgi */
+.cfk-tbl thead tr.sub-row th.gsep, .cfk-tbl thead tr.grp-row th.gsep { border-left: 2px solid var(--line-strong, #ddd0b8); }
 .na-tabs { display: flex; gap: 7px; margin-bottom: 10px; }
 .na-tab { flex: 1; border: 1px solid var(--line-strong); background: var(--surface); border-radius: 11px; padding: 9px 6px; text-align: center; cursor: pointer; font-weight: 800; font-size: 13px; color: var(--ink-soft); }
 .na-tab .em { display: block; font-size: 17px; margin-bottom: 2px; }

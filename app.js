@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.270";
+const APP_VERSION = "2026.271";
 const CHANGELOG = [
+  { version: "2026.271", date: "2026-08-16", items: [
+    "🧩 Tekrarlanan Kalemler tablosu sütunları GRUPLANDI: iki katlı başlık — 📋 Kalem (Ad · Tür) · 💰 Ödeme Bilgileri (Hesap · Rapor · Tutar) · 📅 Tarih Bilgileri (Tekrar · En Yakın Ödeme) · Durum. İlgili sütunlar yan yana; gruplar arası dikey ayırıcı çizgiler eklendi (daha okunur).",
+  ]},
   { version: "2026.270", date: "2026-08-16", items: [
     "🗓️ Nakit Akış kalemlerinde HAFTALIK artık gerçek haftanın gününe göre çalışıyor: 'Haftalık' seçince 'Haftanın Günü' (Pazartesi…Pazar) sorulur; ör. Tedarikçi Ödemesi → Haftalık · Perşembe = her Perşembe. Ayrıca 'Tek Seferlik' dönem elle de seçilebiliyor (belirli tarih). En Yakın Ödeme ve Aylık Plan bunları doğru hesaplar.",
     "🧩 'Yeni/Düzenle Kalem' penceresi başlık gruplarına ayrıldı: 📋 İçerik Bilgileri (ad, tür, hesap, rapor, aktif) · 📅 Tarih Bilgileri (dönem + döneme göre ayın günü / haftanın günü / ay / tarih) · 💰 Tutar Bilgileri. Alanlar döneme göre otomatik değişir.",
@@ -9830,17 +9833,30 @@ async function viewNakitAkisVeri(c) {
     </div>
     <div class="card">
       <div class="card-head"><h3>Tekrarlanan Kalemler</h3><span class="hint">${items.length} kalem</span></div>
-      ${items.length ? `<div class="table-wrap"><table class="data">
-        <thead><tr><th>Ad</th><th>Tür</th><th>Hesap</th><th>Tekrar</th><th>En Yakın Ödeme</th><th>Rapor</th><th class="num">Tutar</th><th>Durum</th><th></th></tr></thead>
+      ${items.length ? `<div class="table-wrap"><table class="data cfk-tbl">
+        <thead>
+          <tr class="grp-row">
+            <th colspan="2" class="grp gsep">📋 Kalem</th>
+            <th colspan="3" class="grp gsep">💰 Ödeme Bilgileri</th>
+            <th colspan="2" class="grp gsep">📅 Tarih Bilgileri</th>
+            <th rowspan="2" class="gsep">Durum</th>
+            <th rowspan="2"></th>
+          </tr>
+          <tr class="sub-row">
+            <th class="gsep">Ad</th><th>Tür</th>
+            <th class="gsep">Hesap</th><th>Rapor</th><th class="num">Tutar</th>
+            <th class="gsep">Tekrar</th><th>En Yakın Ödeme</th>
+          </tr>
+        </thead>
         <tbody>${items.map((x) => `<tr data-grup="${esc(normTr(x.rapor || ""))}">
-          <td><b>${esc(x.name)}</b></td>
+          <td class="gsep"><b>${esc(x.name)}</b></td>
           <td><span class="tag ${x.type==="gelir"?"ok":"red"}">${x.type==="gelir"?"Gelir":"Gider"}</span></td>
-          <td>${x.account==="tfinans"?"T.Finans":x.account==="nakit"?"Nakit":"Garanti"}</td>
-          <td>${esc(cfWhen(x))}</td>
-          <td style="font-weight:600;${x._nextSoon ? "color:var(--gold-dark,#7a5a20)" : ""}">${x._next ? fmtDate(x._next) : '<span style="color:var(--ink-faint,#9c8e78);font-weight:400">—</span>'}</td>
+          <td class="gsep">${x.account==="tfinans"?"T.Finans":x.account==="nakit"?"Nakit":"Garanti"}</td>
           <td>${esc(x.rapor || "—")}</td>
           <td class="num">${fmtTRY(x.amount || 0)}</td>
-          <td>${x.active===false?'<span class="tag warn">Pasif</span>':'<span class="tag ok">Aktif</span>'}</td>
+          <td class="gsep">${esc(cfWhen(x))}</td>
+          <td style="font-weight:600;${x._nextSoon ? "color:var(--gold-dark,#7a5a20)" : ""}">${x._next ? fmtDate(x._next) : '<span style="color:var(--ink-faint,#9c8e78);font-weight:400">—</span>'}</td>
+          <td class="gsep">${x.active===false?'<span class="tag warn">Pasif</span>':'<span class="tag ok">Aktif</span>'}</td>
           <td style="text-align:right">
             <button class="btn btn-sm" data-edit="${x.id}">Düzenle</button>
             <button class="btn btn-sm btn-danger" data-del="${x.id}">Sil</button>
