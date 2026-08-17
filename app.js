@@ -659,8 +659,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.300";
+const APP_VERSION = "2026.301";
 const CHANGELOG = [
+  { version: "2026.301", date: "2026-08-17", items: [
+    "⚡ Hareket 'Sil' ve 'Taşı' da artık anında: Silince satır defterden hemen (yumuşak animasyonla) kalkar, taşıyınca hareket bu defterden hemen çıkar — işlem arka planda yapılır, bekleme yok. Nadiren hata olursa defter gerçek duruma göre otomatik geri alınır ve uyarı verilir. (Kaydet zaten anındaydı.)",
+  ]},
   { version: "2026.300", date: "2026-08-17", items: [
     "⚡ Hareket 'Kaydet' artık anında: Bir hareketi eklerken/düzenlerken Kaydet'e basınca pencere HEMEN kapanır ve kayıt defterde ANINDA görünür — veritabanına yazma arka planda yapılır (bekleme yok). Nadiren bir yazma hatası olursa değişiklik otomatik geri alınır ve uyarı verilir. Mükerrer (aynı gün + aynı tutar) uyarısı yine kaydetmeden önce sorulur.",
   ]},
@@ -8581,15 +8584,16 @@ function entryModal(acc, entry, opts) {
       accounts: leaf, title: "Hesabı Değiştir", query: "", allowNew: false,
       onPick: async (res) => {
         const target = res.acc; if (!target || target.id === acc.id) return;
-        try {
-          const all = await fetchAll(C.accountEntries).catch(() => []);
-          const tcari = isCari(target.type) || String(target.code || "").startsWith("108");
-          const patch = {
-            accountId: target.id, accountCode: target.code || "",
-            islemNo: all.reduce((mx, e) => Math.max(mx, e.islemNo || 0), 0) + 1,
-            updatedAt: serverTimestamp(),
-          };
-          if (tcari) patch.cariNo = all.filter((e) => e.accountId === target.id).reduce((mx, e) => Math.max(mx, e.cariNo || 0), 0) + 1;
+        const all = await fetchAll(C.accountEntries).catch(() => []);   // önbellekten anında
+        const tcari = isCari(target.type) || String(target.code || "").startsWith("108");
+        const patch = {
+          accountId: target.id, accountCode: target.code || "",
+          islemNo: all.reduce((mx, e) => Math.max(mx, e.islemNo || 0), 0) + 1,
+          updatedAt: serverTimestamp(),
+        };
+        if (tcari) patch.cariNo = all.filter((e) => e.accountId === target.id).reduce((mx, e) => Math.max(mx, e.cariNo || 0), 0) + 1;
+        // Asıl yazma: hareketi hedefe taşı + isim rumuzlarını güncelle
+        const doMove = async () => {
           await updateDoc(doc(db, "accountEntries", entry.id), patch);
           const nm = (entry.sahis || "").trim();
           if (nm) {
@@ -8601,10 +8605,18 @@ function entryModal(acc, entry, opts) {
               tgtAl.push(nm); await updateDoc(doc(db, "accounts", target.id), { nameAliases: tgtAl }).catch(() => {});
             }
           }
-          await logAction("Taşıma", "Hesap Hareketi", `${acc.code || ""} → ${target.code || ""} · İşlem No ${entry.islemNo ?? ""}`);
-          m.close(); toast(`Taşındı: ${target.code} ${target.name}`, "ok");
-          if (opts?.onChange) opts.onChange({ type: "delete", ids: [entry.id] }); else route({ silent: true });
-        } catch (e) { toast("Taşınamadı: " + e.message, "err"); }
+          logAction("Taşıma", "Hesap Hareketi", `${acc.code || ""} → ${target.code || ""} · İşlem No ${entry.islemNo ?? ""}`);
+        };
+        if (opts?.onChange) {
+          // OPTIMISTIC: hareket bu defterden ANINDA kalkar, taşıma arka planda; hata → geri al
+          m.close();
+          opts.onChange({ type: "delete", ids: [entry.id] });
+          toast(`Taşındı: ${target.code} ${target.name}`, "ok");
+          doMove().catch((e) => { toast("Taşınamadı: " + (e.message || e) + " — geri alındı.", "err"); opts.onChange(null); });
+        } else {
+          try { await doMove(); m.close(); toast(`Taşındı: ${target.code} ${target.name}`, "ok"); route({ silent: true }); }
+          catch (e) { toast("Taşınamadı: " + (e.message || e), "err"); }
+        }
       },
     });
   }
@@ -8621,10 +8633,22 @@ function entryModal(acc, entry, opts) {
         ? `Bu işlem ${linked.length} hesaba bağlı — hepsi birlikte silinecek. Emin misin?`
         : "Hareket silinsin mi?";
       confirmDialog(msg, async () => {
-        for (const e of linked) await deleteDoc(doc(db, "accountEntries", e.id));
-        await logAction("Silme", "Hesap Hareketi", `${acc.code || ""} ${acc.name || ""} · ${linked.length} kayıt`);
-        m.close(); toast(linked.length > 1 ? `${linked.length} bağlı kayıt silindi.` : "Silindi.", "ok");
-        if (opts?.onChange) opts.onChange({ type: "delete", ids: linked.map((e) => e.id) }); else route({ silent: true });
+        const ids = linked.map((e) => e.id);
+        const okMsg = linked.length > 1 ? `${linked.length} bağlı kayıt silindi.` : "Silindi.";
+        const doDelete = async () => {
+          for (const e of linked) await deleteDoc(doc(db, "accountEntries", e.id));
+          logAction("Silme", "Hesap Hareketi", `${acc.code || ""} ${acc.name || ""} · ${linked.length} kayıt`);
+        };
+        if (opts?.onChange) {
+          // OPTIMISTIC: satır(lar) ANINDA kalkar (yumuşak animasyon), silme arka planda; hata → geri al
+          m.close();
+          opts.onChange({ type: "delete", ids });
+          toast(okMsg, "ok");
+          doDelete().catch((err) => { toast("Silinemedi: " + (err.message || err) + " — geri alındı.", "err"); opts.onChange(null); });
+        } else {
+          try { await doDelete(); m.close(); toast(okMsg, "ok"); route({ silent: true }); }
+          catch (err) { toast("Silinemedi: " + (err.message || err), "err"); }
+        }
       });
     });
     del.style.marginRight = "auto";
