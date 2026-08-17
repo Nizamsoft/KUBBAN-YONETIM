@@ -659,8 +659,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.301";
+const APP_VERSION = "2026.302";
 const CHANGELOG = [
+  { version: "2026.302", date: "2026-08-17", items: [
+    "🏦 Banka hesabı defterinde (PC tablosu) İşlem Adı'nın sağına 'Şahıs' sütunu eklendi. Kasa (100), cari ve bloke defterleri değişmedi; mobil kompakt görünümde şahıs zaten alt satırda görünüyor.",
+  ]},
   { version: "2026.301", date: "2026-08-17", items: [
     "⚡ Hareket 'Sil' ve 'Taşı' da artık anında: Silince satır defterden hemen (yumuşak animasyonla) kalkar, taşıyınca hareket bu defterden hemen çıkar — işlem arka planda yapılır, bekleme yok. Nadiren hata olursa defter gerçek duruma göre otomatik geri alınır ve uyarı verilir. (Kaydet zaten anındaydı.)",
   ]},
@@ -8051,6 +8054,7 @@ async function viewAccountLedger(c) {
     return `<tr class="${isHl(e) ? "hl-row" : ""}${dir}">
     <td>${fmtDate(e.date)}</td>
     <td class="lt-islem">${e.islemAdi ? `<span class="ledger-chip ${chipCls(e.islemAdi)}">${esc(chipText(e.islemAdi))}</span>` : ""}</td>
+    ${isBank ? `<td class="tdwrap">${esc(e.sahis || "")}</td>` : ""}
     <td class="tdwrap">${esc(e.aciklama || "")}</td>
     <td class="lt-muted">${esc(e.rapor || "")}</td>
     <td class="num lt-in">${e.giren ? fmtTRY(gi) : `<span class="lt-dash">—</span>`}</td>
@@ -8122,15 +8126,15 @@ async function viewAccountLedger(c) {
       </div>`;
   const thead = cari
     ? `<tr><th>Tarih</th>${isBloke ? "<th>İşlem Adı</th>" : ""}<th>Açıklama</th><th class="num">Borç</th><th class="num">Alacak</th><th class="num">Güncel Bakiye</th>${isBloke ? "<th>Valör Tarihi</th>" : "<th>Fatura Türü</th><th>Fatura No</th>"}<th></th></tr>`
-    : `<tr><th>Tarih</th><th>İşlem Adı</th><th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th></tr>`;
-  const colCount = cari ? 8 : 8;
+    : `<tr><th>Tarih</th><th>İşlem Adı</th>${isBank ? "<th>Şahıs</th>" : ""}<th>Açıklama</th><th>Rapor</th><th class="num">Giren Tutar</th><th class="num">Çıkan Tutar</th><th class="num">Güncel Bakiye</th><th></th></tr>`;
+  const colCount = cari ? 8 : (isBank ? 9 : 8);
   // Sabit sütun genişlikleri — sayfalar arası "başlık daralması" olmasın (Açıklama esner/wrap)
   const colgroup = cari
     ? `<colgroup><col style="width:92px">${isBloke ? '<col style="width:132px">' : ''}<col><col style="width:150px"><col style="width:150px"><col style="width:150px">${isBloke ? '<col style="width:120px">' : '<col style="width:120px"><col style="width:110px">'}<col style="width:96px"></colgroup>`
-    : `<colgroup><col style="width:92px"><col style="width:146px"><col><col style="width:180px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:104px"></colgroup>`;
+    : `<colgroup><col style="width:92px"><col style="width:146px">${isBank ? '<col style="width:150px">' : ''}<col><col style="width:180px"><col style="width:150px"><col style="width:150px"><col style="width:150px"><col style="width:104px"></colgroup>`;
   const tfoot = !rows.length ? "" : (cari
     ? `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="${isBloke ? 5 : 4}">Toplam</td><td class="num">${fmtTRY(run)}</td><td colspan="${isBloke ? 2 : 3}"></td></tr></tfoot>`
-    : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="6">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
+    : `<tfoot><tr style="font-weight:700;background:var(--surface-2)"><td colspan="${isBank ? 7 : 6}">Toplam</td><td class="num">${fmtTRY(run)}</td><td></td></tr></tfoot>`);
 
   // Arama için her satıra metin torbası (bir kez hesaplanır — 27.000'de bile hızlı)
   rows.forEach((r) => {
