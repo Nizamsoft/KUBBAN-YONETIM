@@ -659,8 +659,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.299";
+const APP_VERSION = "2026.300";
 const CHANGELOG = [
+  { version: "2026.300", date: "2026-08-17", items: [
+    "⚡ Hareket 'Kaydet' artık anında: Bir hareketi eklerken/düzenlerken Kaydet'e basınca pencere HEMEN kapanır ve kayıt defterde ANINDA görünür — veritabanına yazma arka planda yapılır (bekleme yok). Nadiren bir yazma hatası olursa değişiklik otomatik geri alınır ve uyarı verilir. Mükerrer (aynı gün + aynı tutar) uyarısı yine kaydetmeden önce sorulur.",
+  ]},
   { version: "2026.299", date: "2026-08-17", items: [
     "📜 Hesap defterinde sonsuz kaydırma: Artık sayfa düğmeleri (‹ 1/8 ›) yok. Defter açılınca en yeni hareketler altta görünür; yukarı kaydırdıkça daha eski hareketler kendiliğinden, konum zıplamadan yüklenir. Tüm kayıtlar tek akışta erişilebilir. Çok kayıtlı defterlerde (binlerce satır) bile açılış ve kaydırma akıcı kalır — ekrana yalnız görünen dilim çizilir. Üstte '⋯ N eski hareket · yukarı kaydır' ipucu gösterilir.",
   ]},
@@ -8666,22 +8669,34 @@ function entryModal(acc, entry, opts) {
         giren, cikan,
       };
     }
-    let newRef = null;
-    try {
-      const lbl = `${acc.code || ""} ${acc.name || ""} · İşlem No ${payload.islemNo ?? ""}`;
+    // ── OPTIMISTIC KAYDET: pencere ANINDA kapanır, kayıt YERİNDE görünür, yazma ARKA PLANDA.
+    //    Hata olursa yerel değişiklik geri alınır + uyarı. (Önbellek Phase 2'de zaten güncelleniyor.)
+    const lbl = `${acc.code || ""} ${acc.name || ""} · İşlem No ${payload.islemNo ?? ""}`;
+    // Yeni kayıtta mükerrer uyarısı — pencere KAPANMADAN önce sor (önbellekten anında)
+    if (isNew) {
+      const amt = cari ? (payload.borc || payload.alacak) : (payload.giren || payload.cikan);
+      const all = await fetchAll(C.accountEntries).catch(() => []);
+      const dup = amt && all.some((e) => e.accountId === acc.id && e.date === payload.date && (cari
+        ? (parseNum(e.borc) === payload.borc && parseNum(e.alacak) === payload.alacak)
+        : (parseNum(e.giren) === payload.giren && parseNum(e.cikan) === payload.cikan)));
+      if (dup && !confirm(`Bu hesapta ${fmtDate(payload.date)} tarihli ve aynı tutarlı bir işlem zaten var.\nYine de eklensin mi?`)) return;
+    }
+
+    const localEntry = { ...payload }; delete localEntry.updatedAt; delete localEntry.createdAt;
+    const ref = isNew ? doc(C.accountEntries()) : null;   // yeni: istemci-üretimli id → anında göster
+    const oldEntry = isNew ? null : { ...entry };          // düzenleme: geri-alma anlık görüntüsü
+    const chg = isNew
+      ? { type: "add", entry: { id: ref.id, ...localEntry } }
+      : { type: "update", entry: { id: entry.id, ...localEntry } };
+
+    // Asıl yazma (veritabanı). Başarısızsa hata fırlatır → çağıran yeri geri alır.
+    const persist = async () => {
       if (isNew) {
-        // Uyarı: aynı hesapta aynı tarih ve aynı tutarda işlem zaten var mı?
-        const amt = cari ? (payload.borc || payload.alacak) : (payload.giren || payload.cikan);
-        const all = await fetchAll(C.accountEntries).catch(() => []);
-        const dup = amt && all.some((e) => e.accountId === acc.id && e.date === payload.date && (cari
-          ? (parseNum(e.borc) === payload.borc && parseNum(e.alacak) === payload.alacak)
-          : (parseNum(e.giren) === payload.giren && parseNum(e.cikan) === payload.cikan)));
-        if (dup && !confirm(`Bu hesapta ${fmtDate(payload.date)} tarihli ve aynı tutarlı bir işlem zaten var.\nYine de eklensin mi?`)) return;
-        newRef = await addDoc(C.accountEntries(), { ...payload, createdAt: serverTimestamp(), createdBy: currentUser.email });
-        await logAction("Ekleme", "Hesap Hareketi", lbl);
+        await setDoc(ref, { ...payload, createdAt: serverTimestamp(), createdBy: currentUser.email });
+        logAction("Ekleme", "Hesap Hareketi", lbl);
       } else {
         await updateDoc(doc(db, "accountEntries", entry.id), payload);
-        await logAction("Düzenleme", "Hesap Hareketi", lbl);
+        logAction("Düzenleme", "Hesap Hareketi", lbl);
         // 🔗 Bağlı kayıtlara yay: TARİH her zaman; TUTAR yalnız 2-kayıtlı işlemde (karşı tarafa aynen)
         if (entry.txId) {
           const all = await fetchAll(C.accountEntries).catch(() => []);
@@ -8701,14 +8716,23 @@ function entryModal(acc, entry, opts) {
           }
         }
       }
-      m.close(); toast("Kaydedildi.", "ok");
-      // Yerinde güncelleme (sayfa yenilenmez) — çağıran onChange verdiyse
-      const localEntry = { ...payload }; delete localEntry.updatedAt; delete localEntry.createdAt;
-      const chg = isNew
-        ? { type: "add", entry: { id: newRef?.id, ...localEntry } }
-        : { type: "update", entry: { id: entry.id, ...localEntry } };
-      if (opts?.onChange && (isNew ? newRef?.id : true)) opts.onChange(chg); else route({ silent: true });
-    } catch (e) { toast("Hata: " + e.message, "err"); }
+    };
+
+    if (opts?.onChange) {
+      // OPTIMISTIC: pencere ANINDA kapanır, kayıt YERİNDE görünür, yazma arka planda; hata → geri al
+      m.close();
+      opts.onChange(chg);
+      toast("Kaydedildi.", "ok");
+      persist().catch((err) => {
+        toast("Kaydedilemedi: " + (err.message || err) + " — geri alındı.", "err");
+        if (isNew) opts.onChange({ type: "delete", ids: [ref.id] });
+        else opts.onChange({ type: "update", entry: oldEntry });
+      });
+    } else {
+      // Yerinde güncelleme yok → eskisi gibi: yazmayı bekle, sonra kapat + sessiz yenile
+      try { await persist(); m.close(); toast("Kaydedildi.", "ok"); route({ silent: true }); }
+      catch (err) { toast("Hata: " + (err.message || err), "err"); }
+    }
   }));
   const m = openModal({
     title: isNew ? (cari ? "Yeni Cari Hareket" : "Yeni Hareket") : `Hareket · İşlem No ${entry.islemNo ?? ""}`,
