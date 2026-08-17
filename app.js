@@ -659,8 +659,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.298";
+const APP_VERSION = "2026.299";
 const CHANGELOG = [
+  { version: "2026.299", date: "2026-08-17", items: [
+    "📜 Hesap defterinde sonsuz kaydırma: Artık sayfa düğmeleri (‹ 1/8 ›) yok. Defter açılınca en yeni hareketler altta görünür; yukarı kaydırdıkça daha eski hareketler kendiliğinden, konum zıplamadan yüklenir. Tüm kayıtlar tek akışta erişilebilir. Çok kayıtlı defterlerde (binlerce satır) bile açılış ve kaydırma akıcı kalır — ekrana yalnız görünen dilim çizilir. Üstte '⋯ N eski hareket · yukarı kaydır' ipucu gösterilir.",
+  ]},
   { version: "2026.298", date: "2026-08-17", items: [
     "⚡ Akıcılık Aşama 3 (aktarımlar + ince dokunuşlar): Aktarım 'iptal' düğmeleri (banka/cari/kasa/fatura/toplu cari), hesap planı oluşturma, hesap sil/kaydet/defter temizle ve 108 bloke Excel aktarımı artık YÜKLEME EKRANI çıkarmadan, kaldığın yeri koruyarak sessizce güncelleniyor. Bakım araçları (Gün Sonu Nakit, Bloke defter temizle, Giren/Çıkan düzeltme) zaten yenilemesizdi. Yedek geri yükleme ve 'tüm veriyi sil' bilerek tam yenileme olarak bırakıldı (büyük/riskli işlemler).",
   ]},
@@ -8134,11 +8137,12 @@ async function viewAccountLedger(c) {
     ].filter((x) => x !== "" && x != null).join(" "));
   });
 
-  // Sayfalama + filtre: çok satırlı defterlerde (ör. 27.000) yalnız bir dilim çizilir
-  const PAGE_SIZE = 100;
-  const tp = () => Math.max(1, Math.ceil(view.length / PAGE_SIZE));  // toplam sayfa (görünen kümeye göre)
-  let view = rows;                                                   // filtreli küme (başta hepsi)
-  let page = tp() - 1;   // her zaman en yeni (son) sayfa — son işlemler görünür
+  // Sonsuz kaydırma + filtre: çok satırlı defterlerde (ör. 27.000) yalnız SON dilim çizilir;
+  // yukarı kaydırdıkça daha eski hareketler eklenir (sayfa düğmesi yok). En yeni her zaman altta.
+  const CHUNK = 150;              // her yüklemede eklenen satır
+  let view = rows;               // filtreli küme (başta hepsi)
+  let shownCount = CHUNK;        // sondan (en yeni) kaç satır çizili
+  let _loadingOlder = false;
 
   // Filtre paneli (büyütece basınca açılır) + sayfalama (başlıkta)
   const filterHtml = `
@@ -8154,11 +8158,6 @@ async function viewAccountLedger(c) {
         <button class="btn btn-sm btn-primary tbl-close">Kapat</button>
       </div>
     </div>`;
-  const pagerHtml = `<div class="pager pager-mini">
-    <button class="btn btn-sm" data-pg="prev" aria-label="Önceki">‹</button>
-    <span class="pg-info"></span>
-    <button class="btn btn-sm" data-pg="next" aria-label="Sonraki">›</button>
-  </div>`;
   const miniHtml = `<table class="ledger-mini">
     <colgroup><col style="width:62px"><col><col style="width:104px"></colgroup>
     <thead><tr><th>Tarih</th><th>${cari ? "Açıklama" : "İşlem / Açıklama"}</th><th class="num">Tutar / Bakiye</th></tr></thead>
@@ -8167,7 +8166,7 @@ async function viewAccountLedger(c) {
 
   c.innerHTML = `<div class="ledger-view">` + reviewBar + hero + `
     <div class="card ledger-card">
-      <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span><div class="grow"></div>${isGarantiBloke ? `<button class="btn btn-sm" id="coz-takvim" style="margin-right:8px">📅 Çözülme Takvimi</button>` : ""}${rows.length ? pagerHtml : ""}</div>
+      <div class="card-head"><h3>${cari ? "Cari Hareketler" : "Hareketler"}</h3><span class="hint">${list.length.toLocaleString("tr-TR")} hareket</span><div class="grow"></div>${isGarantiBloke ? `<button class="btn btn-sm" id="coz-takvim" style="margin-right:8px">📅 Çözülme Takvimi</button>` : ""}</div>
       ${rows.length ? filterHtml : ""}
       <div class="ledger-cards">${rows.length ? miniHtml : ""}</div>
       <div class="table-wrap ledger-table"><table class="data">
@@ -8187,25 +8186,33 @@ async function viewAccountLedger(c) {
     entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo, onChange: applyLocalChange }));
 
   function renderPage() {
-    const totalPages = tp();
-    page = Math.max(0, Math.min(totalPages - 1, page));
     if (!view.length) {
       const msg = rows.length ? "Eşleşen hareket yok." : "Henüz hareket yok.";
       if (miniBody) miniBody.innerHTML = `<tr><td colspan="3" class="lm-empty">🔍 ${msg}</td></tr>`;
       else cardsEl.innerHTML = `<div class="empty" style="padding:28px"><div class="ico">🔍</div><p>${msg}</p></div>`;
       tbodyEl.innerHTML = `<tr><td colspan="${colCount}"><div class="empty"><div class="ico">🔍</div><p>${msg}</p></div></td></tr>`;
     } else {
-      const start = page * PAGE_SIZE;
-      const slice = view.slice(start, start + PAGE_SIZE);
-      if (miniBody) miniBody.innerHTML = slice.map(miniRowHtml).join("");
-      tbodyEl.innerHTML = slice.map(rowHtml).join("");
+      if (shownCount > view.length) shownCount = view.length;
+      const start = Math.max(0, view.length - shownCount);   // sondan (en yeni) shownCount satır
+      const slice = view.slice(start);
+      const older = start;   // henüz çizilmemiş (daha eski) satır sayısı
+      const hintMini = older ? `<tr class="lm-more"><td colspan="3">⋯ ${older.toLocaleString("tr-TR")} eski hareket · yukarı kaydır</td></tr>` : "";
+      const hintTbl = older ? `<tr class="lt-more"><td colspan="${colCount}">⋯ ${older.toLocaleString("tr-TR")} eski hareket · yukarı kaydırınca yüklenir</td></tr>` : "";
+      if (miniBody) miniBody.innerHTML = hintMini + slice.map(miniRowHtml).join("");
+      tbodyEl.innerHTML = hintTbl + slice.map(rowHtml).join("");
     }
-    $$(".pg-info", c).forEach((el) => el.textContent = `${page + 1}/${totalPages}`);
-    $$(".pager", c).forEach((p) => p.style.display = totalPages > 1 ? "" : "none");
-    $$("[data-pg]", c).forEach((b) => {
-      b.disabled = (b.dataset.pg === "first" || b.dataset.pg === "prev") ? page === 0 : page === totalPages - 1;
-    });
     wireEdits();
+  }
+
+  // Yukarı kaydırınca daha eski hareketleri ekle — konumu koruyarak (zıplama yok)
+  function loadOlder(el) {
+    if (_loadingOlder || shownCount >= view.length) return;
+    _loadingOlder = true;
+    const prevH = el.scrollHeight, prevTop = el.scrollTop;
+    shownCount = Math.min(view.length, shownCount + CHUNK);
+    renderPage();
+    el.scrollTop = prevTop + (el.scrollHeight - prevH);
+    _loadingOlder = false;
   }
 
   function applyFilter() {
@@ -8217,9 +8224,11 @@ async function viewAccountLedger(c) {
       if (t && (!r.e.date || r.e.date > t)) return false;
       return true;
     });
-    page = 0;                                 // filtre değişince başa dön
+    shownCount = CHUNK;                        // filtre değişince en yeni dilimden başla
     renderPage();
-    const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0; const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = 0;
+    // en yeni eşleşme altta görünsün (defterle tutarlı: yukarı = geçmiş)
+    const tw = $(".ledger-table", c); if (tw && getComputedStyle(tw).display !== "none") tw.scrollTop = tw.scrollHeight;
+    const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = cw.scrollHeight;
   }
 
   // ── Yerinde güncelleme: sil/düzenle sonrası sayfayı YENİDEN YÜKLEMEDEN (route yok, yükleme
@@ -8303,12 +8312,11 @@ async function viewAccountLedger(c) {
   const closeBtn = $(".tbl-close", c);
   if (closeBtn) closeBtn.onclick = () => setFilterOpen(false);
 
-  $$("[data-pg]", c).forEach((b) => b.onclick = () => {
-    const k = b.dataset.pg;
-    page = k === "first" ? 0 : k === "last" ? tp() - 1 : k === "prev" ? page - 1 : page + 1;
-    renderPage();
-    const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0; const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = 0;
-  });
+  // Sonsuz kaydırma: liste başına (yukarı) yaklaşınca daha eski hareketleri yükle
+  [$(".ledger-table", c), $(".ledger-cards", c)].filter(Boolean).forEach((el) =>
+    el.addEventListener("scroll", () => {
+      if (el.scrollTop < 420 && shownCount < view.length) loadOlder(el);
+    }, { passive: true }));
   renderPage();
 
   // Çözülme Takvimi (yalnız Garanti bloke): yarından itibaren 45 gün. Program çözüm tutarı =
