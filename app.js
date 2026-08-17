@@ -659,8 +659,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.297";
+const APP_VERSION = "2026.298";
 const CHANGELOG = [
+  { version: "2026.298", date: "2026-08-17", items: [
+    "⚡ Akıcılık Aşama 3 (aktarımlar + ince dokunuşlar): Aktarım 'iptal' düğmeleri (banka/cari/kasa/fatura/toplu cari), hesap planı oluşturma, hesap sil/kaydet/defter temizle ve 108 bloke Excel aktarımı artık YÜKLEME EKRANI çıkarmadan, kaldığın yeri koruyarak sessizce güncelleniyor. Bakım araçları (Gün Sonu Nakit, Bloke defter temizle, Giren/Çıkan düzeltme) zaten yenilemesizdi. Yedek geri yükleme ve 'tüm veriyi sil' bilerek tam yenileme olarak bırakıldı (büyük/riskli işlemler).",
+  ]},
   { version: "2026.297", date: "2026-08-17", items: [
     "⚡ Akıcılık Aşama 2 (veri hafızası): Bir kayıt eklenince/düzenlenince/silinince hafıza artık SIFIRLANMIYOR, YERİNDE güncelleniyor. Böylece o işlemden sonra başka bir sayfaya geçince de veri anında geliyor — yükleme çubuğu çıkmadan. Arka planda veritabanıyla sessizce doğrulanır (yanlış rakam riski yok). Ayrıca açılışta Kullanıcılar ve Değişiklik Kaydı sayfaları da önceden hafızaya alınır → ilk açılışları bile anında.",
   ]},
@@ -5609,7 +5612,7 @@ async function viewHesaplar(c) {
       </div>`;
     $("#seed").onclick = async () => {
       $("#seed").disabled = true;
-      try { await seedDefaultChart(); toast("Hesap planı oluşturuldu.", "ok"); route(); }
+      try { await seedDefaultChart(); toast("Hesap planı oluşturuldu.", "ok"); route({ silent: true }); }
       catch (e) { toast("Hata: " + e.message, "err"); $("#seed").disabled = false; }
     };
     $("#manual").onclick = () => accModal(null, null);
@@ -6192,7 +6195,7 @@ function accModal(acc, parent, opts) {
           await logAction("Silme", "Hesap", `${acc.code || ""} ${acc.name || ""}`);
           m.close(); toast("Silindi.", "ok");
           if (opts?.onSaved) opts.onSaved({ id: acc.id, oldParentId: acc.parentId ?? null, deleted: true });
-          else route();
+          else route({ silent: true });
         });
     });
     delBtn.style.marginRight = "auto"; // sola yasla
@@ -6217,7 +6220,7 @@ function accModal(acc, parent, opts) {
               await b.commit();
             }
             await logAction("Silme", "Hesap Hareketi", `Defter temizlendi · ${acc.code || ""} ${acc.name || ""} · ${targets.length} kayıt`);
-            m.close(); toast(`${targets.length} kayıt silindi · defter temizlendi.`, "ok"); route();
+            m.close(); toast(`${targets.length} kayıt silindi · defter temizlendi.`, "ok"); route({ silent: true });
           } catch (e) { toast("Silinemedi: " + e.message, "err"); }
         });
     });
@@ -6289,7 +6292,7 @@ function accModal(acc, parent, opts) {
           oldCode: acc.code || "", newCode: payload.code || "",
           name: payload.name, type: payload.type,
         });
-      } else route();
+      } else route({ silent: true });
     } catch (e) { toast("Hata: " + e.message, "err"); }
   }));
   const m = openModal({
@@ -6399,7 +6402,7 @@ async function viewCariImport(c) {
       const ed = $("#ci-editor", c);
       if (ed) ed.insertAdjacentHTML("afterbegin",
         `<div class="notice info" style="margin-bottom:10px">🔁 Yarım kalan içe aktarma geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="ci-pend-clear">At / temizle</a></div>`);
-      $("#ci-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("toplu-cari"); route(); });
+      $("#ci-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("toplu-cari"); route({ silent: true }); });
     } catch (_) {}
   })();
 
@@ -6625,7 +6628,7 @@ async function viewKasaImport(c) {
       const ed = $("#ka-editor");
       if (ed) ed.insertAdjacentHTML("afterbegin",
         `<div class="notice info" style="margin-bottom:10px">🔁 Yarım kalan içe aktarma geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="ka-pend-clear">At / temizle</a></div>`);
-      $("#ka-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("kasa-gecmis"); route(); });
+      $("#ka-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("kasa-gecmis"); route({ silent: true }); });
     } catch (_) {}
   })();
 
@@ -6866,7 +6869,7 @@ async function viewBankaImport(c) {
       const ed = $("#bi-editor");
       if (ed) ed.insertAdjacentHTML("afterbegin",
         `<div class="notice info" style="margin-bottom:10px">🔁 Yarım kalan içe aktarma geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="bi-pend-clear">At / temizle</a></div>`);
-      $("#bi-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("banka-gecmis"); route(); });
+      $("#bi-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("banka-gecmis"); route({ silent: true }); });
     } catch (_) {}
   })();
 
@@ -7168,7 +7171,7 @@ async function viewCariGecmisImport(c) {
       const ed = $("#cg-editor");
       if (ed) ed.insertAdjacentHTML("afterbegin",
         `<div class="notice info" id="cg-pend" style="margin-bottom:10px">🔁 Yarım kalan içe aktarma geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="cg-pend-clear">At / temizle</a></div>`);
-      $("#cg-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("cari-gecmis"); route(); });
+      $("#cg-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("cari-gecmis"); route({ silent: true }); });
     } catch (_) {}
   })();
 
@@ -8258,7 +8261,7 @@ async function viewAccountLedger(c) {
     requestAnimationFrame(() => $$("[data-edit]", c).forEach((el) => { if (el.dataset.edit === eid) el.classList.add("row-flash"); }));
   }
   function applyLocalChange(chg) {
-    if (!chg) return route();
+    if (!chg) return route({ silent: true });
     if (chg.type === "delete") {
       const ids = new Set(chg.ids || []);
       const els = $$("[data-edit]", c).filter((el) => ids.has(el.dataset.edit));
@@ -8268,7 +8271,7 @@ async function viewAccountLedger(c) {
     }
     if (chg.type === "update") {
       const j = list.findIndex((x) => x.id === chg.entry.id);
-      if (j < 0) return route();               // görünürde değilse tam yenile
+      if (j < 0) return route({ silent: true }); // görünürde değilse (sessiz) tam yenile
       list[j] = { ...list[j], ...chg.entry }; _sortList(); refreshLedger(); _flashRow(chg.entry.id);
       return;
     }
@@ -8277,7 +8280,7 @@ async function viewAccountLedger(c) {
       refreshLedger(); _flashRow(chg.entry.id);
       return;
     }
-    route();
+    route({ silent: true });
   }
 
   let deb;
@@ -8589,7 +8592,7 @@ function entryModal(acc, entry, opts) {
           }
           await logAction("Taşıma", "Hesap Hareketi", `${acc.code || ""} → ${target.code || ""} · İşlem No ${entry.islemNo ?? ""}`);
           m.close(); toast(`Taşındı: ${target.code} ${target.name}`, "ok");
-          if (opts?.onChange) opts.onChange({ type: "delete", ids: [entry.id] }); else route();
+          if (opts?.onChange) opts.onChange({ type: "delete", ids: [entry.id] }); else route({ silent: true });
         } catch (e) { toast("Taşınamadı: " + e.message, "err"); }
       },
     });
@@ -8610,7 +8613,7 @@ function entryModal(acc, entry, opts) {
         for (const e of linked) await deleteDoc(doc(db, "accountEntries", e.id));
         await logAction("Silme", "Hesap Hareketi", `${acc.code || ""} ${acc.name || ""} · ${linked.length} kayıt`);
         m.close(); toast(linked.length > 1 ? `${linked.length} bağlı kayıt silindi.` : "Silindi.", "ok");
-        if (opts?.onChange) opts.onChange({ type: "delete", ids: linked.map((e) => e.id) }); else route();
+        if (opts?.onChange) opts.onChange({ type: "delete", ids: linked.map((e) => e.id) }); else route({ silent: true });
       });
     });
     del.style.marginRight = "auto";
@@ -8696,7 +8699,7 @@ function entryModal(acc, entry, opts) {
       const chg = isNew
         ? { type: "add", entry: { id: newRef?.id, ...localEntry } }
         : { type: "update", entry: { id: entry.id, ...localEntry } };
-      if (opts?.onChange && (isNew ? newRef?.id : true)) opts.onChange(chg); else route();
+      if (opts?.onChange && (isNew ? newRef?.id : true)) opts.onChange(chg); else route({ silent: true });
     } catch (e) { toast("Hata: " + e.message, "err"); }
   }));
   const m = openModal({
@@ -8758,7 +8761,7 @@ async function viewCariHareket(c) {
       const bar = $(".ch-bar", c);
       if (bar) bar.insertAdjacentHTML("afterend",
         `<div class="notice info" style="margin:10px 0" id="ch-pend">🔁 Yarım kalan fatura aktarımı geri yüklendi: <b>${esc(pend.name || "dosya")}</b>. <a href="#" id="ch-pend-clear">At / temizle</a></div>`);
-      $("#ch-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("fatura"); route(); });
+      $("#ch-pend-clear")?.addEventListener("click", async (e) => { e.preventDefault(); await clearPendingImport("fatura"); route({ silent: true }); });
     } catch (_) {}
   })();
 
@@ -11712,7 +11715,7 @@ async function viewBlokeKontrol(c) {
       }
       await logAction("İçe Aktarma", "Garanti Bloke", `Mevcut ${old.length} silindi · ${docs.length} bloke hareketi yazıldı (valörlü)`);
       btn.textContent = orig; btn.disabled = false;
-      successAnim(`✅ ${docs.length.toLocaleString("tr-TR")} Garanti bloke hareketi aktarıldı`, () => route());
+      successAnim(`✅ ${docs.length.toLocaleString("tr-TR")} Garanti bloke hareketi aktarıldı`, () => route({ silent: true }));
     } catch (e) { btn.textContent = orig; btn.disabled = false; toast("Aktarılamadı: " + e.message, "err"); }
   };
 }
