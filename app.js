@@ -516,6 +516,8 @@ async function preloadAndStart() {
     try { if (_ll) localStorage.setItem(LOADER_LOGO_KEY, _ll); else localStorage.removeItem(LOADER_LOGO_KEY); } catch (_) {}
     applyLoaderFoot(_ll);
   } catch (_) {}
+  // Yönetici sayfaları (Kullanıcılar, Audit) da arka planda sıcak olsun — engellemez.
+  [C.users, C.auditLog].forEach((ref) => fetchAll(ref).catch(() => {}));
   setLoaderProgress(100, "Hazır ✓");
   if (!location.hash) location.hash = "#/dashboard";
   try { await route({ silent: true }); } catch (_) {}   // ilk ekranı perde arkasında hazırla (cache sıcak → anında)
@@ -657,8 +659,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.296";
+const APP_VERSION = "2026.297";
 const CHANGELOG = [
+  { version: "2026.297", date: "2026-08-17", items: [
+    "⚡ Akıcılık Aşama 2 (veri hafızası): Bir kayıt eklenince/düzenlenince/silinince hafıza artık SIFIRLANMIYOR, YERİNDE güncelleniyor. Böylece o işlemden sonra başka bir sayfaya geçince de veri anında geliyor — yükleme çubuğu çıkmadan. Arka planda veritabanıyla sessizce doğrulanır (yanlış rakam riski yok). Ayrıca açılışta Kullanıcılar ve Değişiklik Kaydı sayfaları da önceden hafızaya alınır → ilk açılışları bile anında.",
+  ]},
   { version: "2026.296", date: "2026-08-16", items: [
     "⚡ Akıcılık Aşama 1: birçok ekranda bir kaydı sil/düzenle/kaydet yapınca artık YÜKLEME EKRANI çıkmıyor ve sayfa yukarı zıplamıyor — içerik yerinde, kaldığın kaydırmayı koruyarak sessizce güncelleniyor. Kapsam: Gün Sonu Kayıtları, Tüm Kayıtlar, Nakit Akış Verileri, Gider/Hesap Grubu temizleme, Kullanıcılar, Değişiklik Kaydı, Ödeme Modu. (Hesap defteri zaten yumuşak satır animasyonuyla yapılmıştı.) Bir hareketi 'Taşı' ile başka hesaba gönderince de defterden anında, yenilemesiz kalkıyor.",
   ]},

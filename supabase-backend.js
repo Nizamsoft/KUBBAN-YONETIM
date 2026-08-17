@@ -96,10 +96,27 @@ let _revalidateCb = null;
 export function setRevalidateHandler(fn) { _revalidateCb = fn; }
 export function invalidateCache(name) { if (name) _cache.delete(name); else _cache.clear(); }
 
-// Hafif imza: satır sayısı + id'lerin karması (ekleme/silme/sıra değişimini yakalar)
+// Yazma sonrası: önbelleği SİLMEK yerine YERİNDE güncelle → sonraki okuma da ANINDA.
+// Tablo henüz önbellekte yoksa dokunma (ilk okuma zaten tümünü ağdan çeker).
+// Ardından arka planda DB ile doğrula: yama DB ile birebir olduğundan imza aynı → titremez;
+// başka yerden değişiklik olduysa imza tutmaz → sayfa sessizce tazelenir.
+function _cachePatch(name, mutate) {
+  const c = _cache.get(name);
+  if (!c) return;
+  const rows = c.rows.slice();
+  mutate(rows);
+  const sig = _sig(rows);
+  _cache.set(name, { rows, ts: Date.now(), sig });
+  _bgRefresh(name, sig);
+}
+
+// Hafif imza: satır sayısı + id'lerin karması. SIRADAN BAĞIMSIZ (id'ler sıralanır) —
+// yalnız KÜME değişimini (ekleme/silme) yakalar. Böylece yazma sonrası yapılan yerinde
+// yama, ağdan gelenle aynı imzayı üretir → gereksiz "titreme" (sessiz tazeleme) olmaz.
 function _sig(rows) {
-  let h = (5381 ^ rows.length) >>> 0;
-  for (const r of rows) { const s = r.id || ""; for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0; }
+  const ids = rows.map((r) => r.id || "").sort();
+  let h = (5381 ^ ids.length) >>> 0;
+  for (const s of ids) for (let i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
   return h >>> 0;
 }
 const _clone = (rows) => rows.map((r) => ({ ...r }));   // önbelleği mutasyondan koru
@@ -152,14 +169,18 @@ export async function addDoc(colRef, data) {
   const id = genId();
   const { error } = await sb.from(colRef.name).insert({ id, doc: data });
   if (error) throw new Error(error.message);
-  invalidateCache(colRef.name);
+  _cachePatch(colRef.name, (rows) => rows.push({ id, ...data }));
   return { id };
 }
 
 export async function setDoc(ref, data) {
   const { error } = await sb.from(ref.name).upsert({ id: ref.id, doc: data });
   if (error) throw new Error(error.message);
-  invalidateCache(ref.name);
+  _cachePatch(ref.name, (rows) => {
+    const i = rows.findIndex((r) => r.id === ref.id);
+    const row = { id: ref.id, ...data };
+    if (i >= 0) rows[i] = row; else rows.push(row);
+  });
 }
 
 export async function updateDoc(ref, data) {
@@ -169,13 +190,20 @@ export async function updateDoc(ref, data) {
   const merged = { ...(cur?.doc || {}), ...data };
   const { error } = await sb.from(ref.name).upsert({ id: ref.id, doc: merged });
   if (error) throw new Error(error.message);
-  invalidateCache(ref.name);
+  _cachePatch(ref.name, (rows) => {
+    const i = rows.findIndex((r) => r.id === ref.id);
+    const row = { id: ref.id, ...merged };
+    if (i >= 0) rows[i] = row; else rows.push(row);
+  });
 }
 
 export async function deleteDoc(ref) {
   const { error } = await sb.from(ref.name).delete().eq("id", ref.id);
   if (error) throw new Error(error.message);
-  invalidateCache(ref.name);
+  _cachePatch(ref.name, (rows) => {
+    const i = rows.findIndex((r) => r.id === ref.id);
+    if (i >= 0) rows.splice(i, 1);
+  });
 }
 
 // Toplu yazma — set/update tablo başına tek upsert, delete tablo başına tek in()
@@ -196,7 +224,13 @@ export function writeBatch(_db) {
       for (const [n, rows] of Object.entries(upserts)) {
         const { error } = await sb.from(n).upsert(rows);
         if (error) throw new Error(`${n}: ${error.message}`);
-        invalidateCache(n);
+        _cachePatch(n, (cr) => {
+          for (const u of rows) {
+            const i = cr.findIndex((r) => r.id === u.id);
+            const row = { id: u.id, ...u.doc };
+            if (i >= 0) cr[i] = row; else cr.push(row);
+          }
+        });
       }
       for (const [n, ids] of Object.entries(dels)) {
         // .in("id",[…]) URL'e gömülür — çok id'de URL uzunluğu sınırı aşılır.
@@ -205,7 +239,8 @@ export function writeBatch(_db) {
           const { error } = await sb.from(n).delete().in("id", ids.slice(i, i + 150));
           if (error) throw new Error(`${n}: ${error.message}`);
         }
-        invalidateCache(n);
+        const idset = new Set(ids);
+        _cachePatch(n, (cr) => { for (let i = cr.length - 1; i >= 0; i--) if (idset.has(cr[i].id)) cr.splice(i, 1); });
       }
       for (const op of updates) await updateDoc(op.ref, op.data);
     },
