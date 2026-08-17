@@ -659,8 +659,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.302";
+const APP_VERSION = "2026.303";
 const CHANGELOG = [
+  { version: "2026.303", date: "2026-08-17", items: [
+    "🏦 Banka defteri Şahıs sütunu artık yalnız ilk iki kelimeyi gösterir (uzun ünvanlar kısalır). Tam ad kaybolmaz: hücrenin üzerine gelince tooltip'te görünür, arama yine tam ada göre çalışır.",
+  ]},
   { version: "2026.302", date: "2026-08-17", items: [
     "🏦 Banka hesabı defterinde (PC tablosu) İşlem Adı'nın sağına 'Şahıs' sütunu eklendi. Kasa (100), cari ve bloke defterleri değişmedi; mobil kompakt görünümde şahıs zaten alt satırda görünüyor.",
   ]},
@@ -8054,7 +8057,7 @@ async function viewAccountLedger(c) {
     return `<tr class="${isHl(e) ? "hl-row" : ""}${dir}">
     <td>${fmtDate(e.date)}</td>
     <td class="lt-islem">${e.islemAdi ? `<span class="ledger-chip ${chipCls(e.islemAdi)}">${esc(chipText(e.islemAdi))}</span>` : ""}</td>
-    ${isBank ? `<td class="tdwrap">${esc(e.sahis || "")}</td>` : ""}
+    ${isBank ? (() => { const s = String(e.sahis || "").trim(); const p = s.split(/\s+/).slice(0, 2).join(" "); return `<td class="tdwrap" title="${esc(s)}">${esc(p)}</td>`; })() : ""}
     <td class="tdwrap">${esc(e.aciklama || "")}</td>
     <td class="lt-muted">${esc(e.rapor || "")}</td>
     <td class="num lt-in">${e.giren ? fmtTRY(gi) : `<span class="lt-dash">—</span>`}</td>
