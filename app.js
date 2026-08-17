@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.295";
+const APP_VERSION = "2026.296";
 const CHANGELOG = [
+  { version: "2026.296", date: "2026-08-16", items: [
+    "⚡ Akıcılık Aşama 1: birçok ekranda bir kaydı sil/düzenle/kaydet yapınca artık YÜKLEME EKRANI çıkmıyor ve sayfa yukarı zıplamıyor — içerik yerinde, kaldığın kaydırmayı koruyarak sessizce güncelleniyor. Kapsam: Gün Sonu Kayıtları, Tüm Kayıtlar, Nakit Akış Verileri, Gider/Hesap Grubu temizleme, Kullanıcılar, Değişiklik Kaydı, Ödeme Modu. (Hesap defteri zaten yumuşak satır animasyonuyla yapılmıştı.) Bir hareketi 'Taşı' ile başka hesaba gönderince de defterden anında, yenilemesiz kalkıyor.",
+  ]},
   { version: "2026.295", date: "2026-08-16", items: [
     "⚡ Hesap defterinde akıcılık: bir kaydı SİLİNCE ya da DÜZENLEYİNCE artık sayfa yeniden yüklenmiyor (yükleme çubuğu yok, yukarı zıplama yok, kaldığın yer korunur). Silinen satır yumuşakça kaybolur, düzenlenen satır kısa bir vurguyla güncellenir; güncel bakiye ve toplam anında kendiliğinden düzelir — yerel uygulama gibi.",
   ]},
@@ -3349,7 +3352,7 @@ async function viewOdemeModu(c) {
       if (nx) { nx.focus(); nx.select && nx.select(); } else inp.blur();
     });
   });
-  $("#om-clear", c).onclick = () => confirmDialog("Ödeme planı temizlensin mi? (Girdiğin tutarlar silinir; muhasebe etkilenmez.)", () => { plan = {}; save(); route(); });
+  $("#om-clear", c).onclick = () => confirmDialog("Ödeme planı temizlensin mi? (Girdiğin tutarlar silinir; muhasebe etkilenmez.)", () => { plan = {}; save(); route({ silent: true }); });
   recompute();
 }
 
@@ -3745,7 +3748,7 @@ async function viewGunSonuAktarim(c) {
     $$(".step", c).forEach((el) => el.onclick = () => goto(+el.dataset.step));
     const cd = $("#gs-clear-draft", c);
     if (cd) cd.onclick = () => confirmDialog("Yarım kalan gün sonu taslağı silinsin mi? Girdiğin veriler kaybolur.", () => {
-      gsState = null; _activeDraftSaver = null; clearGsDraft(); route();
+      gsState = null; _activeDraftSaver = null; clearGsDraft(); route({ silent: true });
     });
     const renderers = [renderUpload, renderKasa, renderCari, renderMasraflar];
     (renderers[gsState.step] || renderUpload)($("#gs-body", c));
@@ -4586,7 +4589,7 @@ async function viewGunSonuKayitlar(c) {
   $$("[data-del]", c).forEach((b) => b.onclick = () =>
     confirmDialog(`${fmtDate(byId(b.dataset.del).date)} tarihli kayıt silinsin mi?`, async () => {
       await deleteDoc(doc(db, "dayEndRecords", b.dataset.del));
-      toast("Kayıt silindi.", "ok"); route();
+      toast("Kayıt silindi.", "ok"); route({ silent: true });
     }));
 }
 
@@ -4611,7 +4614,7 @@ function openRecordModal(rec, editMode) {
         status: rec.status === "onaylandi" ? "aktarildi" : "onaylandi",
         updatedAt: serverTimestamp(), updatedBy: currentUser.email,
       });
-      m.close(); toast("Durum güncellendi.", "ok"); route();
+      m.close(); toast("Durum güncellendi.", "ok"); route({ silent: true });
     }));
     footer.push(mkBtn("💾 Değişiklikleri Kaydet", "btn-primary", async () => {
       const data = et.getData();
@@ -4620,7 +4623,7 @@ function openRecordModal(rec, editMode) {
         rows: data, total, rowCount: data.length,
         updatedAt: serverTimestamp(), updatedBy: currentUser.email,
       });
-      m.close(); toast("Kayıt güncellendi.", "ok"); route();
+      m.close(); toast("Kayıt güncellendi.", "ok"); route({ silent: true });
     }));
   }
   const m = openModal({ title: "Gün Sonu Kaydı — " + fmtDate(rec.date), body, footer });
@@ -5483,7 +5486,7 @@ async function viewBakiyeKarsilastir(c) {
           await deleteDoc(doc(db, "accounts", acc.id));
           await logAction("Silme", "Hesap", `${acc.code || ""} ${acc.name} (+${tot} hareket)`);
           toast("Hesap silindi.", "ok");
-          route(); // program değişti → yeniden hesapla
+          route({ silent: true }); // program değişti → yeniden hesapla
         } catch (e) { toast("Silinemedi: " + e.message, "err"); }
       });
     };
@@ -5984,7 +5987,7 @@ async function viewHesaplar(c) {
       try {
         const n = await seedDefaultChart();
         toast(n ? `${n} varsayılan hesap eklendi.` : "Eklenecek eksik hesap yok.", "ok");
-        route();
+        route({ silent: true });
       } catch (e) { toast("Hata: " + e.message, "err"); }
     });
   $$("[data-addsub]", c).forEach((b) => b.onclick = () => {
@@ -6117,7 +6120,7 @@ async function runGroupClean(chosen, mode) {
     await logAction("Temizleme", "Hesap Grubu", `${codesTxt} · ${mode === "A" ? "hesap+hareket" : "sadece hareket"} · ${delOps.length} kayıt`);
     pb.done(() => {
       toast(`${codesTxt} temizlendi (${delOps.length.toLocaleString("tr-TR")} kayıt silindi).`, "ok");
-      route();
+      route({ silent: true });
     });
   } catch (e) { pb.done(() => toast("Hata: " + e.message, "err")); }
 }
@@ -7830,7 +7833,7 @@ async function viewTumKayitlar(c) {
         pb.set(Math.round(((i + 400) / ids.length) * 100), `${Math.min(i + 400, ids.length)} / ${ids.length}`);
       }
       await logAction("Silme", "Tüm Kayıtlar", `${ids.length} kayıt (${label})`);
-      pb.done(() => { toast(`${ids.length.toLocaleString("tr-TR")} kayıt silindi.`, "ok"); route(); });
+      pb.done(() => { toast(`${ids.length.toLocaleString("tr-TR")} kayıt silindi.`, "ok"); route({ silent: true }); });
     } catch (e) { pb.done(() => toast("Hata: " + e.message, "err")); }
   }
   function applyFilter() {
@@ -7896,7 +7899,7 @@ async function viewTumKayitlar(c) {
           pb.set(Math.round(((i + 400) / ids.length) * 100), `${Math.min(i + 400, ids.length)} / ${ids.length}`);
         }
         await logAction("Silme", "Tüm Kayıtlar", `${ids.length} seçili kayıt`);
-        pb.done(() => { toast(`${ids.length.toLocaleString("tr-TR")} kayıt silindi.`, "ok"); route(); });
+        pb.done(() => { toast(`${ids.length.toLocaleString("tr-TR")} kayıt silindi.`, "ok"); route({ silent: true }); });
       } catch (e) { pb.done(() => toast("Hata: " + e.message, "err")); }
     });
   };
@@ -8580,7 +8583,8 @@ function entryModal(acc, entry, opts) {
             }
           }
           await logAction("Taşıma", "Hesap Hareketi", `${acc.code || ""} → ${target.code || ""} · İşlem No ${entry.islemNo ?? ""}`);
-          m.close(); toast(`Taşındı: ${target.code} ${target.name}`, "ok"); route();
+          m.close(); toast(`Taşındı: ${target.code} ${target.name}`, "ok");
+          if (opts?.onChange) opts.onChange({ type: "delete", ids: [entry.id] }); else route();
         } catch (e) { toast("Taşınamadı: " + e.message, "err"); }
       },
     });
@@ -10569,7 +10573,7 @@ async function viewNakitAkisVeri(c) {
   $$("[data-del]", c).forEach((b) => b.onclick = () =>
     confirmDialog("Kalem silinsin mi?", async () => {
       await deleteDoc(doc(db, "cashflowItems", b.dataset.del));
-      toast("Silindi.", "ok"); route();
+      toast("Silindi.", "ok"); route({ silent: true });
     }));
 }
 
@@ -10842,7 +10846,7 @@ function cfModal(item) {
         try {
           if (isNew) await addDoc(C.cashflowItems(), { ...payload, createdAt: serverTimestamp() });
           else await updateDoc(doc(db, "cashflowItems", item.id), payload);
-          m.close(); toast("Kaydedildi.", "ok"); route();
+          m.close(); toast("Kaydedildi.", "ok"); route({ silent: true });
         } catch (e) { toast("Hata: " + e.message, "err"); }
       }),
     ],
@@ -12090,7 +12094,7 @@ async function viewUsers(c) {
         if (!email || password.length < 6) return toast("E-posta ve en az 6 karakterli şifre gerekli.", "err");
         m.close();
         const lb = loadingBar("Kullanıcı oluşturuluyor…");
-        try { const r = await adminUsers("create", { email, password, displayName, role }); lb.finish(() => { toast(r && r.warn ? r.warn : "Kullanıcı oluşturuldu ve onaylandı — giriş yapıp verileri görebilir.", r && r.warn ? "err" : "ok"); route(); }); }
+        try { const r = await adminUsers("create", { email, password, displayName, role }); lb.finish(() => { toast(r && r.warn ? r.warn : "Kullanıcı oluşturuldu ve onaylandı — giriş yapıp verileri görebilir.", r && r.warn ? "err" : "ok"); route({ silent: true }); }); }
         catch (e) { lb.finish(() => toast("Hata: " + e.message, "err")); }
       }),
     ]});
@@ -12099,7 +12103,7 @@ async function viewUsers(c) {
   $$("[data-role]", c).forEach((b) => b.onclick = () => {
     const id = b.dataset.role, next = b.dataset.cur === "admin" ? "user" : "admin";
     confirmDialog(`Rol '${next === "admin" ? "Yönetici" : "Kullanıcı"}' yapılsın mı?`, async () => {
-      try { await adminUsers("setRole", { id, role: next }); toast("Rol güncellendi.", "ok"); route(); }
+      try { await adminUsers("setRole", { id, role: next }); toast("Rol güncellendi.", "ok"); route({ silent: true }); }
       catch (e) { toast("Hata: " + e.message, "err"); }
     });
   });
@@ -12120,7 +12124,7 @@ async function viewUsers(c) {
   });
   $$("[data-del]", c).forEach((b) => b.onclick = () =>
     confirmDialog(`'${b.dataset.mail}' kullanıcısı silinsin mi? Geri alınamaz.`, async () => {
-      try { await adminUsers("delete", { id: b.dataset.del }); toast("Kullanıcı silindi.", "ok"); route(); }
+      try { await adminUsers("delete", { id: b.dataset.del }); toast("Kullanıcı silindi.", "ok"); route({ silent: true }); }
       catch (e) { toast("Hata: " + e.message, "err"); }
     }));
 }
@@ -12279,7 +12283,7 @@ async function viewAuditLog(c) {
   const clr = $("#audit-clear");
   if (clr) clr.onclick = () => confirmDialog("Tüm değişiklik kaydı silinsin mi?", async () => {
     for (const l of logs) await deleteDoc(doc(db, "auditLog", l.id));
-    toast("Kayıt temizlendi.", "ok"); route();
+    toast("Kayıt temizlendi.", "ok"); route({ silent: true });
   });
 }
 
