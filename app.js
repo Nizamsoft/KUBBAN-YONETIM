@@ -657,8 +657,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.294";
+const APP_VERSION = "2026.295";
 const CHANGELOG = [
+  { version: "2026.295", date: "2026-08-16", items: [
+    "⚡ Hesap defterinde akıcılık: bir kaydı SİLİNCE ya da DÜZENLEYİNCE artık sayfa yeniden yüklenmiyor (yükleme çubuğu yok, yukarı zıplama yok, kaldığın yer korunur). Silinen satır yumuşakça kaybolur, düzenlenen satır kısa bir vurguyla güncellenir; güncel bakiye ve toplam anında kendiliğinden düzelir — yerel uygulama gibi.",
+  ]},
   { version: "2026.294", date: "2026-08-16", items: [
     "💵 Gün Sonu 'Nakit Girişi' düzeltildi: artık yalnız GERÇEKLEŞEN NAKİT + X kadar yazılıyor — masraflar EKLENMİYOR (zaten gerçekleşen nakitin içinde). Masraflar yine ayrı 'Ödeme' (çıkan) olarak durur; böylece kasa bakiyesi doğru (gerçekleşen + X − masraflar) hesaplanır.",
     "🛠️ Geçmiş için: Ayarlar → Kayıt & Kontrol → 'Gün Sonu Nakit Girişi'ni Düzelt' — tüm geçmiş Nakit Girişi kayıtlarını kaynağındaki (Gerçekleşen + X) değerine sabitler (içine katılmış masrafları çıkarır). Tekrar çalıştırmak zarar vermez.",
@@ -7924,11 +7927,11 @@ async function viewAccountLedger(c) {
     const m = String(e.faturaNo || "").trim().match(/(\d{1,2})[.\/-](\d{1,2})[.\/-](\d{4})/);
     return m ? `${m[1].padStart(2, "0")}.${m[2].padStart(2, "0")}.${m[3]}` : "";
   };
-  const list = entries.filter((e) => e.accountId === id)
+  let list = entries.filter((e) => e.accountId === id)
     .sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.islemNo || 0) - (b.islemNo || 0));
   const opening = acc.openingBalance ?? acc.balance ?? 0;
   let run = opening;
-  const rows = list.map((e) => {
+  let rows = list.map((e) => {
     run += cari ? (parseNum(e.borc) - parseNum(e.alacak)) : (parseNum(e.giren) - parseNum(e.cikan));
     return { e, bakiye: run };
   });
@@ -8170,7 +8173,7 @@ async function viewAccountLedger(c) {
   const searchEl = $(".tbl-search", c), fromEl = $(".tbl-from", c), toEl = $(".tbl-to", c);
   const clearEl = $(".tbl-clear", c);
   const wireEdits = () => $$("[data-edit]", c).forEach((b) => b.onclick = () =>
-    entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo }));
+    entryModal(acc, list.find((e) => e.id === b.dataset.edit), { nextNo, nextCariNo, onChange: applyLocalChange }));
 
   function renderPage() {
     const totalPages = tp();
@@ -8206,6 +8209,67 @@ async function viewAccountLedger(c) {
     page = 0;                                 // filtre değişince başa dön
     renderPage();
     const tw = $(".ledger-table", c); if (tw) tw.scrollTop = 0; const cw = $(".ledger-cards", c); if (cw) cw.scrollTop = 0;
+  }
+
+  // ── Yerinde güncelleme: sil/düzenle sonrası sayfayı YENİDEN YÜKLEMEDEN (route yok, yükleme
+  //    çubuğu yok) yalnız etkilenen satır + bakiye güncellenir. Akıcı, yerel-uygulama hissi.
+  const _hayOf = (e) => normTr([
+    e.islemNo, e.cariNo, e.islemAdi, e.sahis, e.aciklama, e.rapor, e.faturaTuru, e.faturaNo,
+    fmtDate(e.date), e.valor ? fmtDate(e.valor) : "",
+    e.giren ? fmtNum(parseNum(e.giren)) : "", e.cikan ? fmtNum(parseNum(e.cikan)) : "",
+    e.borc ? fmtNum(parseNum(e.borc)) : "", e.alacak ? fmtNum(parseNum(e.alacak)) : "",
+  ].filter((x) => x !== "" && x != null).join(" "));
+  function _rebuildRows() {
+    run = opening;
+    rows = list.map((e) => {
+      run += cari ? (parseNum(e.borc) - parseNum(e.alacak)) : (parseNum(e.giren) - parseNum(e.cikan));
+      const r = { e, bakiye: run }; r._hay = _hayOf(e); return r;
+    });
+  }
+  function _rebuildView() {
+    const q = searchEl ? normTr(searchEl.value.trim()) : "";
+    const f = fromEl ? fromEl.value : "", t = toEl ? toEl.value : "";
+    view = (q || f || t) ? rows.filter((r) => {
+      if (q && !r._hay.includes(q)) return false;
+      if (f && (!r.e.date || r.e.date < f)) return false;
+      if (t && (!r.e.date || r.e.date > t)) return false;
+      return true;
+    }) : rows;
+  }
+  function _updateHeroTfoot() {
+    const val = $(".ledger-hero .lh-bal .val", c);
+    if (val) {
+      if (cari) { val.textContent = fmtTRY(Math.abs(run)); const lbl = $(".ledger-hero .lh-bal .lbl", c); if (lbl) lbl.textContent = (run >= 0 ? "Borç" : "Alacak") + " Bakiye"; }
+      else { val.textContent = fmtTRY(run); val.style.color = run < 0 ? "#ffd9d0" : ""; }
+    }
+    const foot = $(".ledger-table tfoot td.num", c); if (foot) foot.textContent = fmtTRY(run);
+  }
+  const _sortList = () => list.sort((a, b) => (a.date || "").localeCompare(b.date || "") || (a.islemNo || 0) - (b.islemNo || 0));
+  function refreshLedger() { _rebuildRows(); _rebuildView(); renderPage(); _updateHeroTfoot(); }
+  function _flashRow(eid) {
+    requestAnimationFrame(() => $$("[data-edit]", c).forEach((el) => { if (el.dataset.edit === eid) el.classList.add("row-flash"); }));
+  }
+  function applyLocalChange(chg) {
+    if (!chg) return route();
+    if (chg.type === "delete") {
+      const ids = new Set(chg.ids || []);
+      const els = $$("[data-edit]", c).filter((el) => ids.has(el.dataset.edit));
+      const finish = () => { list = list.filter((e) => !ids.has(e.id)); refreshLedger(); };
+      if (els.length) { els.forEach((el) => el.classList.add("row-removing")); setTimeout(finish, 230); } else finish();
+      return;
+    }
+    if (chg.type === "update") {
+      const j = list.findIndex((x) => x.id === chg.entry.id);
+      if (j < 0) return route();               // görünürde değilse tam yenile
+      list[j] = { ...list[j], ...chg.entry }; _sortList(); refreshLedger(); _flashRow(chg.entry.id);
+      return;
+    }
+    if (chg.type === "add") {
+      if (chg.entry.accountId === id && chg.entry.id) { list.push(chg.entry); _sortList(); }
+      refreshLedger(); _flashRow(chg.entry.id);
+      return;
+    }
+    route();
   }
 
   let deb;
@@ -8353,7 +8417,7 @@ async function viewAccountLedger(c) {
       const dm = openModal({ title: `📋 ${fmtDate(iso)} — Çözülen Blokeler`, body: db, footer: [mkBtn("Kapat", "", () => dm.close())] });
       $$(".czt-erow", db).forEach((tr) => tr.onclick = () => {
         const e = list.find((x) => x.id === tr.dataset.eid);
-        if (e) entryModal(acc, e, { nextNo, nextCariNo });
+        if (e) entryModal(acc, e, { nextNo, nextCariNo, onChange: applyLocalChange });
       });
     };
     $(".czt tbody", body).addEventListener("click", (ev) => {
@@ -8536,7 +8600,8 @@ function entryModal(acc, entry, opts) {
       confirmDialog(msg, async () => {
         for (const e of linked) await deleteDoc(doc(db, "accountEntries", e.id));
         await logAction("Silme", "Hesap Hareketi", `${acc.code || ""} ${acc.name || ""} · ${linked.length} kayıt`);
-        m.close(); toast(linked.length > 1 ? `${linked.length} bağlı kayıt silindi.` : "Silindi.", "ok"); route();
+        m.close(); toast(linked.length > 1 ? `${linked.length} bağlı kayıt silindi.` : "Silindi.", "ok");
+        if (opts?.onChange) opts.onChange({ type: "delete", ids: linked.map((e) => e.id) }); else route();
       });
     });
     del.style.marginRight = "auto";
@@ -8581,6 +8646,7 @@ function entryModal(acc, entry, opts) {
         giren, cikan,
       };
     }
+    let newRef = null;
     try {
       const lbl = `${acc.code || ""} ${acc.name || ""} · İşlem No ${payload.islemNo ?? ""}`;
       if (isNew) {
@@ -8591,7 +8657,7 @@ function entryModal(acc, entry, opts) {
           ? (parseNum(e.borc) === payload.borc && parseNum(e.alacak) === payload.alacak)
           : (parseNum(e.giren) === payload.giren && parseNum(e.cikan) === payload.cikan)));
         if (dup && !confirm(`Bu hesapta ${fmtDate(payload.date)} tarihli ve aynı tutarlı bir işlem zaten var.\nYine de eklensin mi?`)) return;
-        await addDoc(C.accountEntries(), { ...payload, createdAt: serverTimestamp(), createdBy: currentUser.email });
+        newRef = await addDoc(C.accountEntries(), { ...payload, createdAt: serverTimestamp(), createdBy: currentUser.email });
         await logAction("Ekleme", "Hesap Hareketi", lbl);
       } else {
         await updateDoc(doc(db, "accountEntries", entry.id), payload);
@@ -8615,7 +8681,13 @@ function entryModal(acc, entry, opts) {
           }
         }
       }
-      m.close(); toast("Kaydedildi.", "ok"); route();
+      m.close(); toast("Kaydedildi.", "ok");
+      // Yerinde güncelleme (sayfa yenilenmez) — çağıran onChange verdiyse
+      const localEntry = { ...payload }; delete localEntry.updatedAt; delete localEntry.createdAt;
+      const chg = isNew
+        ? { type: "add", entry: { id: newRef?.id, ...localEntry } }
+        : { type: "update", entry: { id: entry.id, ...localEntry } };
+      if (opts?.onChange && (isNew ? newRef?.id : true)) opts.onChange(chg); else route();
     } catch (e) { toast("Hata: " + e.message, "err"); }
   }));
   const m = openModal({
