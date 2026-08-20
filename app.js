@@ -13,7 +13,7 @@ import {
   createUserWithEmailAndPassword, signOut, updateProfile,
   exportAll, importAll, storageStats, clearAllData, COLLECTIONS, uploadAvatar, adminUsers,
   setRevalidateHandler,
-} from "./supabase-backend.js?v=2026.138";
+} from "./supabase-backend.js?v=2026.305";
 
 import { COMPANY, BOOTSTRAP_ADMINS } from "./config.js?v=2026.138";
 
@@ -659,8 +659,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.304";
+const APP_VERSION = "2026.305";
 const CHANGELOG = [
+  { version: "2026.305", date: "2026-08-17", items: [
+    "📉 Supabase veri indirme (egress) azaltıldı — 'kotayı aştınız' uyarısına karşı. 1) Bir kayıt eklenince/düzenlenince/silinince artık tüm tablo AĞDAN YENİDEN İNDİRİLMİYOR (bellek+disk yerinde güncellenir). 2) Veriler tarayıcıda kalıcı saklanır (IndexedDB): programı yeniden açınca son 5 dk içindeyse ağdan hiç indirmez, diskten gelir. 3) Oturum içi otomatik tazeleme sıklığı 15 sn'den 60 sn'ye çekildi. Kendi cihazındaki değişiklikler her zaman anında; başka cihazdan yapılan değişiklik en geç ~1 dk içinde görünür.",
+  ]},
   { version: "2026.304", date: "2026-08-17", items: [
     "🎯 Gün Sonu yeniden aktarımı artık YALNIZ DEĞİŞENİ günceller. Önceden bir tek cari tutarını değiştirip kaydedince o günün TÜM gün sonu hareketleri silinip yeniden oluşturuluyordu (yeni id'ler, elle düzeltmeler kaybolurdu). Artık mevcut kayıtlarla istenenler kimlik+sıra ile eşleştirilir: değişen hareket yerinde güncellenir (id, sıra, numara korunur), yeni eklenen eklenir, kaldırılan silinir, değişmeyene HİÇ dokunulmaz. Kapsam: cari (hesap+yön+sıra), bloke (kod+sıra), nakit, masraf.",
   ]},

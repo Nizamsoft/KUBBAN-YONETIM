@@ -84,30 +84,59 @@ async function _networkRows(name) {
   return out;
 }
 
-// ---- Önbellek (stale-while-revalidate) -----------------------------------
-// İlk yüklemede ağdan alır ve belleğe koyar; sonraki okumalar ANINDA önbellekten
-// döner. Önbellek eskiyse (>REVALIDATE_MS) arka planda sessizce yenilenir; veri
-// değiştiyse kayıtlı geri-çağırma (app) mevcut sayfayı tazeler. Yazma işlemleri
-// ilgili tablonun önbelleğini geçersiz kılar → sonraki okuma ağdan taze alır.
-const REVALIDATE_MS = 15000;
+// ---- Önbellek (bellek + kalıcı IndexedDB) — egress'i (veri indirme) düşürür ----
+// Bellek: oturum içinde okumalar ANINDA. Kalıcı (IndexedDB): oturumlar arası — yeniden
+// açılışta yerel DİSKTEN gelir, ağdan indirmez (PERSIST_TTL içindeyse). Yazma işlemleri
+// belleği+diski YERİNDE günceller → ağdan YENİDEN İNDİRME YOK. Eski veri (okumada
+// >REVALIDATE_MS, soğuk açılışta >PERSIST_TTL) arka planda bir kez sessizce tazelenir.
+const REVALIDATE_MS = 60000;          // oturum içi: bundan eski okunursa arka planda tazele
+const PERSIST_TTL   = 5 * 60 * 1000;  // soğuk açılış: diskteki kopya bu kadar tazeyse AĞA GİTME
 const _cache = new Map();     // name -> { rows, ts, sig }
 const _inflight = new Map();  // name -> Promise
 let _revalidateCb = null;
 export function setRevalidateHandler(fn) { _revalidateCb = fn; }
-export function invalidateCache(name) { if (name) _cache.delete(name); else _cache.clear(); }
+export function invalidateCache(name) { if (name) { _cache.delete(name); _idbDel(name); } else { _cache.clear(); _idbClear(); } }
 
-// Yazma sonrası: önbelleği SİLMEK yerine YERİNDE güncelle → sonraki okuma da ANINDA.
-// Tablo henüz önbellekte yoksa dokunma (ilk okuma zaten tümünü ağdan çeker).
-// Ardından arka planda DB ile doğrula: yama DB ile birebir olduğundan imza aynı → titremez;
-// başka yerden değişiklik olduysa imza tutmaz → sayfa sessizce tazelenir.
+// ---- Kalıcı önbellek: IndexedDB (yoksa sessizce ağa düşer) ----
+const IDB_DB = "kubban-cache", IDB_STORE = "tables";
+let _idbP = null;
+function _idb() {
+  if (_idbP) return _idbP;
+  _idbP = new Promise((res) => {
+    try {
+      const r = indexedDB.open(IDB_DB, 1);
+      r.onupgradeneeded = () => { const d = r.result; if (!d.objectStoreNames.contains(IDB_STORE)) d.createObjectStore(IDB_STORE); };
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => res(null);
+    } catch (_) { res(null); }
+  });
+  return _idbP;
+}
+async function _idbGet(name) {
+  const db = await _idb(); if (!db) return null;
+  return new Promise((res) => { try { const rq = db.transaction(IDB_STORE, "readonly").objectStore(IDB_STORE).get(name); rq.onsuccess = () => res(rq.result || null); rq.onerror = () => res(null); } catch (_) { res(null); } });
+}
+const _idbT = new Map();   // debounce (disk yazımını sık edit'te kısıtla): name -> timer
+function _idbPut(name, rows, ts) {
+  clearTimeout(_idbT.get(name));
+  _idbT.set(name, setTimeout(async () => {
+    const db = await _idb(); if (!db) return;
+    try { db.transaction(IDB_STORE, "readwrite").objectStore(IDB_STORE).put({ rows, ts }, name); } catch (_) {}
+  }, 400));
+}
+async function _idbDel(name) { const db = await _idb(); if (!db) return; try { db.transaction(IDB_STORE, "readwrite").objectStore(IDB_STORE).delete(name); } catch (_) {} }
+async function _idbClear() { const db = await _idb(); if (!db) return; try { db.transaction(IDB_STORE, "readwrite").objectStore(IDB_STORE).clear(); } catch (_) {} }
+
+// Yazma sonrası: belleği+diski YERİNDE güncelle. Ağdan yeniden indirme YOK (yama DB ile
+// birebir olduğundan doğru). Başka cihazdaki değişiklik en geç REVALIDATE_MS'te yakalanır.
 function _cachePatch(name, mutate) {
   const c = _cache.get(name);
-  if (!c) return;
+  if (!c) { _idbDel(name); return; }   // bellekte yok: diski geçersiz kıl → sonraki okuma ağdan taze alsın (bayat servis etme)
   const rows = c.rows.slice();
   mutate(rows);
-  const sig = _sig(rows);
-  _cache.set(name, { rows, ts: Date.now(), sig });
-  _bgRefresh(name, sig);
+  const ts = Date.now();
+  _cache.set(name, { rows, ts, sig: _sig(rows) });
+  _idbPut(name, rows, ts);
 }
 
 // Hafif imza: satır sayısı + id'lerin karması. SIRADAN BAĞIMSIZ (id'ler sıralanır) —
@@ -125,8 +154,9 @@ function _bgRefresh(name, prevSig) {
   if (_inflight.has(name)) return;
   const p = _networkRows(name).then((rows) => {
     _inflight.delete(name);
-    const sig = _sig(rows);
-    _cache.set(name, { rows, ts: Date.now(), sig });
+    const sig = _sig(rows), ts = Date.now();
+    _cache.set(name, { rows, ts, sig });
+    _idbPut(name, rows, ts);
     if (sig !== prevSig && _revalidateCb) { try { _revalidateCb(name); } catch (_) {} }
   }).catch(() => { _inflight.delete(name); });
   _inflight.set(name, p);
@@ -143,11 +173,21 @@ async function fetchRows(name) {
     const c2 = _cache.get(name);
     return c2 ? _clone(c2.rows) : [];
   }
+  // Bellekte yok → kalıcı diske (IndexedDB) bak: tazeyse AĞA HİÇ GİTME (egress tasarrufu)
+  const disk = await _idbGet(name);
+  if (disk && Array.isArray(disk.rows)) {
+    _cache.set(name, { rows: disk.rows, ts: disk.ts || 0, sig: _sig(disk.rows) });
+    if (Date.now() - (disk.ts || 0) > PERSIST_TTL) _bgRefresh(name, _sig(disk.rows));   // eskiyse arka planda bir kez tazele
+    return _clone(disk.rows);
+  }
+  // Hiç yok → ağdan indir + diske yaz
   const p = _networkRows(name);
   _inflight.set(name, p);
   try {
     const rows = await p;
-    _cache.set(name, { rows, ts: Date.now(), sig: _sig(rows) });
+    const ts = Date.now();
+    _cache.set(name, { rows, ts, sig: _sig(rows) });
+    _idbPut(name, rows, ts);
     return _clone(rows);
   } finally { _inflight.delete(name); }
 }
