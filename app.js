@@ -659,8 +659,11 @@ $("#sidebar-overlay")?.addEventListener("click", closeDrawer);
 //  Sürümleme düzeni: YIL.NO  ·  2026.02'den başlar, her yeni sürümde artar.
 //  Yeni sürüm çıktığında: APP_VERSION'ı güncelle ve CHANGELOG'un EN BAŞINA ekle.
 // ---------------------------------------------------------------------------
-const APP_VERSION = "2026.303";
+const APP_VERSION = "2026.304";
 const CHANGELOG = [
+  { version: "2026.304", date: "2026-08-17", items: [
+    "🎯 Gün Sonu yeniden aktarımı artık YALNIZ DEĞİŞENİ günceller. Önceden bir tek cari tutarını değiştirip kaydedince o günün TÜM gün sonu hareketleri silinip yeniden oluşturuluyordu (yeni id'ler, elle düzeltmeler kaybolurdu). Artık mevcut kayıtlarla istenenler kimlik+sıra ile eşleştirilir: değişen hareket yerinde güncellenir (id, sıra, numara korunur), yeni eklenen eklenir, kaldırılan silinir, değişmeyene HİÇ dokunulmaz. Kapsam: cari (hesap+yön+sıra), bloke (kod+sıra), nakit, masraf.",
+  ]},
   { version: "2026.303", date: "2026-08-17", items: [
     "🏦 Banka defteri Şahıs sütunu artık yalnız ilk iki kelimeyi gösterir (uzun ünvanlar kısalır). Tam ad kaybolmaz: hücrenin üzerine gelince tooltip'te görünür, arama yine tam ada göre çalışır.",
   ]},
@@ -4445,116 +4448,136 @@ async function viewGunSonuAktarim(c) {
     doCommit(cariItems);
   }
 
-  // Cari (borç/alacak) hareketlerini 120 müşteri hesaplarına yazar (idempotent).
+  // ── Gün Sonu yeniden aktarımı: SİL-YENİDEN-OLUŞTUR yerine KARŞILAŞTIR (reconcile).
+  //    Mevcut (stale) kayıtlarla istenen kayıtları KİMLİK + SIRA'ya göre eşleştirir:
+  //    değişeni güncelle (id/numaralar korunur), yeniyi ekle, kalkanı sil, değişmeyene dokunma.
+  //    Böylece bir tek tutarı değiştirince yalnız o hareket güncellenir.
+  const _GS_NUMF = new Set(["borc", "alacak", "giren", "cikan"]);
+  function computeReconcile(existing, desired, keyOf, fields) {
+    const groupBy = (arr) => { const m = new Map(); for (const x of arr) { const k = keyOf(x); if (!m.has(k)) m.set(k, []); m.get(k).push(x); } return m; };
+    const exG = groupBy(existing);
+    for (const list of exG.values()) list.sort((a, b) => (a.islemNo || 0) - (b.islemNo || 0) || (a.cariNo || 0) - (b.cariNo || 0));
+    const deG = groupBy(desired);
+    const adds = [], updates = [], deleteIds = [];
+    const eq = (e, d) => fields.every((f) => _GS_NUMF.has(f)
+      ? Math.abs(parseNum(e[f]) - parseNum(d[f])) < 0.005
+      : String(e[f] ?? "") === String(d[f] ?? ""));
+    const keys = new Set([...exG.keys(), ...deG.keys()]);
+    for (const k of keys) {
+      const ex = exG.get(k) || [], de = deG.get(k) || [];
+      const n = Math.max(ex.length, de.length);
+      for (let i = 0; i < n; i++) {
+        const e = ex[i], d = de[i];
+        if (e && d) { if (!eq(e, d)) { const patch = {}; for (const f of fields) patch[f] = d[f]; updates.push({ id: e.id, patch }); } }
+        else if (d) adds.push(d);
+        else if (e) deleteIds.push(e.id);
+      }
+    }
+    return { adds, updates, deleteIds };
+  }
+  const CARI_FIELDS = ["accountCode", "date", "sahis", "aciklama", "borc", "alacak", "faturaTuru", "faturaNo"];
+  const BLOKE_FIELDS = ["accountCode", "date", "valor", "islemAdi", "sahis", "aciklama", "rapor", "borc", "alacak", "giren", "cikan", "faturaTuru", "faturaNo"];
+
+  // Cari (borç/alacak) hareketlerini 120 müşteri hesaplarına yazar — yalnız değişeni günceller.
   async function postCariEntries(date, cariItems, byName, accById) {
     const fresh = await fetchAll(C.accountEntries).catch(() => []);
-    const isStale = (e) => e.source === "gunsonu-cari" && e.gunSonuKey === date;
-    for (const e of fresh.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
-    const remaining = fresh.filter((e) => !isStale(e));
-    let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
-    const cnoMap = new Map();
-    const docs = [];
+    const stale = fresh.filter((e) => e.source === "gunsonu-cari" && e.gunSonuKey === date);
+    const desired = [];
     for (const it of cariItems) {
       const acc = (it.accId && accById && accById.get(it.accId)) || byName.get(normTr(it.name));
       if (!acc || !it.tutar) continue;
-      if (!cnoMap.has(acc.id))
-        cnoMap.set(acc.id, remaining.filter((e) => e.accountId === acc.id).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
-      const cno = cnoMap.get(acc.id) + 1; cnoMap.set(acc.id, cno);
-      gno++;
-      docs.push({
+      desired.push({
         accountId: acc.id, accountCode: acc.code || "",
-        islemNo: gno, cariNo: cno,
         date, sahis: it.name,
         aciklama: `Gün Sonu ${it.side === "borc" ? "Kredili Satış" : "Tahsilat"}`,
         borc: it.side === "borc" ? it.tutar : 0,
         alacak: it.side === "alacak" ? it.tutar : 0,
         faturaTuru: "", faturaNo: "",
         source: "gunsonu-cari", gunSonuKey: date,
-        createdAt: serverTimestamp(), createdBy: currentUser.email,
+        _side: it.side,
       });
     }
-    if (docs.length) await batchAdd(C.accountEntries, docs);
-    return docs.length;
+    const keyOf = (x) => (x.accountId || "") + "|" + (x._side || (parseNum(x.borc) ? "borc" : "alacak"));
+    const { adds, updates, deleteIds } = computeReconcile(stale, desired, keyOf, CARI_FIELDS);
+    for (const id of deleteIds) await deleteDoc(doc(db, "accountEntries", id));
+    for (const u of updates) await updateDoc(doc(db, "accountEntries", u.id), { ...u.patch, updatedAt: serverTimestamp() });
+    if (adds.length) {
+      let gno = fresh.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+      const cnoBase = new Map();
+      const cnoNext = (accId) => { if (!cnoBase.has(accId)) cnoBase.set(accId, fresh.filter((e) => e.accountId === accId).reduce((m, e) => Math.max(m, e.cariNo || 0), 0)); const n = cnoBase.get(accId) + 1; cnoBase.set(accId, n); return n; };
+      const addDocs = adds.map((d) => { const { _side, ...rest } = d; return { ...rest, islemNo: ++gno, cariNo: cnoNext(d.accountId), createdAt: serverTimestamp(), createdBy: currentUser.email }; });
+      await batchAdd(C.accountEntries, addDocs);
+    }
+    return desired.length;
   }
 
-  // Bloke satırlarını 108 hesap defterlerine + Nakit/Ödemeleri 100 Kasa'ya yazar (idempotent).
+  // Bloke satırlarını 108 hesap defterlerine + Nakit/Ödemeleri 100 Kasa'ya yazar — yalnız değişeni günceller.
   async function postBlokeEntries(date, blokePayload, masraflar) {
     const accounts = await ensureBlokeAccounts();
-    const codeToId = {}, codeToName = {};
-    accounts.forEach((a) => { if (a.code) { codeToId[String(a.code)] = a.id; codeToName[String(a.code)] = a.name; } });
+    const codeToId = {}; accounts.forEach((a) => { if (a.code) codeToId[String(a.code)] = a.id; });
 
-    const existing = await fetchAll(C.accountEntries).catch(() => []);
-    const isStale = (e) => (e.source === "gunsonu-bloke" || e.source === "gunsonu-nakit" || e.source === "gunsonu-masraf") && e.gunSonuKey === date;
-    for (const e of existing.filter(isStale)) await deleteDoc(doc(db, "accountEntries", e.id));
-    const remaining = existing.filter((e) => !isStale(e));
+    const fresh = await fetchAll(C.accountEntries).catch(() => []);
+    const stale = fresh.filter((e) => (e.source === "gunsonu-bloke" || e.source === "gunsonu-nakit" || e.source === "gunsonu-masraf") && e.gunSonuKey === date);
 
-    // Açıklama: "{gün sonu tarihi} {isim} Çekimi"  (ör. 08.04.2026 Garanti Kredi Kartı Çekimi · 08.04.2026 Metropol Çekimi)
+    // Açıklama: "{gün sonu tarihi} {isim} Çekimi"
     const cekimAd = (r) => r.aciklama
       ? "Garanti " + r.aciklama
       : String(r.name || "").replace(/\s*Bloke Hesab[ıi]\s*$/i, "").trim();
 
-    const blokeRows = gsComputeBlokeRows(gsState, accounts).filter((r) => parseNum(r.borc));
-    let gno = remaining.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
-    const cnoMap = new Map();
-    const docs = blokeRows.map((r) => {
-      const accId = codeToId[r.code];
-      if (!accId) return null;
-      if (!cnoMap.has(accId))
-        cnoMap.set(accId, remaining.filter((e) => e.accountId === accId).reduce((m, e) => Math.max(m, e.cariNo || 0), 0));
-      const cno = cnoMap.get(accId) + 1; cnoMap.set(accId, cno);
-      gno++;
+    // ─ İstenen (desired) hareketler ─
+    const desired = [];
+    for (const r of gsComputeBlokeRows(gsState, accounts).filter((x) => parseNum(x.borc))) {
+      const accId = codeToId[r.code]; if (!accId) continue;
       const rv = (blokePayload.rowValor && blokePayload.rowValor[r.code + "-" + r.tip]) || blokePayload.valor;
-      return {
+      desired.push({
         accountId: accId, accountCode: r.code,
-        islemNo: gno, cariNo: cno,
         date: blokePayload.tarih, valor: rv,
         islemAdi: "BLOKEYE ALMA", sahis: r.name,
         aciklama: `${cekimAd(r)} Çekimi`, rapor: "",
         borc: parseNum(r.borc), alacak: 0,
         faturaTuru: "", faturaNo: fmtDate(rv),
         source: "gunsonu-bloke", gunSonuKey: date,
-        createdAt: serverTimestamp(), createdBy: currentUser.email,
-      };
-    }).filter(Boolean);
-
-    // 100 Kasa: Nakit Girişi = elle girilen Nakit (Gerçekleşen) + "X" (İkram'dan düşülür alanı).
-    //           MASRAFLAR EKLENMEZ (zaten gerçekleşen nakitin içinde). Masraflar ayrıca Çıkan yazılır.
+      });
+    }
+    // 100 Kasa: Nakit Girişi = Gerçekleşen + X (masraf EKLENMEZ). Masraflar ayrı Çıkan.
     const nakitRow = (gsState.kasa || []).find((r) => normTr(r.yontem) === "nakit");
-    const nakitGer = nakitRow && !(nakitRow.gerceklesen === "" || nakitRow.gerceklesen == null) ? parseNum(nakitRow.gerceklesen) : 0;   // elle girilen gerçekleşen
-    const xNakit = (gsState.x === "" || gsState.x == null) ? 0 : parseNum(gsState.x);   // "X — İkram'dan düşülür" alanı
-    const nakit = nakitGer + xNakit;   // Nakit Girişi = gerçekleşen + X
+    const nakitGer = nakitRow && !(nakitRow.gerceklesen === "" || nakitRow.gerceklesen == null) ? parseNum(nakitRow.gerceklesen) : 0;
+    const xNakit = (gsState.x === "" || gsState.x == null) ? 0 : parseNum(gsState.x);
+    const nakit = nakitGer + xNakit;
     const masrafList = (masraflar || []).filter((m) => parseNum(m.tutar));
-    const masrafTot = masrafList.reduce((s, m) => s + parseNum(m.tutar), 0);
     const kasaId = codeToId["100"];
-    if (kasaId && (nakit || masrafTot)) {
-      if (nakit > 0.005) {
-        gno++;
-        docs.push({
-          accountId: kasaId, accountCode: "100",
-          islemNo: gno, date: blokePayload.tarih,
-          islemAdi: "Gün Sonu", sahis: "",
-          aciklama: `Nakit Girişi`, rapor: "",
-          giren: nakit, cikan: 0,          // yalnız Gerçekleşen + X
-          source: "gunsonu-nakit", gunSonuKey: date,
-          createdAt: serverTimestamp(), createdBy: currentUser.email,
-        });
-      }
-      for (const m of masrafList) {
-        gno++;
-        docs.push({
-          accountId: kasaId, accountCode: "100",
-          islemNo: gno, date: blokePayload.tarih,
-          islemAdi: "Ödeme", sahis: "",
-          aciklama: `${m.ad || "Ödeme"}`, rapor: m.rapor || "",
-          giren: 0, cikan: parseNum(m.tutar),
-          source: "gunsonu-masraf", gunSonuKey: date,
-          createdAt: serverTimestamp(), createdBy: currentUser.email,
-        });
-      }
+    if (kasaId && nakit > 0.005) {
+      desired.push({
+        accountId: kasaId, accountCode: "100", date: blokePayload.tarih,
+        islemAdi: "Gün Sonu", sahis: "", aciklama: `Nakit Girişi`, rapor: "",
+        giren: nakit, cikan: 0, source: "gunsonu-nakit", gunSonuKey: date,
+      });
+    }
+    if (kasaId) for (const m of masrafList) {
+      desired.push({
+        accountId: kasaId, accountCode: "100", date: blokePayload.tarih,
+        islemAdi: "Ödeme", sahis: "", aciklama: `${m.ad || "Ödeme"}`, rapor: m.rapor || "",
+        giren: 0, cikan: parseNum(m.tutar), source: "gunsonu-masraf", gunSonuKey: date,
+      });
     }
 
-    if (docs.length) await batchAdd(C.accountEntries, docs);
-    return docs.length;
+    // Bloke: kod başına sıra ile eşleştir · nakit tek · masraf sıra ile eşleştir
+    const keyOf = (x) => x.source === "gunsonu-bloke" ? "gunsonu-bloke|" + (x.accountCode || "") : x.source;
+    const { adds, updates, deleteIds } = computeReconcile(stale, desired, keyOf, BLOKE_FIELDS);
+    for (const id of deleteIds) await deleteDoc(doc(db, "accountEntries", id));
+    for (const u of updates) await updateDoc(doc(db, "accountEntries", u.id), { ...u.patch, updatedAt: serverTimestamp() });
+    if (adds.length) {
+      let gno = fresh.reduce((m, e) => Math.max(m, e.islemNo || 0), 0);
+      const cnoBase = new Map();
+      const cnoNext = (accId) => { if (!cnoBase.has(accId)) cnoBase.set(accId, fresh.filter((e) => e.accountId === accId).reduce((m, e) => Math.max(m, e.cariNo || 0), 0)); const n = cnoBase.get(accId) + 1; cnoBase.set(accId, n); return n; };
+      const addDocs = adds.map((d) => {
+        const base = { ...d, islemNo: ++gno, createdAt: serverTimestamp(), createdBy: currentUser.email };
+        if (d.source === "gunsonu-bloke") base.cariNo = cnoNext(d.accountId);
+        return base;
+      });
+      await batchAdd(C.accountEntries, addDocs);
+    }
+    return desired.length;
   }
 
   render();
